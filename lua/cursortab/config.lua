@@ -44,6 +44,7 @@
 ---@field max_diff_history_tokens integer
 ---@field completion_path string API endpoint path (e.g., "/v1/completions")
 ---@field fim_tokens CursortabFIMTokensConfig|nil FIM tokens configuration (optional)
+---@field authorization_token_env string|nil Environment variable name for auth token (e.g., sweepapi)
 
 ---@class CursortabDebugConfig
 ---@field immediate_shutdown boolean
@@ -104,7 +105,7 @@ local default_config = {
 	},
 
 	provider = {
-		type = "inline", -- "inline", "fim", "sweep", or "zeta"
+		type = "inline", -- "inline", "fim", "sweep", "sweepapi", or "zeta"
 		url = "http://localhost:8000", -- URL of the provider server
 		api_key_env = "", -- Environment variable name for API key (e.g., "OPENAI_API_KEY")
 		model = "", -- Model name
@@ -119,6 +120,7 @@ local default_config = {
 			suffix = "<|fim_suffix|>",
 			middle = "<|fim_middle|>",
 		},
+		authorization_token_env = "CURSORTAB_AUTH_TOKEN", -- Env var name for auth token (sweepapi)
 	},
 
 	blink = {
@@ -241,7 +243,7 @@ local function migrate_deprecated_config(user_config)
 end
 
 -- Valid values for enum-like config options
-local valid_provider_types = { inline = true, fim = true, sweep = true, zeta = true }
+local valid_provider_types = { inline = true, fim = true, sweep = true, sweepapi = true, zeta = true }
 local valid_log_levels = { trace = true, debug = true, info = true, warn = true, error = true }
 
 -- Validate that all keys in user config exist in default config
@@ -280,7 +282,7 @@ local function validate_config(cfg)
 	if cfg.provider and cfg.provider.type then
 		if not valid_provider_types[cfg.provider.type] then
 			error(string.format(
-				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, zeta",
+				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, sweepapi, zeta",
 				cfg.provider.type
 			))
 		end
@@ -346,6 +348,11 @@ function config.get()
 	return current_config
 end
 
+-- Provider-specific default URLs
+local provider_default_urls = {
+	sweepapi = "https://autocomplete.sweep.dev/backend/next_edit_autocomplete",
+}
+
 -- Set up configuration with user overrides
 ---@param user_config table|nil User configuration overrides
 ---@return CursortabConfig
@@ -353,6 +360,14 @@ function config.setup(user_config)
 	local migrated = migrate_deprecated_config(user_config or {})
 	validate_config(migrated)
 	current_config = vim.tbl_deep_extend("force", vim.deepcopy(default_config), migrated)
+
+	-- Apply provider-specific defaults if user didn't set a custom URL
+	local provider_type = current_config.provider.type
+	local user_url = migrated.provider and migrated.provider.url
+	if not user_url and provider_default_urls[provider_type] then
+		current_config.provider.url = provider_default_urls[provider_type]
+	end
+
 	return current_config
 end
 

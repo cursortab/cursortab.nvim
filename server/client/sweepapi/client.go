@@ -1,0 +1,210 @@
+package sweepapi
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+
+	"cursortab/logger"
+
+	"github.com/andybalholm/brotli"
+)
+
+// AutocompleteRequest is the request format for the Sweep API
+type AutocompleteRequest struct {
+	FilePath             string       `json:"file_path"`
+	FileContents         string       `json:"file_contents"`
+	OriginalFileContents string       `json:"original_file_contents"`
+	CursorPosition       int          `json:"cursor_position"`
+	RecentChanges        []FileChunk  `json:"recent_changes"`
+	FileChunks           []FileChunk  `json:"file_chunks"`
+	RecentUserActions    []UserAction `json:"recent_user_actions"`
+	RetrievalChunks      []FileChunk  `json:"retrieval_chunks"`
+}
+
+// FileChunk represents a chunk of file content
+type FileChunk struct {
+	FilePath string `json:"file_path"`
+	Content  string `json:"content"`
+}
+
+// UserAction represents a user action (not used in this implementation)
+type UserAction struct {
+	ActionType  string `json:"action_type"`
+	FilePath    string `json:"file_path"`
+	NewContents string `json:"new_contents"`
+}
+
+// AutocompleteResponse is the response format from the Sweep API
+type AutocompleteResponse struct {
+	StartIndex int    `json:"start_index"`
+	EndIndex   int    `json:"end_index"`
+	Completion string `json:"completion"`
+}
+
+// Client is the HTTP client for the Sweep API
+type Client struct {
+	HTTPClient *http.Client
+	URL        string
+	AuthToken  string
+}
+
+// NewClient creates a new Sweep API client
+// authTokenEnv is the name of the environment variable containing the auth token
+func NewClient(url, authTokenEnv string) *Client {
+	authToken := ""
+	if authTokenEnv != "" {
+		authToken = os.Getenv(authTokenEnv)
+	}
+	return &Client{
+		HTTPClient: &http.Client{},
+		URL:        url,
+		AuthToken:  authToken,
+	}
+}
+
+// DoCompletion sends a completion request to the Sweep API
+func (c *Client) DoCompletion(ctx context.Context, req *AutocompleteRequest) (*AutocompleteResponse, error) {
+	defer logger.Trace("sweepapi.DoCompletion")()
+
+	// Marshal request to JSON
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Compress with brotli
+	var compressedBuf bytes.Buffer
+	brotliWriter := brotli.NewWriterLevel(&compressedBuf, brotli.DefaultCompression)
+	if _, err := brotliWriter.Write(jsonData); err != nil {
+		return nil, fmt.Errorf("failed to compress request: %w", err)
+	}
+	if err := brotliWriter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close brotli writer: %w", err)
+	}
+
+	// Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.URL, &compressedBuf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Encoding", "br")
+	if c.AuthToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+
+	// Send request
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse response
+	var apiResp AutocompleteResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &apiResp, nil
+}
+
+// CursorToByteOffset converts a cursor position (1-indexed row, 0-indexed col)
+// to a byte offset within the text content.
+func CursorToByteOffset(lines []string, row, col int) int {
+	offset := 0
+	for i := 0; i < row-1 && i < len(lines); i++ {
+		offset += len(lines[i]) + 1 // +1 for newline
+	}
+	if row >= 1 && row <= len(lines) {
+		offset += min(col, len(lines[row-1]))
+	}
+	return offset
+}
+
+// ByteOffsetToLineCol converts a byte offset to a line/column position.
+// Returns (row, col) where row is 1-indexed and col is 0-indexed.
+func ByteOffsetToLineCol(text string, offset int) (row, col int) {
+	if offset < 0 {
+		return 1, 0
+	}
+	if offset >= len(text) {
+		offset = len(text)
+	}
+
+	row = 1
+	col = 0
+	for i := 0; i < offset; i++ {
+		if text[i] == '\n' {
+			row++
+			col = 0
+		} else {
+			col++
+		}
+	}
+	return row, col
+}
+
+// ApplyByteRangeEdit applies a byte-range edit to text and returns the new content.
+// Also returns the affected line range (1-indexed, inclusive).
+func ApplyByteRangeEdit(text string, startIdx, endIdx int, completion string) (newText string, startLine, endLine int) {
+	// Clamp indices
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if endIdx > len(text) {
+		endIdx = len(text)
+	}
+	if startIdx > endIdx {
+		startIdx = endIdx
+	}
+
+	// Calculate start line before edit
+	startLine, _ = ByteOffsetToLineCol(text, startIdx)
+
+	// Calculate end line in original text
+	endLine, _ = ByteOffsetToLineCol(text, endIdx)
+
+	// Apply the edit
+	newText = text[:startIdx] + completion + text[endIdx:]
+
+	// Calculate new end line (start line + number of lines in completion - 1)
+	completionLines := strings.Count(completion, "\n") + 1
+	newEndLine := startLine + completionLines - 1
+
+	return newText, startLine, newEndLine
+}
+
+// ExtractLines extracts lines from text within a line range (1-indexed, inclusive).
+func ExtractLines(text string, startLine, endLine int) []string {
+	lines := strings.Split(text, "\n")
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	if startLine > endLine {
+		return nil
+	}
+	return lines[startLine-1 : endLine]
+}

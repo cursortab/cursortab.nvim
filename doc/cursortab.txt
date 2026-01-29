@@ -79,7 +79,7 @@ Full configuration with defaults: >lua
     },
 
     provider = {
-      type = "inline",              -- "inline", "fim", "sweep", "zeta"
+      type = "inline",              -- "inline", "fim", "sweep", "sweepapi", "zeta"
       url = "http://localhost:8000",
       api_key_env = "",             -- Env var name for API key
       model = "",
@@ -171,10 +171,11 @@ behavior.cursor_prediction            *cursortab-config-behavior-cursor-predicti
 PROVIDER OPTIONS                                    *cursortab-config-provider*
 
   `type`
-      Provider type: "inline", "fim", "sweep", or "zeta".
+      Provider type: "inline", "fim", "sweep", "sweepapi", or "zeta".
       - inline: End-of-line completion, stops at newline
       - fim: Fill-in-the-middle, multi-line with prefix/suffix context
-      - sweep: SweepAI Next-Edit model for multi-line edits
+      - sweep: SweepAI Next-Edit model for multi-line edits (local)
+      - sweepapi: SweepAI hosted API (no local model required)
       - zeta: Zed's Zeta model with cursor predictions
 
   `url`
@@ -219,6 +220,10 @@ PROVIDER OPTIONS                                    *cursortab-config-provider*
           middle = "<|fim_middle|>",   -- Token before completion
         }
 <
+  `authorization_token_env`         *cursortab-config-provider-authorization*
+      Name of the environment variable containing the auth token for
+      authenticated APIs (e.g., sweepapi). Default: "CURSORTAB_AUTH_TOKEN".
+
 ------------------------------------------------------------------------------
 BLINK OPTIONS                                            *cursortab-config-blink*
 

@@ -18,6 +18,7 @@ import (
 	"cursortab/provider/fim"
 	"cursortab/provider/inline"
 	"cursortab/provider/sweep"
+	"cursortab/provider/sweepapi"
 	"cursortab/provider/zeta"
 	"cursortab/types"
 
@@ -55,6 +56,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		ProviderMaxTokens:   config.Provider.MaxTokens,
 		ProviderTopK:        config.Provider.TopK,
 		CompletionPath:      config.Provider.CompletionPath,
+		AuthorizationTokenEnv: config.Provider.AuthorizationTokenEnv,
 	}
 
 	providerConfig.FIMTokens = types.FIMTokenConfig{
@@ -71,6 +73,8 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = fim.NewProvider(providerConfig)
 	case types.ProviderTypeSweep:
 		prov = sweep.NewProvider(providerConfig)
+	case types.ProviderTypeSweepAPI:
+		prov = sweepapi.NewProvider(providerConfig)
 	case types.ProviderTypeZeta:
 		prov = zeta.NewProvider(providerConfig)
 	default:

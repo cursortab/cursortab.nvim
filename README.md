@@ -23,6 +23,7 @@ Currently supports custom models and models form Zeta (Zed) and SweepAI.
     * [Inline Provider (Default)](#inline-provider-default)
     * [FIM Provider](#fim-provider)
     * [Sweep Provider](#sweep-provider)
+    * [Sweep API Provider](#sweep-api-provider)
     * [Zeta Provider](#zeta-provider)
   * [blink.cmp Integration](#blinkcmp-integration)
 * [Usage](#usage)
@@ -108,7 +109,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", or "zeta"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", or "zeta"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -123,6 +124,7 @@ require("cursortab").setup({
       suffix = "<|fim_suffix|>",
       middle = "<|fim_middle|>",
     },
+    authorization_token_env = "CURSORTAB_AUTH_TOKEN",  -- Env var name for auth token (sweepapi)
   },
 
   blink = {
@@ -140,14 +142,16 @@ For detailed configuration documentation, see `:help cursortab-config`.
 
 ### Providers
 
-The plugin supports four AI provider backends: Inline, FIM, Sweep, and Zeta.
+The plugin supports five AI provider backends: Inline, FIM, Sweep, Sweep API,
+and Zeta.
 
-| Provider | Multi-line | Multi-edit | Cursor Prediction | Model             |
-| -------- | :--------: | :--------: | :---------------: | ----------------- |
-| Inline   |            |            |                   | Any base model    |
-| FIM      |     ✓      |            |                   | Any FIM-capable   |
-| Sweep    |     ✓      |     ✓      |         ✓         | `sweep-next-edit` |
-| Zeta     |     ✓      |     ✓      |         ✓         | `zeta`            |
+| Provider  | Multi-line | Multi-edit | Cursor Prediction | Model             |
+| --------- | :--------: | :--------: | :---------------: | ----------------- |
+| Inline    |            |            |                   | Any base model    |
+| FIM       |     ✓      |            |                   | Any FIM-capable   |
+| Sweep     |     ✓      |     ✓      |         ✓         | `sweep-next-edit` |
+| Sweep API |     ✓      |     ✓      |         ✓         | Sweep hosted API  |
+| Zeta      |     ✓      |     ✓      |         ✓         | `zeta`            |
 
 #### Inline Provider (Default)
 
@@ -244,6 +248,27 @@ llama-server -hf sweepai/sweep-next-edit-1.5b-GGUF --port 8000
 
 # Or with a local GGUF file
 llama-server -m sweep-next-edit-1.5b.q8_0.v2.gguf --port 8000
+```
+
+#### Sweep API Provider
+
+Sweep's hosted API for Next-Edit predictions. Uses the hosted endpoint at
+`https://autocomplete.sweep.dev` - no local model setup required.
+
+**Requirements:**
+
+- Sweep API authorization token set in `CURSORTAB_AUTH_TOKEN` environment
+  variable (or custom env var via `authorization_token_env`)
+
+**Example Configuration:**
+
+```lua
+require("cursortab").setup({
+  provider = {
+    type = "sweepapi",
+    -- Token read from CURSORTAB_AUTH_TOKEN env var by default
+  },
+})
 ```
 
 #### Zeta Provider

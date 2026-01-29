@@ -34,7 +34,7 @@ type FIMTokensConfig struct {
 
 // ProviderConfig holds provider-specific settings
 type ProviderConfig struct {
-	Type                 string          `json:"type"` // "inline", "sweep", "zeta"
+	Type                 string          `json:"type"` // "inline", "fim", "sweep", "sweepapi", "zeta"
 	URL                  string          `json:"url"`
 	ApiKeyEnv            string          `json:"api_key_env"` // Environment variable name for API key
 	Model                string          `json:"model"`
@@ -45,6 +45,7 @@ type ProviderConfig struct {
 	MaxDiffHistoryTokens int             `json:"max_diff_history_tokens"`
 	CompletionPath       string          `json:"completion_path"`
 	FIMTokens            FIMTokensConfig `json:"fim_tokens"`
+	AuthorizationTokenEnv string          `json:"authorization_token_env"` // Env var name for auth token
 }
 
 // DebugConfig holds debug settings
@@ -65,9 +66,9 @@ type Config struct {
 // All config must come from the Lua client - no defaults are applied here.
 func (c *Config) Validate() error {
 	// Validate provider type
-	validProviders := map[string]bool{"inline": true, "fim": true, "sweep": true, "zeta": true}
+	validProviders := map[string]bool{"inline": true, "fim": true, "sweep": true, "sweepapi": true, "zeta": true}
 	if !validProviders[c.Provider.Type] {
-		return fmt.Errorf("invalid provider.type %q: must be one of inline, fim, sweep, zeta", c.Provider.Type)
+		return fmt.Errorf("invalid provider.type %q: must be one of inline, fim, sweep, sweepapi, zeta", c.Provider.Type)
 	}
 
 	// Validate log level

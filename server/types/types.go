@@ -107,10 +107,11 @@ type CursorRange struct {
 type ProviderType string
 
 const (
-	ProviderTypeInline ProviderType = "inline"
-	ProviderTypeFIM    ProviderType = "fim"
-	ProviderTypeSweep  ProviderType = "sweep"
-	ProviderTypeZeta   ProviderType = "zeta"
+	ProviderTypeInline   ProviderType = "inline"
+	ProviderTypeFIM      ProviderType = "fim"
+	ProviderTypeSweep    ProviderType = "sweep"
+	ProviderTypeSweepAPI ProviderType = "sweepapi"
+	ProviderTypeZeta     ProviderType = "zeta"
 )
 
 // FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration
@@ -130,4 +131,5 @@ type ProviderConfig struct {
 	ProviderTopK        int            // Top-k sampling (used by some providers)
 	CompletionPath      string         // API endpoint path (e.g., "/v1/completions")
 	FIMTokens           FIMTokenConfig // FIM tokens configuration
+	AuthorizationTokenEnv string       // Environment variable name for auth token (e.g., sweepapi)
 }

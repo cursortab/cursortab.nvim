@@ -17,11 +17,16 @@ import (
 
 // AutocompleteRequest is the request format for the Sweep API
 type AutocompleteRequest struct {
+	RepoName             string       `json:"repo_name"`
 	FilePath             string       `json:"file_path"`
 	FileContents         string       `json:"file_contents"`
 	OriginalFileContents string       `json:"original_file_contents"`
 	CursorPosition       int          `json:"cursor_position"`
-	RecentChanges        []FileChunk  `json:"recent_changes"`
+	RecentChanges        string       `json:"recent_changes"`
+	ChangesAboveCursor   bool         `json:"changes_above_cursor"`
+	MultipleSuggestions  bool         `json:"multiple_suggestions"`
+	UseBytes             bool         `json:"use_bytes"`
+	PrivacyModeEnabled   bool         `json:"privacy_mode_enabled"`
 	FileChunks           []FileChunk  `json:"file_chunks"`
 	RecentUserActions    []UserAction `json:"recent_user_actions"`
 	RetrievalChunks      []FileChunk  `json:"retrieval_chunks"`
@@ -29,8 +34,11 @@ type AutocompleteRequest struct {
 
 // FileChunk represents a chunk of file content
 type FileChunk struct {
-	FilePath string `json:"file_path"`
-	Content  string `json:"content"`
+	FilePath  string  `json:"file_path"`
+	Content   string  `json:"content"`
+	StartLine int     `json:"start_line"`
+	EndLine   int     `json:"end_line"`
+	Timestamp *uint64 `json:"timestamp,omitempty"`
 }
 
 // UserAction represents a user action (not used in this implementation)
@@ -82,9 +90,9 @@ func (c *Client) DoCompletion(ctx context.Context, req *AutocompleteRequest) (*A
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Compress with brotli
+	// Compress with brotli (quality 1 for speed)
 	var compressedBuf bytes.Buffer
-	brotliWriter := brotli.NewWriterLevel(&compressedBuf, brotli.DefaultCompression)
+	brotliWriter := brotli.NewWriterLevel(&compressedBuf, 1)
 	if _, err := brotliWriter.Write(jsonData); err != nil {
 		return nil, fmt.Errorf("failed to compress request: %w", err)
 	}

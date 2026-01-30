@@ -31,10 +31,6 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	// Build file contents from lines
 	fileContents := strings.Join(req.Lines, "\n")
-	originalFileContents := fileContents
-	if len(req.PreviousLines) > 0 {
-		originalFileContents = strings.Join(req.PreviousLines, "\n")
-	}
 
 	// Convert cursor to byte offset
 	cursorPosition := sweepapi.CursorToByteOffset(req.Lines, req.CursorRow, req.CursorCol)
@@ -45,13 +41,24 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	// Format diagnostics as retrieval chunks
 	retrievalChunks := formatDiagnostics(req.LinterErrors)
 
+	// Extract repo name from workspace path
+	repoName := filepath.Base(req.WorkspacePath)
+	if repoName == "" || repoName == "." {
+		repoName = "untitled"
+	}
+
 	// Build API request
 	apiReq := &sweepapi.AutocompleteRequest{
+		RepoName:             repoName,
 		FilePath:             req.FilePath,
 		FileContents:         fileContents,
-		OriginalFileContents: originalFileContents,
+		OriginalFileContents: fileContents,
 		CursorPosition:       cursorPosition,
 		RecentChanges:        recentChanges,
+		ChangesAboveCursor:   true,
+		MultipleSuggestions:  false,
+		UseBytes:             true,
+		PrivacyModeEnabled:   false,
 		FileChunks:           []sweepapi.FileChunk{}, // Not implemented: would need engine changes
 		RecentUserActions:    []sweepapi.UserAction{}, // Not implemented: would need engine changes
 		RetrievalChunks:      retrievalChunks,
@@ -102,45 +109,47 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	}, nil
 }
 
-// formatRecentChanges converts FileDiffHistories to FileChunks for the API
-func formatRecentChanges(histories []*types.FileDiffHistory) []sweepapi.FileChunk {
+// formatRecentChanges converts FileDiffHistories to a string for the API
+// Format: "File: path:\n{diff}\n"
+func formatRecentChanges(histories []*types.FileDiffHistory) string {
 	if len(histories) == 0 {
-		return []sweepapi.FileChunk{}
+		return ""
 	}
 
-	var chunks []sweepapi.FileChunk
+	var sb strings.Builder
 	for _, history := range histories {
 		if len(history.DiffHistory) == 0 {
 			continue
 		}
 
-		// Format each diff entry
-		var sb strings.Builder
+		// Format each diff entry for this file
+		var diffContent strings.Builder
 		for _, entry := range history.DiffHistory {
 			if entry.Original != "" || entry.Updated != "" {
-				sb.WriteString("<<<<<<< ORIGINAL\n")
-				sb.WriteString(entry.Original)
+				diffContent.WriteString("<<<<<<< ORIGINAL\n")
+				diffContent.WriteString(entry.Original)
 				if !strings.HasSuffix(entry.Original, "\n") && entry.Original != "" {
-					sb.WriteString("\n")
+					diffContent.WriteString("\n")
 				}
-				sb.WriteString("=======\n")
-				sb.WriteString(entry.Updated)
+				diffContent.WriteString("=======\n")
+				diffContent.WriteString(entry.Updated)
 				if !strings.HasSuffix(entry.Updated, "\n") && entry.Updated != "" {
-					sb.WriteString("\n")
+					diffContent.WriteString("\n")
 				}
-				sb.WriteString(">>>>>>> UPDATED\n")
+				diffContent.WriteString(">>>>>>> UPDATED\n")
 			}
 		}
 
-		if sb.Len() > 0 {
-			chunks = append(chunks, sweepapi.FileChunk{
-				FilePath: history.FileName + ".diff",
-				Content:  sb.String(),
-			})
+		if diffContent.Len() > 0 {
+			sb.WriteString("File: ")
+			sb.WriteString(history.FileName)
+			sb.WriteString(":\n")
+			sb.WriteString(diffContent.String())
+			sb.WriteString("\n")
 		}
 	}
 
-	return chunks
+	return sb.String()
 }
 
 // formatDiagnostics converts LinterErrors to FileChunks for the API
@@ -150,6 +159,7 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 	}
 
 	var sb strings.Builder
+	lineCount := 0
 	for _, err := range linterErrors.Errors {
 		if err.Range != nil {
 			sb.WriteString("Line ")
@@ -163,6 +173,7 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 		}
 		sb.WriteString(err.Message)
 		sb.WriteString("\n")
+		lineCount++
 	}
 
 	if sb.Len() == 0 {
@@ -170,7 +181,9 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 	}
 
 	return []sweepapi.FileChunk{{
-		FilePath: filepath.Base(linterErrors.RelativeWorkspacePath) + ".diagnostics",
-		Content:  sb.String(),
+		FilePath:  "diagnostics",
+		Content:   sb.String(),
+		StartLine: 1,
+		EndLine:   lineCount,
 	}}
 }

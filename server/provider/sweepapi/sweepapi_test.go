@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"cursortab/assert"
@@ -20,17 +21,18 @@ func TestFormatRecentChanges(t *testing.T) {
 	tests := []struct {
 		name      string
 		histories []*types.FileDiffHistory
-		wantLen   int
+		wantEmpty bool
+		wantContains string
 	}{
 		{
 			name:      "nil histories",
 			histories: nil,
-			wantLen:   0,
+			wantEmpty: true,
 		},
 		{
 			name:      "empty histories",
 			histories: []*types.FileDiffHistory{},
-			wantLen:   0,
+			wantEmpty: true,
 		},
 		{
 			name: "single history with entries",
@@ -42,7 +44,8 @@ func TestFormatRecentChanges(t *testing.T) {
 					},
 				},
 			},
-			wantLen: 1,
+			wantEmpty:    false,
+			wantContains: "File: test.go:",
 		},
 		{
 			name: "history with empty diff",
@@ -52,14 +55,21 @@ func TestFormatRecentChanges(t *testing.T) {
 					DiffHistory: []*types.DiffEntry{},
 				},
 			},
-			wantLen: 0,
+			wantEmpty: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := formatRecentChanges(tt.histories)
-			assert.Equal(t, tt.wantLen, len(result), "chunk count")
+			if tt.wantEmpty {
+				assert.Equal(t, "", result, "should be empty")
+			} else {
+				assert.True(t, len(result) > 0, "should not be empty")
+				if tt.wantContains != "" {
+					assert.True(t, strings.Contains(result, tt.wantContains), "should contain expected string")
+				}
+			}
 		})
 	}
 }

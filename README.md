@@ -252,13 +252,13 @@ llama-server -m sweep-next-edit-1.5b.q8_0.v2.gguf --port 8000
 
 #### Sweep API Provider
 
-Sweep's hosted API for Next-Edit predictions. Uses the hosted endpoint at
-`https://autocomplete.sweep.dev` - no local model setup required.
+Sweep's hosted API for Next-Edit predictions. No local model setup required.
 
 **Requirements:**
 
-- Sweep API authorization token set in `CURSORTAB_AUTH_TOKEN` environment
-  variable (or custom env var via `authorization_token_env`)
+- Create an account at [sweep.dev](https://sweep.dev/) and get your API token
+- Set the token in `CURSORTAB_AUTH_TOKEN` environment variable (or custom env
+  var via `authorization_token_env`)
 
 **Example Configuration:**
 
@@ -266,7 +266,7 @@ Sweep's hosted API for Next-Edit predictions. Uses the hosted endpoint at
 require("cursortab").setup({
   provider = {
     type = "sweepapi",
-    -- Token read from CURSORTAB_AUTH_TOKEN env var by default
+    -- authorization_token_env = "MY_CUSTOM_ENV_VAR",  -- default: CURSORTAB_AUTH_TOKEN
   },
 })
 ```

@@ -138,12 +138,9 @@ func TestProviderGetCompletion(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Set test env var
-	t.Setenv("TEST_AUTH_TOKEN", "test-token")
-
 	provider := NewProvider(&types.ProviderConfig{
-		ProviderURL:           server.URL,
-		AuthorizationTokenEnv: "TEST_AUTH_TOKEN",
+		ProviderURL: server.URL,
+		APIKey:      "test-token",
 	})
 
 	req := &types.CompletionRequest{

@@ -116,7 +116,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	// Store completion info for acceptance tracking
 	additions, deletions := countChanges(origEndLine-startLine+1, len(newLines))
 	p.mu.Lock()
-	p.lastCompletionID = apiResp.ID
+	p.lastCompletionID = apiResp.AutocompleteID
 	p.lastAdditions = additions
 	p.lastDeletions = deletions
 	p.mu.Unlock()
@@ -130,19 +130,9 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	}, nil
 }
 
-// countChanges calculates additions and deletions based on line counts
+// countChanges calculates additions and deletions based on line counts.
 func countChanges(oldLineCount, newLineCount int) (additions, deletions int) {
-	if newLineCount > oldLineCount {
-		additions = newLineCount - oldLineCount
-	}
-	if oldLineCount > newLineCount {
-		deletions = oldLineCount - newLineCount
-	}
-	// Count the overlapping lines as modifications (both add and delete)
-	minLines := min(oldLineCount, newLineCount)
-	additions += minLines
-	deletions += minLines
-	return additions, deletions
+	return max(newLineCount, 1), max(oldLineCount, 1)
 }
 
 // AcceptCompletion implements engine.CompletionAccepter

@@ -50,10 +50,10 @@ type UserAction struct {
 
 // AutocompleteResponse is the response format from the Sweep API
 type AutocompleteResponse struct {
-	ID         string `json:"id"`
-	StartIndex int    `json:"start_index"`
-	EndIndex   int    `json:"end_index"`
-	Completion string `json:"completion"`
+	AutocompleteID string `json:"autocomplete_id"`
+	StartIndex     int    `json:"start_index"`
+	EndIndex       int    `json:"end_index"`
+	Completion     string `json:"completion"`
 }
 
 // CompletionURL is the endpoint for completion requests

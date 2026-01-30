@@ -200,7 +200,11 @@ func ApplyByteRangeEdit(text string, startIdx, endIdx int, completion string) (n
 	newText = text[:startIdx] + completion + text[endIdx:]
 
 	// Calculate new end line (start line + number of lines in completion - 1)
+	// Don't count trailing newline as an extra line
 	completionLines := strings.Count(completion, "\n") + 1
+	if strings.HasSuffix(completion, "\n") {
+		completionLines--
+	}
 	newEndLine := startLine + completionLines - 1
 
 	return newText, startLine, newEndLine

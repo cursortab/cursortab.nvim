@@ -193,6 +193,36 @@ func TestApplyByteRangeEdit(t *testing.T) {
 			expectedStartLine: 1,
 			expectedEndLine:   1,
 		},
+		{
+			name:              "trailing newline single line",
+			text:              "app.use(cors);",
+			startIdx:          0,
+			endIdx:            3,
+			completion:        "application",
+			expectedText:      "application.use(cors);",
+			expectedStartLine: 1,
+			expectedEndLine:   1,
+		},
+		{
+			name:              "trailing newline should not add extra line",
+			text:              "app.use(cors);",
+			startIdx:          0,
+			endIdx:            14,
+			completion:        "application.use(cors);\n",
+			expectedText:      "application.use(cors);\n",
+			expectedStartLine: 1,
+			expectedEndLine:   1,
+		},
+		{
+			name:              "actual multiline with trailing newline",
+			text:              "line1",
+			startIdx:          0,
+			endIdx:            5,
+			completion:        "line1\nline2\n",
+			expectedText:      "line1\nline2\n",
+			expectedStartLine: 1,
+			expectedEndLine:   2,
+		},
 	}
 
 	for _, tt := range tests {

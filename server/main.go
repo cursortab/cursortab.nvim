@@ -45,7 +45,6 @@ type ProviderConfig struct {
 	MaxDiffHistoryTokens int             `json:"max_diff_history_tokens"`
 	CompletionPath       string          `json:"completion_path"`
 	FIMTokens            FIMTokensConfig `json:"fim_tokens"`
-	AuthorizationTokenEnv string          `json:"authorization_token_env"` // Env var name for auth token
 }
 
 // DebugConfig holds debug settings

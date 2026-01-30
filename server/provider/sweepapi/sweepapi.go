@@ -3,6 +3,7 @@ package sweepapi
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"cursortab/client/sweepapi"
@@ -20,7 +21,7 @@ type Provider struct {
 func NewProvider(config *types.ProviderConfig) *Provider {
 	return &Provider{
 		config: config,
-		client: sweepapi.NewClient(config.ProviderURL, config.AuthorizationTokenEnv),
+		client: sweepapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
 	}
 }
 
@@ -82,7 +83,12 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	}
 
 	// Calculate original end line for buffer replacement
-	_, origEndLine := sweepapi.ByteOffsetToLineCol(fileContents, apiResp.EndIndex)
+	// Use endIdx-1 to get the line of the last replaced byte (not the position after)
+	endOffset := apiResp.EndIndex
+	if endOffset > apiResp.StartIndex {
+		endOffset--
+	}
+	origEndLine, _ := sweepapi.ByteOffsetToLineCol(fileContents, endOffset)
 
 	logger.Debug("sweepapi: byte range [%d:%d] -> lines [%d:%d], origEndLine=%d",
 		apiResp.StartIndex, apiResp.EndIndex, startLine, endLine, origEndLine)
@@ -147,7 +153,7 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 	for _, err := range linterErrors.Errors {
 		if err.Range != nil {
 			sb.WriteString("Line ")
-			sb.WriteString(itoa(err.Range.StartLine))
+			sb.WriteString(strconv.Itoa(err.Range.StartLine))
 			sb.WriteString(": ")
 		}
 		if err.Source != "" {
@@ -167,20 +173,4 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 		FilePath: filepath.Base(linterErrors.RelativeWorkspacePath) + ".diagnostics",
 		Content:  sb.String(),
 	}}
-}
-
-// itoa converts an int to a string (simple helper to avoid strconv import)
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
 }

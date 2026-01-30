@@ -221,23 +221,7 @@ func TestProviderMultilineCompletion(t *testing.T) {
 
 	completion := resp.Completions[0]
 	assert.Equal(t, 2, completion.StartLine, "StartLine")
-}
-
-func TestItoa(t *testing.T) {
-	tests := []struct {
-		input    int
-		expected string
-	}{
-		{0, "0"},
-		{1, "1"},
-		{42, "42"},
-		{100, "100"},
-		{-5, "-5"},
-		{-123, "-123"},
-	}
-
-	for _, tt := range tests {
-		result := itoa(tt.input)
-		assert.Equal(t, tt.expected, result, "itoa result")
-	}
+	// EndLineInc should be 2 (the original end line in the buffer being replaced)
+	// The byte offset 15 is in line 2, so EndLineInc should be 2
+	assert.Equal(t, 2, completion.EndLineInc, "EndLineInc")
 }

@@ -56,7 +56,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		ProviderMaxTokens:   config.Provider.MaxTokens,
 		ProviderTopK:        config.Provider.TopK,
 		CompletionPath:      config.Provider.CompletionPath,
-		AuthorizationTokenEnv: config.Provider.AuthorizationTokenEnv,
+		CompletionTimeout:   config.Provider.CompletionTimeout,
 	}
 
 	providerConfig.FIMTokens = types.FIMTokenConfig{

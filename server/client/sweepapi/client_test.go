@@ -283,10 +283,7 @@ func TestClientBrotliCompression(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Set test env var
-	t.Setenv("TEST_AUTH_TOKEN", "test-token")
-
-	client := NewClient(server.URL, "TEST_AUTH_TOKEN")
+	client := NewClient(server.URL, "test-token", 30000)
 	req := &AutocompleteRequest{
 		FilePath:     "test.go",
 		FileContents: "hello",
@@ -315,10 +312,7 @@ func TestClientAuthorizationHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Set test env var
-	t.Setenv("TEST_AUTH_TOKEN", "my-secret-token")
-
-	client := NewClient(server.URL, "TEST_AUTH_TOKEN")
+	client := NewClient(server.URL, "my-secret-token", 30000)
 	req := &AutocompleteRequest{
 		FilePath:     "test.go",
 		FileContents: "test",

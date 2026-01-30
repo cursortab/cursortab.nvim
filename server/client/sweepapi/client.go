@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
+	"time"
 
 	"cursortab/logger"
 
@@ -55,16 +55,20 @@ type Client struct {
 }
 
 // NewClient creates a new Sweep API client
-// authTokenEnv is the name of the environment variable containing the auth token
-func NewClient(url, authTokenEnv string) *Client {
-	authToken := ""
-	if authTokenEnv != "" {
-		authToken = os.Getenv(authTokenEnv)
+// apiKey is the resolved API key for authenticated requests
+// timeoutMs is the HTTP client timeout in milliseconds (0 = no timeout)
+func NewClient(url, apiKey string, timeoutMs int) *Client {
+	timeout := time.Duration(0)
+	if timeoutMs > 0 {
+		timeout = time.Duration(timeoutMs) * time.Millisecond
 	}
+
 	return &Client{
-		HTTPClient: &http.Client{},
-		URL:        url,
-		AuthToken:  authToken,
+		HTTPClient: &http.Client{
+			Timeout: timeout,
+		},
+		URL:       url,
+		AuthToken: apiKey,
 	}
 }
 

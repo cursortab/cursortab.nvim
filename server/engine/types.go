@@ -44,6 +44,12 @@ type Provider interface {
 	GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error)
 }
 
+// CompletionAccepter is an optional interface providers can implement
+// to be notified when a completion is accepted (e.g., for usage tracking).
+type CompletionAccepter interface {
+	AcceptCompletion(ctx context.Context)
+}
+
 // LineStreamProvider extends Provider with line-by-line streaming capabilities.
 // For providers like sweep, zeta, fim that stream by lines.
 type LineStreamProvider interface {

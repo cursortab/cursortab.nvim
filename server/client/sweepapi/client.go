@@ -50,9 +50,44 @@ type UserAction struct {
 
 // AutocompleteResponse is the response format from the Sweep API
 type AutocompleteResponse struct {
+	ID         string `json:"id"`
 	StartIndex int    `json:"start_index"`
 	EndIndex   int    `json:"end_index"`
 	Completion string `json:"completion"`
+}
+
+// MetricsURL is the endpoint for tracking acceptance metrics
+const MetricsURL = "https://backend.app.sweep.dev/backend/track_autocomplete_metrics"
+
+// EventType represents the type of metrics event
+type EventType string
+
+const (
+	EventAccepted EventType = "autocomplete_suggestion_accepted"
+	EventShown    EventType = "autocomplete_suggestion_shown"
+)
+
+// SuggestionType represents how the suggestion was displayed
+type SuggestionType string
+
+const (
+	SuggestionGhostText SuggestionType = "GHOST_TEXT"
+	SuggestionPopup     SuggestionType = "POPUP"
+)
+
+// MetricsRequest is the request format for tracking acceptance metrics
+type MetricsRequest struct {
+	EventType          EventType      `json:"event_type"`
+	SuggestionType     SuggestionType `json:"suggestion_type"`
+	Additions          int            `json:"additions"`
+	Deletions          int            `json:"deletions"`
+	AutocompleteID     string         `json:"autocomplete_id"`
+	EditTracking       string         `json:"edit_tracking"`
+	EditTrackingLine   *int           `json:"edit_tracking_line"`
+	Lifespan           *int64         `json:"lifespan"`
+	DebugInfo          string         `json:"debug_info"`
+	DeviceID           string         `json:"device_id"`
+	PrivacyModeEnabled bool           `json:"privacy_mode_enabled"`
 }
 
 // Client is the HTTP client for the Sweep API
@@ -223,4 +258,37 @@ func ExtractLines(text string, startLine, endLine int) []string {
 		return nil
 	}
 	return lines[startLine-1 : endLine]
+}
+
+// TrackMetrics sends acceptance/shown metrics to the Sweep API
+func (c *Client) TrackMetrics(ctx context.Context, req *MetricsRequest) error {
+	defer logger.Trace("sweepapi.TrackMetrics")()
+
+	jsonData, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", MetricsURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create metrics request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.AuthToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send metrics request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("metrics request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
 }

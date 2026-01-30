@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"cursortab/client/sweepapi"
 	"cursortab/logger"
@@ -15,6 +16,12 @@ import (
 type Provider struct {
 	config *types.ProviderConfig
 	client *sweepapi.Client
+
+	// Acceptance tracking state
+	mu               sync.Mutex
+	lastCompletionID string
+	lastAdditions    int
+	lastDeletions    int
 }
 
 // NewProvider creates a new Sweep API provider
@@ -100,6 +107,14 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	logger.Debug("sweepapi: byte range [%d:%d] -> lines [%d:%d], origEndLine=%d",
 		apiResp.StartIndex, apiResp.EndIndex, startLine, endLine, origEndLine)
 
+	// Store completion info for acceptance tracking
+	additions, deletions := countChanges(origEndLine-startLine+1, len(newLines))
+	p.mu.Lock()
+	p.lastCompletionID = apiResp.ID
+	p.lastAdditions = additions
+	p.lastDeletions = deletions
+	p.mu.Unlock()
+
 	return &types.CompletionResponse{
 		Completions: []*types.Completion{{
 			StartLine:  startLine,
@@ -107,6 +122,49 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 			Lines:      newLines,
 		}},
 	}, nil
+}
+
+// countChanges calculates additions and deletions based on line counts
+func countChanges(oldLineCount, newLineCount int) (additions, deletions int) {
+	if newLineCount > oldLineCount {
+		additions = newLineCount - oldLineCount
+	}
+	if oldLineCount > newLineCount {
+		deletions = oldLineCount - newLineCount
+	}
+	// Count the overlapping lines as modifications (both add and delete)
+	minLines := min(oldLineCount, newLineCount)
+	additions += minLines
+	deletions += minLines
+	return additions, deletions
+}
+
+// AcceptCompletion implements engine.CompletionAccepter
+func (p *Provider) AcceptCompletion(ctx context.Context) {
+	p.mu.Lock()
+	completionID := p.lastCompletionID
+	additions := p.lastAdditions
+	deletions := p.lastDeletions
+	p.lastCompletionID = "" // Clear after use
+	p.mu.Unlock()
+
+	if completionID == "" {
+		return
+	}
+
+	req := &sweepapi.MetricsRequest{
+		EventType:          sweepapi.EventAccepted,
+		SuggestionType:     sweepapi.SuggestionGhostText,
+		Additions:          additions,
+		Deletions:          deletions,
+		AutocompleteID:     completionID,
+		DebugInfo:          "cursortab-nvim",
+		PrivacyModeEnabled: p.config.PrivacyMode,
+	}
+
+	if err := p.client.TrackMetrics(ctx, req); err != nil {
+		logger.Warn("sweepapi: failed to track acceptance: %v", err)
+	}
 }
 
 // formatRecentChanges converts FileDiffHistories to a string for the API

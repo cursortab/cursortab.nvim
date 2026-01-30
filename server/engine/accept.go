@@ -50,6 +50,11 @@ func (e *Engine) acceptCompletion() {
 	e.buffer.CommitPending()
 	e.saveCurrentFileState()
 
+	// Notify provider of acceptance (for usage tracking/billing)
+	if accepter, ok := e.provider.(CompletionAccepter); ok {
+		go accepter.AcceptCompletion(e.mainCtx)
+	}
+
 	// 2. Clear completion state (keep prefetch)
 	e.clearCompletionState()
 

@@ -350,11 +350,6 @@ function config.get()
 	return current_config
 end
 
--- Provider-specific default URLs
-local provider_default_urls = {
-	sweepapi = "https://autocomplete.sweep.dev/backend/next_edit_autocomplete",
-}
-
 -- Set up configuration with user overrides
 ---@param user_config table|nil User configuration overrides
 ---@return CursortabConfig
@@ -362,14 +357,6 @@ function config.setup(user_config)
 	local migrated = migrate_deprecated_config(user_config or {})
 	validate_config(migrated)
 	current_config = vim.tbl_deep_extend("force", vim.deepcopy(default_config), migrated)
-
-	-- Apply provider-specific defaults if user didn't set a custom URL
-	local provider_type = current_config.provider.type
-	local user_url = migrated.provider and migrated.provider.url
-	if not user_url and provider_default_urls[provider_type] then
-		current_config.provider.url = provider_default_urls[provider_type]
-	end
-
 	return current_config
 end
 

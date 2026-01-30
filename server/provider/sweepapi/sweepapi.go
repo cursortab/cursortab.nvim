@@ -26,9 +26,15 @@ type Provider struct {
 
 // NewProvider creates a new Sweep API provider
 func NewProvider(config *types.ProviderConfig) *Provider {
+	// Use constant URL, but allow override for testing (httptest servers use 127.0.0.1)
+	url := sweepapi.CompletionURL
+	if strings.HasPrefix(config.ProviderURL, "http://127.0.0.1") {
+		url = config.ProviderURL
+	}
+
 	return &Provider{
 		config: config,
-		client: sweepapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
+		client: sweepapi.NewClient(url, config.APIKey, config.CompletionTimeout),
 	}
 }
 

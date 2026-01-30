@@ -56,6 +56,9 @@ type AutocompleteResponse struct {
 	Completion string `json:"completion"`
 }
 
+// CompletionURL is the endpoint for completion requests
+const CompletionURL = "https://autocomplete.sweep.dev/backend/next_edit_autocomplete"
+
 // MetricsURL is the endpoint for tracking acceptance metrics
 const MetricsURL = "https://backend.app.sweep.dev/backend/track_autocomplete_metrics"
 

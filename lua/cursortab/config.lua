@@ -45,6 +45,7 @@
 ---@field completion_path string API endpoint path (e.g., "/v1/completions")
 ---@field fim_tokens CursortabFIMTokensConfig|nil FIM tokens configuration (optional)
 ---@field authorization_token_env string|nil Environment variable name for auth token (e.g., sweepapi)
+---@field privacy_mode boolean Enable privacy mode (don't send telemetry to provider)
 
 ---@class CursortabDebugConfig
 ---@field immediate_shutdown boolean
@@ -121,6 +122,7 @@ local default_config = {
 			middle = "<|fim_middle|>",
 		},
 		authorization_token_env = "CURSORTAB_AUTH_TOKEN", -- Env var name for auth token (sweepapi)
+		privacy_mode = true, -- Don't send telemetry to provider
 	},
 
 	blink = {

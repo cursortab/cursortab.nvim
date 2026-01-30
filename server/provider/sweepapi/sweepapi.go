@@ -58,7 +58,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		ChangesAboveCursor:   true,
 		MultipleSuggestions:  false,
 		UseBytes:             true,
-		PrivacyModeEnabled:   false,
+		PrivacyModeEnabled:   p.config.PrivacyMode,
 		FileChunks:           []sweepapi.FileChunk{}, // Not implemented: would need engine changes
 		RecentUserActions:    []sweepapi.UserAction{}, // Not implemented: would need engine changes
 		RetrievalChunks:      retrievalChunks,

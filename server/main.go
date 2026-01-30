@@ -45,6 +45,7 @@ type ProviderConfig struct {
 	MaxDiffHistoryTokens int             `json:"max_diff_history_tokens"`
 	CompletionPath       string          `json:"completion_path"`
 	FIMTokens            FIMTokensConfig `json:"fim_tokens"`
+	PrivacyMode          bool            `json:"privacy_mode"`
 }
 
 // DebugConfig holds debug settings

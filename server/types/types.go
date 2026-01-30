@@ -132,4 +132,5 @@ type ProviderConfig struct {
 	CompletionPath      string         // API endpoint path (e.g., "/v1/completions")
 	FIMTokens           FIMTokenConfig // FIM tokens configuration
 	CompletionTimeout   int            // Timeout for completion requests in milliseconds
+	PrivacyMode         bool           // Don't send telemetry to provider
 }

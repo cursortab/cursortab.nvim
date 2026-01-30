@@ -71,6 +71,7 @@ local function start_daemon()
 			completion_path = cfg.provider.completion_path,
 			fim_tokens = cfg.provider.fim_tokens,
 			authorization_token_env = cfg.provider.authorization_token_env,
+			privacy_mode = cfg.provider.privacy_mode,
 		},
 		debug = {
 			immediate_shutdown = cfg.debug.immediate_shutdown,

@@ -125,6 +125,7 @@ require("cursortab").setup({
       middle = "<|fim_middle|>",
     },
     authorization_token_env = "CURSORTAB_AUTH_TOKEN",  -- Env var name for auth token (sweepapi)
+    privacy_mode = true,                  -- Don't send telemetry to provider
   },
 
   blink = {

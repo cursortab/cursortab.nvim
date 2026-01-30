@@ -57,6 +57,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		ProviderTopK:        config.Provider.TopK,
 		CompletionPath:      config.Provider.CompletionPath,
 		CompletionTimeout:   config.Provider.CompletionTimeout,
+		PrivacyMode:         config.Provider.PrivacyMode,
 	}
 
 	providerConfig.FIMTokens = types.FIMTokenConfig{

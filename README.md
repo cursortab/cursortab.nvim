@@ -124,7 +124,6 @@ require("cursortab").setup({
       suffix = "<|fim_suffix|>",
       middle = "<|fim_middle|>",
     },
-    authorization_token_env = "CURSORTAB_AUTH_TOKEN",  -- Env var name for auth token (sweepapi)
     privacy_mode = true,                  -- Don't send telemetry to provider
   },
 
@@ -258,8 +257,7 @@ Sweep's hosted API for Next-Edit predictions. No local model setup required.
 **Requirements:**
 
 - Create an account at [sweep.dev](https://sweep.dev/) and get your API token
-- Set the token in `CURSORTAB_AUTH_TOKEN` environment variable (or custom env
-  var via `authorization_token_env`)
+- Set the token in the environment variable specified by `api_key_env`
 
 **Example Configuration:**
 
@@ -267,7 +265,7 @@ Sweep's hosted API for Next-Edit predictions. No local model setup required.
 require("cursortab").setup({
   provider = {
     type = "sweepapi",
-    -- authorization_token_env = "MY_CUSTOM_ENV_VAR",  -- default: CURSORTAB_AUTH_TOKEN
+    api_key_env = "SWEEPAPI_TOKEN",
   },
 })
 ```
@@ -340,7 +338,8 @@ require("blink.cmp").setup({
 ## Usage
 
 - **Tab Key**: Navigate to cursor predictions or accept completions
-- **Shift-Tab Key**: Partially accept completions (word-by-word for inline, line-by-line for multi-line)
+- **Shift-Tab Key**: Partially accept completions (word-by-word for inline,
+  line-by-line for multi-line)
 - **Esc Key**: Reject current completions
 - The plugin automatically shows jump indicators for predicted cursor positions
 - Visual indicators appear for additions, deletions, and completions

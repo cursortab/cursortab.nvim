@@ -220,10 +220,6 @@ PROVIDER OPTIONS                                    *cursortab-config-provider*
           middle = "<|fim_middle|>",   -- Token before completion
         }
 <
-  `authorization_token_env`         *cursortab-config-provider-authorization*
-      Name of the environment variable containing the auth token for
-      authenticated APIs (e.g., sweepapi). Default: "CURSORTAB_AUTH_TOKEN".
-
   `privacy_mode`                         *cursortab-config-provider-privacy-mode*
       Don't send telemetry to provider. When enabled, providers that support
       this option will not send usage metrics. Default: true.

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"cursortab/assert"
 	"cursortab/client/sweepapi"
@@ -231,4 +232,228 @@ func TestProviderMultilineCompletion(t *testing.T) {
 	// EndLineInc should be 2 (the original end line in the buffer being replaced)
 	// The byte offset 15 is in line 2, so EndLineInc should be 2
 	assert.Equal(t, 2, completion.EndLineInc, "EndLineInc")
+}
+
+func TestTrackMetric(t *testing.T) {
+	provider := &Provider{
+		metricsCh: make(chan metricsEvent, 2),
+	}
+
+	// Should queue event
+	provider.trackMetric(sweepapi.EventShown, "completion-1", 5, 3)
+
+	select {
+	case ev := <-provider.metricsCh:
+		assert.Equal(t, sweepapi.EventShown, ev.eventType, "eventType")
+		assert.Equal(t, "completion-1", ev.completionID, "completionID")
+		assert.Equal(t, 5, ev.additions, "additions")
+		assert.Equal(t, 3, ev.deletions, "deletions")
+	default:
+		t.Fatal("expected event in channel")
+	}
+}
+
+func TestTrackMetricSkipsEmptyID(t *testing.T) {
+	provider := &Provider{
+		metricsCh: make(chan metricsEvent, 2),
+	}
+
+	// Should skip empty completion ID
+	provider.trackMetric(sweepapi.EventShown, "", 5, 3)
+
+	select {
+	case <-provider.metricsCh:
+		t.Fatal("should not queue event with empty ID")
+	default:
+		// Expected: channel empty
+	}
+}
+
+func TestTrackMetricDropsWhenFull(t *testing.T) {
+	provider := &Provider{
+		metricsCh: make(chan metricsEvent, 1), // Small buffer
+	}
+
+	// Fill the channel
+	provider.trackMetric(sweepapi.EventShown, "completion-1", 1, 1)
+
+	// This should be dropped (non-blocking)
+	provider.trackMetric(sweepapi.EventShown, "completion-2", 2, 2)
+
+	// Drain and verify only first event
+	ev := <-provider.metricsCh
+	assert.Equal(t, "completion-1", ev.completionID, "first event")
+
+	select {
+	case <-provider.metricsCh:
+		t.Fatal("second event should have been dropped")
+	default:
+		// Expected: channel empty
+	}
+}
+
+func TestMetricsWorkerProcessesInOrder(t *testing.T) {
+	var received []sweepapi.MetricsRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend/track_autocomplete_metrics" {
+			var req sweepapi.MetricsRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			received = append(received, req)
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL: server.URL,
+	})
+
+	// Queue multiple events
+	provider.trackMetric(sweepapi.EventShown, "id-1", 1, 1)
+	provider.trackMetric(sweepapi.EventAccepted, "id-1", 1, 1)
+	provider.trackMetric(sweepapi.EventShown, "id-2", 2, 2)
+
+	// Close channel to signal worker to finish
+	close(provider.metricsCh)
+
+	// Wait for worker to process (it will exit when channel closes)
+	// Give it a moment to process
+	for i := 0; i < 100 && len(received) < 3; i++ {
+		sleepMs(10)
+	}
+
+	assert.Len(t, 3, received, "received events")
+	assert.Equal(t, sweepapi.EventShown, received[0].EventType, "first event type")
+	assert.Equal(t, "id-1", received[0].AutocompleteID, "first event ID")
+	assert.Equal(t, sweepapi.EventAccepted, received[1].EventType, "second event type")
+	assert.Equal(t, "id-1", received[1].AutocompleteID, "second event ID")
+	assert.Equal(t, sweepapi.EventShown, received[2].EventType, "third event type")
+	assert.Equal(t, "id-2", received[2].AutocompleteID, "third event ID")
+}
+
+func TestGetCompletionSendsShownEvent(t *testing.T) {
+	var metricsReceived []sweepapi.MetricsRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend/track_autocomplete_metrics" {
+			var req sweepapi.MetricsRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			metricsReceived = append(metricsReceived, req)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Completion endpoint
+		compressedBody, _ := io.ReadAll(r.Body)
+		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
+		io.ReadAll(brotliReader)
+
+		resp := sweepapi.AutocompleteResponse{
+			AutocompleteID: "test-completion-id",
+			StartIndex:     0,
+			EndIndex:       5,
+			Completion:     "hello world",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL: server.URL,
+	})
+
+	req := &types.CompletionRequest{
+		FilePath:  "test.go",
+		Lines:     []string{"hello"},
+		CursorRow: 1,
+		CursorCol: 5,
+	}
+
+	_, err := provider.GetCompletion(context.Background(), req)
+	assert.NoError(t, err, "GetCompletion")
+
+	// Wait for metrics worker to process
+	for i := 0; i < 100 && len(metricsReceived) < 1; i++ {
+		sleepMs(10)
+	}
+
+	assert.Len(t, 1, metricsReceived, "metrics events")
+	assert.Equal(t, sweepapi.EventShown, metricsReceived[0].EventType, "event type")
+	assert.Equal(t, "test-completion-id", metricsReceived[0].AutocompleteID, "completion ID")
+}
+
+func TestAcceptCompletionSendsAcceptedEvent(t *testing.T) {
+	var metricsReceived []sweepapi.MetricsRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend/track_autocomplete_metrics" {
+			var req sweepapi.MetricsRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			metricsReceived = append(metricsReceived, req)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Completion endpoint
+		compressedBody, _ := io.ReadAll(r.Body)
+		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
+		io.ReadAll(brotliReader)
+
+		resp := sweepapi.AutocompleteResponse{
+			AutocompleteID: "accept-test-id",
+			StartIndex:     0,
+			EndIndex:       5,
+			Completion:     "hello world",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL: server.URL,
+	})
+
+	// First get a completion to populate lastCompletionID
+	req := &types.CompletionRequest{
+		FilePath:  "test.go",
+		Lines:     []string{"hello"},
+		CursorRow: 1,
+		CursorCol: 5,
+	}
+	_, err := provider.GetCompletion(context.Background(), req)
+	assert.NoError(t, err, "GetCompletion")
+
+	// Now accept it
+	provider.AcceptCompletion(context.Background())
+
+	// Wait for metrics worker to process both events
+	for i := 0; i < 100 && len(metricsReceived) < 2; i++ {
+		sleepMs(10)
+	}
+
+	assert.Len(t, 2, metricsReceived, "metrics events")
+	assert.Equal(t, sweepapi.EventShown, metricsReceived[0].EventType, "first event type")
+	assert.Equal(t, sweepapi.EventAccepted, metricsReceived[1].EventType, "second event type")
+	assert.Equal(t, "accept-test-id", metricsReceived[1].AutocompleteID, "accepted completion ID")
+}
+
+func TestAcceptCompletionNoOpWithoutCompletion(t *testing.T) {
+	provider := &Provider{
+		metricsCh: make(chan metricsEvent, 2),
+	}
+
+	// Accept without prior completion
+	provider.AcceptCompletion(context.Background())
+
+	select {
+	case <-provider.metricsCh:
+		t.Fatal("should not queue event without completion ID")
+	default:
+		// Expected: no event queued
+	}
+}
+
+func sleepMs(ms int) {
+	time.Sleep(time.Duration(ms) * time.Millisecond)
 }

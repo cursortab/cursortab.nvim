@@ -97,6 +97,7 @@ type MetricsRequest struct {
 type Client struct {
 	HTTPClient *http.Client
 	URL        string
+	metricsURL string
 	AuthToken  string
 }
 
@@ -109,12 +110,19 @@ func NewClient(url, apiKey string, timeoutMs int) *Client {
 		timeout = time.Duration(timeoutMs) * time.Millisecond
 	}
 
+	// Derive metrics URL from completion URL for test servers
+	metricsURL := MetricsURL
+	if strings.HasPrefix(url, "http://127.0.0.1") {
+		metricsURL = strings.TrimSuffix(url, "/backend/next_edit_autocomplete") + "/backend/track_autocomplete_metrics"
+	}
+
 	return &Client{
 		HTTPClient: &http.Client{
 			Timeout: timeout,
 		},
-		URL:       url,
-		AuthToken: apiKey,
+		URL:        url,
+		metricsURL: metricsURL,
+		AuthToken:  apiKey,
 	}
 }
 
@@ -272,7 +280,7 @@ func (c *Client) TrackMetrics(ctx context.Context, req *MetricsRequest) error {
 		return fmt.Errorf("failed to marshal metrics request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", MetricsURL, bytes.NewReader(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.metricsURL, bytes.NewReader(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create metrics request: %w", err)
 	}

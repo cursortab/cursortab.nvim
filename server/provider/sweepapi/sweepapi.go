@@ -12,6 +12,14 @@ import (
 	"cursortab/types"
 )
 
+// metricsEvent represents a metrics tracking event to be sent to the API.
+type metricsEvent struct {
+	eventType    sweepapi.EventType
+	completionID string
+	additions    int
+	deletions    int
+}
+
 // Provider implements the Sweep hosted API provider
 type Provider struct {
 	config *types.ProviderConfig
@@ -22,6 +30,9 @@ type Provider struct {
 	lastCompletionID string
 	lastAdditions    int
 	lastDeletions    int
+
+	// Metrics channel for ordered event processing
+	metricsCh chan metricsEvent
 }
 
 // NewProvider creates a new Sweep API provider
@@ -32,10 +43,13 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 		url = config.ProviderURL
 	}
 
-	return &Provider{
-		config: config,
-		client: sweepapi.NewClient(url, config.APIKey, config.CompletionTimeout),
+	p := &Provider{
+		config:    config,
+		client:    sweepapi.NewClient(url, config.APIKey, config.CompletionTimeout),
+		metricsCh: make(chan metricsEvent, 64),
 	}
+	go p.metricsWorker()
+	return p
 }
 
 // GetCompletion implements engine.Provider
@@ -121,6 +135,9 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	p.lastDeletions = deletions
 	p.mu.Unlock()
 
+	// Send "shown" event to register completion for tracking
+	p.trackMetric(sweepapi.EventShown, apiResp.AutocompleteID, additions, deletions)
+
 	return &types.CompletionResponse{
 		Completions: []*types.Completion{{
 			StartLine:  startLine,
@@ -144,22 +161,36 @@ func (p *Provider) AcceptCompletion(ctx context.Context) {
 	p.lastCompletionID = "" // Clear after use
 	p.mu.Unlock()
 
+	p.trackMetric(sweepapi.EventAccepted, completionID, additions, deletions)
+}
+
+// metricsWorker processes metrics events from the channel in order.
+func (p *Provider) metricsWorker() {
+	for ev := range p.metricsCh {
+		req := &sweepapi.MetricsRequest{
+			EventType:          ev.eventType,
+			SuggestionType:     sweepapi.SuggestionGhostText,
+			Additions:          ev.additions,
+			Deletions:          ev.deletions,
+			AutocompleteID:     ev.completionID,
+			DebugInfo:          "cursortab-nvim",
+			PrivacyModeEnabled: p.config.PrivacyMode,
+		}
+		if err := p.client.TrackMetrics(context.Background(), req); err != nil {
+			logger.Warn("sweepapi: failed to track %s: %v", ev.eventType, err)
+		}
+	}
+}
+
+// trackMetric queues a metrics event for processing.
+func (p *Provider) trackMetric(eventType sweepapi.EventType, completionID string, additions, deletions int) {
 	if completionID == "" {
 		return
 	}
-
-	req := &sweepapi.MetricsRequest{
-		EventType:          sweepapi.EventAccepted,
-		SuggestionType:     sweepapi.SuggestionGhostText,
-		Additions:          additions,
-		Deletions:          deletions,
-		AutocompleteID:     completionID,
-		DebugInfo:          "cursortab-nvim",
-		PrivacyModeEnabled: p.config.PrivacyMode,
-	}
-
-	if err := p.client.TrackMetrics(ctx, req); err != nil {
-		logger.Warn("sweepapi: failed to track acceptance: %v", err)
+	select {
+	case p.metricsCh <- metricsEvent{eventType, completionID, additions, deletions}:
+	default:
+		logger.Warn("sweepapi: metrics channel full, dropping %s event", eventType)
 	}
 }
 

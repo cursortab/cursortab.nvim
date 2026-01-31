@@ -193,6 +193,7 @@ type FileState struct {
 	OriginalLines []string           // Snapshot when editing session began
 	LastAccessNs  int64              // Monotonic timestamp for LRU eviction
 	Version       int                // Buffer version when last active
+	FirstLines    []string           // First 30 lines for FileChunks context
 }
 
 // EngineConfig holds engine configuration

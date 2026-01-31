@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"sort"
+
 	"cursortab/logger"
 	"cursortab/types"
 	"cursortab/utils"
@@ -36,8 +38,11 @@ func (e *Engine) saveCurrentFileState() {
 		return
 	}
 
-	e.fileStateStore[e.buffer.Path()] = e.newFileStateFromBuffer()
-	e.trimFileStateStore(2) // Keep at most 2 files
+	state := e.newFileStateFromBuffer()
+	// Capture first lines for FileChunks context
+	state.FirstLines = copyFirstN(e.buffer.Lines(), FileChunkLines)
+	e.fileStateStore[e.buffer.Path()] = state
+	e.trimFileStateStore(3) // Keep at most 3 files for FileChunks
 }
 
 // handleFileSwitch manages file state when switching between files.
@@ -47,7 +52,10 @@ func (e *Engine) handleFileSwitch(oldPath, newPath string, currentLines []string
 	}
 
 	if oldPath != "" {
-		e.fileStateStore[oldPath] = e.newFileStateFromBuffer()
+		state := e.newFileStateFromBuffer()
+		// Capture first lines for FileChunks context
+		state.FirstLines = copyFirstN(currentLines, FileChunkLines)
+		e.fileStateStore[oldPath] = state
 	}
 
 	if state, exists := e.fileStateStore[newPath]; exists {
@@ -168,5 +176,47 @@ func copyDiffs(diffs []*types.DiffEntry) []*types.DiffEntry {
 	}
 	result := make([]*types.DiffEntry, len(diffs))
 	copy(result, diffs)
+	return result
+}
+
+// copyFirstN creates a copy of the first n lines
+func copyFirstN(lines []string, n int) []string {
+	if lines == nil {
+		return nil
+	}
+	if len(lines) <= n {
+		return copyLines(lines)
+	}
+	return copyLines(lines[:n])
+}
+
+// getRecentBufferSnapshots returns up to limit recent buffer snapshots
+// excluding the current file, sorted by most recently accessed
+func (e *Engine) getRecentBufferSnapshots(excludePath string, limit int) []*types.RecentBufferSnapshot {
+	type entry struct {
+		path  string
+		state *FileState
+	}
+
+	var entries []entry
+	for path, state := range e.fileStateStore {
+		if path != excludePath && len(state.FirstLines) > 0 {
+			entries = append(entries, entry{path, state})
+		}
+	}
+
+	// Sort by LastAccessNs descending (most recent first)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].state.LastAccessNs > entries[j].state.LastAccessNs
+	})
+
+	var result []*types.RecentBufferSnapshot
+	for i := 0; i < limit && i < len(entries); i++ {
+		result = append(result, &types.RecentBufferSnapshot{
+			FilePath:    entries[i].path,
+			Lines:       entries[i].state.FirstLines,
+			TimestampMs: entries[i].state.LastAccessNs / 1e6, // ns to ms
+		})
+	}
 	return result
 }

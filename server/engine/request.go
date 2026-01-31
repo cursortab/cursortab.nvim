@@ -18,18 +18,20 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 	e.syncBuffer()
 
 	req := &types.CompletionRequest{
-		Source:            source,
-		WorkspacePath:     e.WorkspacePath,
-		WorkspaceID:       e.WorkspaceID,
-		FilePath:          e.buffer.Path(),
-		Lines:             e.buffer.Lines(),
-		Version:           e.buffer.Version(),
-		PreviousLines:     e.buffer.PreviousLines(),
-		FileDiffHistories: e.getAllFileDiffHistories(),
-		CursorRow:         e.buffer.Row(),
-		CursorCol:         e.buffer.Col(),
-		ViewportHeight:    e.getViewportHeightConstraint(),
-		LinterErrors:      e.buffer.LinterErrors(),
+		Source:                source,
+		WorkspacePath:         e.WorkspacePath,
+		WorkspaceID:           e.WorkspaceID,
+		FilePath:              e.buffer.Path(),
+		Lines:                 e.buffer.Lines(),
+		Version:               e.buffer.Version(),
+		PreviousLines:         e.buffer.PreviousLines(),
+		FileDiffHistories:     e.getAllFileDiffHistories(),
+		CursorRow:             e.buffer.Row(),
+		CursorCol:             e.buffer.Col(),
+		ViewportHeight:        e.getViewportHeightConstraint(),
+		LinterErrors:          e.buffer.LinterErrors(),
+		RecentBufferSnapshots: e.getRecentBufferSnapshots(e.buffer.Path(), 3),
+		UserActions:           e.getUserActionsForFile(e.buffer.Path()),
 	}
 
 	// Check if provider supports streaming

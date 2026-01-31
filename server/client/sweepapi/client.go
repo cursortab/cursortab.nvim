@@ -41,11 +41,13 @@ type FileChunk struct {
 	Timestamp *uint64 `json:"timestamp,omitempty"`
 }
 
-// UserAction represents a user action (not used in this implementation)
+// UserAction represents a user action for the Sweep API
 type UserAction struct {
-	ActionType  string `json:"action_type"`
-	FilePath    string `json:"file_path"`
-	NewContents string `json:"new_contents"`
+	ActionType string `json:"action_type"` // SCREAMING_SNAKE_CASE: INSERT_CHAR, DELETE_CHAR, etc.
+	FilePath   string `json:"file_path"`
+	LineNumber int    `json:"line_number"` // 1-indexed
+	Offset     int    `json:"offset"`      // Byte offset in file
+	Timestamp  int64  `json:"timestamp"`   // Unix epoch milliseconds
 }
 
 // AutocompleteResponse is the response format from the Sweep API

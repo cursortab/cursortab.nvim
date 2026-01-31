@@ -51,6 +51,10 @@ type CompletionRequest struct {
 	ViewportHeight int
 	// Linter errors if LSP is active
 	LinterErrors *LinterErrors
+	// RecentBufferSnapshots contains snapshots of recently accessed files for cross-file context
+	RecentBufferSnapshots []*RecentBufferSnapshot
+	// UserActions contains recent user edit actions for the current file
+	UserActions []*UserAction
 }
 
 // CompletionResponse contains both completions and cursor prediction target
@@ -101,6 +105,33 @@ type CursorRange struct {
 	StartCharacter int // 0-indexed
 	EndLine        int // 1-indexed
 	EndCharacter   int // 0-indexed
+}
+
+// RecentBufferSnapshot represents a snapshot of another open file for context
+type RecentBufferSnapshot struct {
+	FilePath    string   // Full file path
+	Lines       []string // First N lines of the file
+	TimestampMs int64    // Unix epoch milliseconds when file was last accessed
+}
+
+// UserActionType represents the type of user action
+type UserActionType string
+
+const (
+	ActionInsertChar      UserActionType = "INSERT_CHAR"
+	ActionInsertSelection UserActionType = "INSERT_SELECTION"
+	ActionDeleteChar      UserActionType = "DELETE_CHAR"
+	ActionDeleteSelection UserActionType = "DELETE_SELECTION"
+	ActionCursorMovement  UserActionType = "CURSOR_MOVEMENT"
+)
+
+// UserAction represents a tracked user edit action
+type UserAction struct {
+	ActionType  UserActionType
+	FilePath    string
+	LineNumber  int   // 1-indexed
+	Offset      int   // Byte offset in file
+	TimestampMs int64 // Unix epoch milliseconds
 }
 
 // ProviderType represents the type of provider

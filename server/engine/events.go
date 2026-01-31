@@ -188,6 +188,14 @@ func (e *Engine) dispatch(event Event) bool {
 		t.Action(e, event)
 	}
 
+	// Post-dispatch: Record user actions for RecentUserActions
+	switch event.Type {
+	case EventTextChanged:
+		e.recordTextChangeAction()
+	case EventCursorMovedNormal:
+		e.recordCursorMovementAction()
+	}
+
 	// Post-dispatch hook: InsertLeave always commits uncommitted user edits
 	if event.Type == EventInsertLeave {
 		e.syncBuffer()

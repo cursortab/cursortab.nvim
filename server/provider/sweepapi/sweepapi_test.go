@@ -457,3 +457,192 @@ func TestAcceptCompletionNoOpWithoutCompletion(t *testing.T) {
 func sleepMs(ms int) {
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 }
+
+func TestGetCompletionIncludesFileChunks(t *testing.T) {
+	var receivedReq sweepapi.AutocompleteRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend/track_autocomplete_metrics" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Capture the request
+		compressedBody, _ := io.ReadAll(r.Body)
+		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
+		decompressed, _ := io.ReadAll(brotliReader)
+		json.Unmarshal(decompressed, &receivedReq)
+
+		resp := sweepapi.AutocompleteResponse{
+			AutocompleteID: "test-id",
+			StartIndex:     0,
+			EndIndex:       5,
+			Completion:     "hello world",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL: server.URL,
+	})
+
+	req := &types.CompletionRequest{
+		FilePath:  "main.go",
+		Lines:     []string{"package main", "", "func main() {}"},
+		CursorRow: 3,
+		CursorCol: 14,
+		RecentBufferSnapshots: []*types.RecentBufferSnapshot{
+			{
+				FilePath:    "/project/utils.go",
+				Lines:       []string{"package utils", "", "func Helper() {}"},
+				TimestampMs: 1234567890,
+			},
+			{
+				FilePath:    "/project/config.go",
+				Lines:       []string{"package config", "var Debug = true"},
+				TimestampMs: 1234567800,
+			},
+		},
+	}
+
+	_, err := provider.GetCompletion(context.Background(), req)
+	assert.NoError(t, err, "GetCompletion")
+
+	// Verify FileChunks were included
+	assert.Len(t, 2, receivedReq.FileChunks, "FileChunks count")
+
+	chunk1 := receivedReq.FileChunks[0]
+	assert.Equal(t, "/project/utils.go", chunk1.FilePath, "first chunk path")
+	assert.True(t, strings.Contains(chunk1.Content, "package utils"), "first chunk content")
+	assert.NotNil(t, chunk1.Timestamp, "first chunk timestamp should be set")
+	assert.Equal(t, uint64(1234567890), *chunk1.Timestamp, "first chunk timestamp value")
+
+	chunk2 := receivedReq.FileChunks[1]
+	assert.Equal(t, "/project/config.go", chunk2.FilePath, "second chunk path")
+}
+
+func TestGetCompletionIncludesUserActions(t *testing.T) {
+	var receivedReq sweepapi.AutocompleteRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend/track_autocomplete_metrics" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		compressedBody, _ := io.ReadAll(r.Body)
+		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
+		decompressed, _ := io.ReadAll(brotliReader)
+		json.Unmarshal(decompressed, &receivedReq)
+
+		resp := sweepapi.AutocompleteResponse{
+			AutocompleteID: "test-id",
+			StartIndex:     0,
+			EndIndex:       5,
+			Completion:     "hello",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL: server.URL,
+	})
+
+	req := &types.CompletionRequest{
+		FilePath:  "main.go",
+		Lines:     []string{"func main() {}"},
+		CursorRow: 1,
+		CursorCol: 14,
+		UserActions: []*types.UserAction{
+			{
+				ActionType:  types.ActionInsertChar,
+				FilePath:    "main.go",
+				LineNumber:  1,
+				Offset:      14,
+				TimestampMs: 1000,
+			},
+			{
+				ActionType:  types.ActionCursorMovement,
+				FilePath:    "main.go",
+				LineNumber:  1,
+				Offset:      10,
+				TimestampMs: 900,
+			},
+			{
+				ActionType:  types.ActionDeleteChar,
+				FilePath:    "main.go",
+				LineNumber:  1,
+				Offset:      13,
+				TimestampMs: 950,
+			},
+		},
+	}
+
+	_, err := provider.GetCompletion(context.Background(), req)
+	assert.NoError(t, err, "GetCompletion")
+
+	// Verify UserActions were included
+	assert.Len(t, 3, receivedReq.RecentUserActions, "UserActions count")
+
+	action1 := receivedReq.RecentUserActions[0]
+	assert.Equal(t, "INSERT_CHAR", action1.ActionType, "first action type")
+	assert.Equal(t, "main.go", action1.FilePath, "first action path")
+	assert.Equal(t, 1, action1.LineNumber, "first action line")
+	assert.Equal(t, 14, action1.Offset, "first action offset")
+	assert.Equal(t, int64(1000), action1.Timestamp, "first action timestamp")
+
+	action2 := receivedReq.RecentUserActions[1]
+	assert.Equal(t, "CURSOR_MOVEMENT", action2.ActionType, "second action type")
+
+	action3 := receivedReq.RecentUserActions[2]
+	assert.Equal(t, "DELETE_CHAR", action3.ActionType, "third action type")
+}
+
+func TestGetCompletionWithEmptyContextFields(t *testing.T) {
+	var receivedJSON map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/backend/track_autocomplete_metrics" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		compressedBody, _ := io.ReadAll(r.Body)
+		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
+		decompressed, _ := io.ReadAll(brotliReader)
+		json.Unmarshal(decompressed, &receivedJSON)
+
+		resp := sweepapi.AutocompleteResponse{
+			Completion: "",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL: server.URL,
+	})
+
+	req := &types.CompletionRequest{
+		FilePath:              "main.go",
+		Lines:                 []string{"hello"},
+		CursorRow:             1,
+		CursorCol:             5,
+		RecentBufferSnapshots: nil, // Explicitly nil
+		UserActions:           nil, // Explicitly nil
+	}
+
+	_, err := provider.GetCompletion(context.Background(), req)
+	assert.NoError(t, err, "GetCompletion")
+
+	// Verify empty arrays are sent in JSON (not null)
+	fileChunks, ok := receivedJSON["file_chunks"].([]any)
+	assert.True(t, ok, "FileChunks should be an array in JSON")
+	assert.Equal(t, 0, len(fileChunks), "FileChunks should be empty")
+
+	userActions, ok := receivedJSON["recent_user_actions"].([]any)
+	assert.True(t, ok, "UserActions should be an array in JSON")
+	assert.Equal(t, 0, len(userActions), "UserActions should be empty")
+}

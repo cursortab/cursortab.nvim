@@ -279,8 +279,8 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		MultipleSuggestions:  false,
 		UseBytes:             true,
 		PrivacyModeEnabled:   p.config.PrivacyMode,
-		FileChunks:           []sweepapi.FileChunk{},  // Not implemented: would need engine changes
-		RecentUserActions:    []sweepapi.UserAction{}, // Not implemented: would need engine changes
+		FileChunks:           buildFileChunks(req.RecentBufferSnapshots),
+		RecentUserActions:    convertUserActions(req.UserActions),
 		RetrievalChunks:      retrievalChunks,
 	}
 
@@ -467,4 +467,60 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 		StartLine: 1,
 		EndLine:   lineCount,
 	}}
+}
+
+// buildFileChunks converts RecentBufferSnapshots to FileChunks for the API.
+// Respects MaxInputChars and MaxInputLines limits.
+func buildFileChunks(snapshots []*types.RecentBufferSnapshot) []sweepapi.FileChunk {
+	if len(snapshots) == 0 {
+		return []sweepapi.FileChunk{}
+	}
+
+	chunks := make([]sweepapi.FileChunk, 0, len(snapshots))
+	totalChars := 0
+	totalLines := 0
+
+	for _, snap := range snapshots {
+		content := strings.Join(snap.Lines, "\n")
+		lineCount := len(snap.Lines)
+
+		// Check if adding this chunk would exceed limits
+		if totalChars+len(content) > MaxInputChars || totalLines+lineCount > MaxInputLines {
+			break
+		}
+
+		ts := uint64(snap.TimestampMs)
+		chunks = append(chunks, sweepapi.FileChunk{
+			FilePath:  snap.FilePath,
+			Content:   content,
+			StartLine: 0,
+			EndLine:   lineCount,
+			Timestamp: &ts,
+		})
+
+		totalChars += len(content)
+		totalLines += lineCount
+	}
+	return chunks
+}
+
+// convertUserActions converts types.UserAction to sweepapi.UserAction.
+// Since actions are small fixed-size records, we just convert them all
+// (the engine already limits to MaxUserActions=16).
+func convertUserActions(actions []*types.UserAction) []sweepapi.UserAction {
+	if len(actions) == 0 {
+		return []sweepapi.UserAction{}
+	}
+
+	result := make([]sweepapi.UserAction, 0, len(actions))
+	for _, a := range actions {
+		result = append(result, sweepapi.UserAction{
+			ActionType: string(a.ActionType),
+			FilePath:   a.FilePath,
+			LineNumber: a.LineNumber,
+			Offset:     a.Offset,
+			Timestamp:  a.TimestampMs,
+		})
+	}
+	return result
 }

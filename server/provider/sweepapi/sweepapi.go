@@ -12,6 +12,192 @@ import (
 	"cursortab/types"
 )
 
+// SweepAPI input limits
+const (
+	MaxInputLines = 50000      // Maximum lines for any input
+	MaxInputChars = 10_000_000 // Maximum characters for any input
+)
+
+// truncateContext limits content to MaxInputLines and MaxInputChars while
+// preserving cursor position. Returns truncated lines, adjusted cursor row/col,
+// and the offset (lines removed from start) for response adjustment.
+func truncateContext(lines []string, cursorRow, cursorCol int) ([]string, int, int, int) {
+	if len(lines) == 0 {
+		return lines, cursorRow, cursorCol, 0
+	}
+
+	// Fast path: check if within both limits
+	if len(lines) <= MaxInputLines {
+		totalChars := 0
+		for _, line := range lines {
+			totalChars += len(line) + 1 // +1 for newline
+		}
+		if totalChars <= MaxInputChars {
+			return lines, cursorRow, cursorCol, 0
+		}
+	}
+
+	// Clamp cursor to valid range (1-indexed)
+	if cursorRow < 1 {
+		cursorRow = 1
+	}
+	if cursorRow > len(lines) {
+		cursorRow = len(lines)
+	}
+	cursorIdx := cursorRow - 1 // 0-indexed
+
+	// Calculate effective max lines based on both limits
+	maxLines := min(MaxInputLines, len(lines))
+
+	// Balanced window around cursor
+	halfWindow := maxLines / 2
+	startLine := max(0, cursorIdx-halfWindow)
+	endLine := min(len(lines), startLine+maxLines)
+
+	// Adjust if we hit the end
+	if endLine == len(lines) {
+		startLine = max(0, endLine-maxLines)
+	}
+
+	result := lines[startLine:endLine]
+
+	// Apply character limit if still over
+	totalChars := 0
+	for _, line := range result {
+		totalChars += len(line) + 1
+	}
+
+	if totalChars > MaxInputChars {
+		result, startLine = trimByChars(result, cursorIdx-startLine, startLine)
+	}
+
+	newCursorRow := cursorRow - startLine
+	return result, newCursorRow, cursorCol, startLine
+}
+
+// trimByChars further trims lines to fit within MaxInputChars while keeping
+// content centered around the cursor. Returns the trimmed lines and the new
+// base offset for line number adjustment.
+func trimByChars(lines []string, cursorIdxInWindow, baseOffset int) ([]string, int) {
+	if len(lines) == 0 {
+		return lines, baseOffset
+	}
+
+	// Clamp cursor to valid range
+	if cursorIdxInWindow < 0 {
+		cursorIdxInWindow = 0
+	}
+	if cursorIdxInWindow >= len(lines) {
+		cursorIdxInWindow = len(lines) - 1
+	}
+
+	// Start with cursor line
+	cursorLineChars := len(lines[cursorIdxInWindow]) + 1
+	remainingBudget := MaxInputChars - cursorLineChars
+	halfBudget := remainingBudget / 2
+
+	// Expand before cursor
+	startIdx := cursorIdxInWindow
+	charsBefore := 0
+	for startIdx > 0 && charsBefore < halfBudget {
+		newChars := len(lines[startIdx-1]) + 1
+		if charsBefore+newChars <= halfBudget {
+			startIdx--
+			charsBefore += newChars
+		} else {
+			break
+		}
+	}
+
+	// Expand after cursor with remaining budget
+	unusedBefore := halfBudget - charsBefore
+	budgetAfter := halfBudget + unusedBefore
+	endIdx := cursorIdxInWindow
+	charsAfter := 0
+	for endIdx < len(lines)-1 && charsAfter < budgetAfter {
+		newChars := len(lines[endIdx+1]) + 1
+		if charsAfter+newChars <= budgetAfter {
+			endIdx++
+			charsAfter += newChars
+		} else {
+			break
+		}
+	}
+
+	// Use any remaining budget to expand before
+	unusedAfter := budgetAfter - charsAfter
+	if unusedAfter > 0 {
+		for startIdx > 0 {
+			newChars := len(lines[startIdx-1]) + 1
+			if charsBefore+newChars <= halfBudget+unusedAfter {
+				startIdx--
+				charsBefore += newChars
+			} else {
+				break
+			}
+		}
+	}
+
+	return lines[startIdx : endIdx+1], baseOffset + startIdx
+}
+
+// truncateDiffHistories limits diff history to MaxInputChars and MaxInputLines,
+// keeping the most recent entries (from the end of each file's history).
+func truncateDiffHistories(histories []*types.FileDiffHistory) []*types.FileDiffHistory {
+	if len(histories) == 0 {
+		return histories
+	}
+
+	// Calculate total size
+	totalChars := 0
+	totalLines := 0
+	for _, h := range histories {
+		for _, entry := range h.DiffHistory {
+			totalChars += len(entry.Original) + len(entry.Updated)
+			totalLines += strings.Count(entry.Original, "\n") + strings.Count(entry.Updated, "\n") + 2
+		}
+	}
+
+	if totalChars <= MaxInputChars && totalLines <= MaxInputLines {
+		return histories
+	}
+
+	// Trim from the end of the list (oldest files first), then oldest entries
+	result := make([]*types.FileDiffHistory, 0, len(histories))
+	remainingChars := MaxInputChars
+	remainingLines := MaxInputLines
+
+	// Process in reverse order (most recent files first)
+	for i := len(histories) - 1; i >= 0 && remainingChars > 0 && remainingLines > 0; i-- {
+		h := histories[i]
+		if len(h.DiffHistory) == 0 {
+			continue
+		}
+
+		// Trim entries within this file's history (keep recent ones)
+		var keptEntries []*types.DiffEntry
+		for j := len(h.DiffHistory) - 1; j >= 0 && remainingChars > 0 && remainingLines > 0; j-- {
+			entry := h.DiffHistory[j]
+			entryChars := len(entry.Original) + len(entry.Updated)
+			entryLines := strings.Count(entry.Original, "\n") + strings.Count(entry.Updated, "\n") + 2
+			if entryChars <= remainingChars && entryLines <= remainingLines {
+				keptEntries = append([]*types.DiffEntry{entry}, keptEntries...)
+				remainingChars -= entryChars
+				remainingLines -= entryLines
+			}
+		}
+
+		if len(keptEntries) > 0 {
+			result = append([]*types.FileDiffHistory{{
+				FileName:    h.FileName,
+				DiffHistory: keptEntries,
+			}}, result...)
+		}
+	}
+
+	return result
+}
+
 // metricsEvent represents a metrics tracking event to be sent to the API.
 type metricsEvent struct {
 	eventType    sweepapi.EventType
@@ -56,14 +242,21 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
 	defer logger.Trace("sweepapi.GetCompletion")()
 
+	// Apply context limits
+	lines, cursorRow, cursorCol, trimOffset := truncateContext(req.Lines, req.CursorRow, req.CursorCol)
+	if trimOffset > 0 {
+		logger.Debug("sweepapi: truncated context, removed %d lines from start", trimOffset)
+	}
+
 	// Build file contents from lines
-	fileContents := strings.Join(req.Lines, "\n")
+	fileContents := strings.Join(lines, "\n")
 
 	// Convert cursor to byte offset
-	cursorPosition := sweepapi.CursorToByteOffset(req.Lines, req.CursorRow, req.CursorCol)
+	cursorPosition := sweepapi.CursorToByteOffset(lines, cursorRow, cursorCol)
 
-	// Format recent changes from diff histories
-	recentChanges := formatRecentChanges(req.FileDiffHistories)
+	// Truncate and format recent changes from diff histories
+	diffHistories := truncateDiffHistories(req.FileDiffHistories)
+	recentChanges := formatRecentChanges(diffHistories)
 
 	// Format diagnostics as retrieval chunks
 	retrievalChunks := formatDiagnostics(req.LinterErrors)
@@ -86,7 +279,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		MultipleSuggestions:  false,
 		UseBytes:             true,
 		PrivacyModeEnabled:   p.config.PrivacyMode,
-		FileChunks:           []sweepapi.FileChunk{}, // Not implemented: would need engine changes
+		FileChunks:           []sweepapi.FileChunk{},  // Not implemented: would need engine changes
 		RecentUserActions:    []sweepapi.UserAction{}, // Not implemented: would need engine changes
 		RetrievalChunks:      retrievalChunks,
 	}
@@ -140,8 +333,8 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	return &types.CompletionResponse{
 		Completions: []*types.Completion{{
-			StartLine:  startLine,
-			EndLineInc: origEndLine,
+			StartLine:  startLine + trimOffset,
+			EndLineInc: origEndLine + trimOffset,
 			Lines:      newLines,
 		}},
 	}, nil
@@ -246,6 +439,9 @@ func formatDiagnostics(linterErrors *types.LinterErrors) []sweepapi.FileChunk {
 	var sb strings.Builder
 	lineCount := 0
 	for _, err := range linterErrors.Errors {
+		if sb.Len() >= MaxInputChars || lineCount >= MaxInputLines {
+			break
+		}
 		if err.Range != nil {
 			sb.WriteString("Line ")
 			sb.WriteString(strconv.Itoa(err.Range.StartLine))

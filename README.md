@@ -145,13 +145,13 @@ For detailed configuration documentation, see `:help cursortab-config`.
 The plugin supports five AI provider backends: Inline, FIM, Sweep, Sweep API,
 and Zeta.
 
-| Provider  | Multi-line | Multi-edit | Cursor Prediction | Model             |
-| --------- | :--------: | :--------: | :---------------: | ----------------- |
-| Inline    |            |            |                   | Any base model    |
-| FIM       |     ✓      |            |                   | Any FIM-capable   |
-| Sweep     |     ✓      |     ✓      |         ✓         | `sweep-next-edit` |
-| Sweep API |     ✓      |     ✓      |         ✓         | Sweep hosted API  |
-| Zeta      |     ✓      |     ✓      |         ✓         | `zeta`            |
+| Provider  | Multi-line | Multi-edit | Cursor Prediction | Model                         |
+| --------- | :--------: | :--------: | :---------------: | ----------------------------- |
+| Inline    |            |            |                   | Any base model                |
+| FIM       |     ✓      |            |                   | Any FIM-capable               |
+| Sweep     |     ✓      |     ✓      |         ✓         | `sweep-next-edit-1.5b`        |
+| Sweep API |     ✓      |     ✓      |         ✓         | `sweep-next-edit-7b` (hosted) |
+| Zeta      |     ✓      |     ✓      |         ✓         | `zeta`                        |
 
 #### Inline Provider (Default)
 
@@ -254,12 +254,21 @@ llama-server -m sweep-next-edit-1.5b.q8_0.v2.gguf --port 8000
 
 Sweep's hosted API for Next-Edit predictions. No local model setup required.
 
+> [!NOTE]
+>
+> The hosted API runs `sweep-next-edit-7b` for better quality predictions.
+
 **Requirements:**
 
 - Create an account at [sweep.dev](https://sweep.dev/) and get your API token
-- Set the token in the environment variable specified by `api_key_env`
+- Set the `SWEEPAPI_TOKEN` environment variable with your token
 
 **Example Configuration:**
+
+```bash
+# In your shell config (.bashrc, .zshrc, etc.)
+export SWEEPAPI_TOKEN="your-api-token-here"
+```
 
 ```lua
 require("cursortab").setup({

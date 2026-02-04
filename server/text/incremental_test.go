@@ -2096,3 +2096,80 @@ func TestIncrementalStageBuilder_WhitespaceLineExpansion(t *testing.T) {
 		}
 	}
 }
+
+// TestIncrementalStageBuilder_LowSimilarityModification tests that when streaming
+// classifies a change as an addition (due to low similarity), the fallback matching
+// in finalizeCurrentStage correctly identifies it as a modification, resulting in
+// correct BufferStart computation.
+//
+// This was a bug where low-similarity modifications (similarity < 0.35) were
+// classified as additions during streaming, causing the "pure additions" logic
+// to incorrectly add +1 to BufferStart.
+func TestIncrementalStageBuilder_LowSimilarityModification(t *testing.T) {
+	tests := []struct {
+		name           string
+		oldLine        string
+		newLine        string
+		baseLineOffset int
+		wantBufferLine int
+	}{
+		{
+			name:           "single line with low similarity",
+			oldLine:        `console.log("");`,
+			newLine:        `console.log("OPENROUTER_API_KEY", process.env.OPENROUTER_API_KEY);`,
+			baseLineOffset: 1,
+			wantBufferLine: 1,
+		},
+		{
+			name:           "empty parens to full content",
+			oldLine:        `console.log();`,
+			newLine:        `console.log("OPENROUTER_API_KEY", process.env.OPENROUTER_API_KEY || "YOUR_API_KEY");`,
+			baseLineOffset: 1,
+			wantBufferLine: 1,
+		},
+		{
+			name:           "with non-zero base offset",
+			oldLine:        `return null;`,
+			newLine:        `return { data: response.data, status: response.status };`,
+			baseLineOffset: 5,
+			wantBufferLine: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldLines := []string{tt.oldLine}
+
+			builder := NewIncrementalStageBuilder(
+				oldLines,
+				tt.baseLineOffset,
+				10,   // proximityThreshold
+				0,    // maxVisibleLines
+				0, 0, // viewport disabled
+				tt.baseLineOffset, 0, // cursor at the line being modified
+				"test.ts",
+			)
+
+			builder.AddLine(tt.newLine)
+
+			result := builder.Finalize()
+			assert.NotNil(t, result, "result should not be nil")
+			assert.Equal(t, 1, len(result.Stages), "should have 1 stage")
+
+			stage := result.Stages[0]
+			assert.Equal(t, tt.wantBufferLine, stage.BufferStart,
+				"BufferStart should match baseLineOffset for single-line modification")
+			assert.Equal(t, tt.wantBufferLine, stage.BufferEnd,
+				"BufferEnd should match BufferStart for single-line")
+
+			assert.True(t, len(stage.Groups) > 0, "should have groups")
+			if len(stage.Groups) > 0 {
+				group := stage.Groups[0]
+				assert.Equal(t, tt.wantBufferLine, group.BufferLine,
+					"Group BufferLine should match expected")
+				assert.Equal(t, "modification", group.Type,
+					"should be classified as modification after fallback matching")
+			}
+		})
+	}
+}

@@ -436,31 +436,11 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 		}
 	}
 
-	// Compute BufferStart from the old line range
+	// Compute initial BufferStart from the old line range (before additions adjustment)
 	bufferStart := b.BaseLineOffset
 	if minOld > 0 {
 		bufferStart = minOld + b.BaseLineOffset - 1
 	}
-
-	// Check if this is a pure additions stage (no modifications)
-	hasPureAdditionsOnly := true
-	for _, change := range stage.rawChanges {
-		if change.Type != ChangeAddition {
-			hasPureAdditionsOnly = false
-			break
-		}
-	}
-
-	// For pure additions WITH a valid anchor, the buffer range represents
-	// where the new content will be INSERTED, not the anchor. Additions are inserted
-	// AFTER the anchor line, so we need to add 1 to get the insertion point.
-	// This matches the non-streaming getStageBufferRange behavior.
-	if hasPureAdditionsOnly && minOld > 0 {
-		bufferStart++
-	}
-
-	stage.BufferStart = bufferStart
-	stage.BufferEnd = max(bufferStart+len(stageOldLines)-1, bufferStart)
 
 	// Build changes using the LineMapping from streaming for line correspondence,
 	// then categorize each pair individually. This preserves the ordered prefix
@@ -532,6 +512,29 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 		}
 		remappedChanges[relativeLine] = change
 	}
+
+	// Check if this is a pure additions stage using the REMAPPED changes.
+	// This is important because streaming may classify low-similarity modifications
+	// as additions, but the fallback matching above correctly identifies them as
+	// modifications. We use the final classification to decide on buffer positioning.
+	hasPureAdditionsOnly := true
+	for _, change := range remappedChanges {
+		if change.Type != ChangeAddition {
+			hasPureAdditionsOnly = false
+			break
+		}
+	}
+
+	// For pure additions WITH a valid anchor, the buffer range represents
+	// where the new content will be INSERTED, not the anchor. Additions are inserted
+	// AFTER the anchor line, so we need to add 1 to get the insertion point.
+	// This matches the non-streaming getStageBufferRange behavior.
+	if hasPureAdditionsOnly && minOld > 0 {
+		bufferStart++
+	}
+
+	stage.BufferStart = bufferStart
+	stage.BufferEnd = max(bufferStart+len(stageOldLines)-1, bufferStart)
 
 	// Build mapping from relative line to buffer line for modifications.
 	// Modifications map to their old line position in the buffer.

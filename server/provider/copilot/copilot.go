@@ -184,15 +184,19 @@ func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg strin
 
 // AcceptCompletion implements engine.CompletionAccepter for telemetry
 func (p *Provider) AcceptCompletion(ctx context.Context) {
-	if p.lastCommand == nil {
+	p.mu.Lock()
+	cmd := p.lastCommand
+	p.lastCommand = nil
+	p.mu.Unlock()
+
+	if cmd == nil {
 		return
 	}
 
-	logger.Debug("copilot: executing telemetry command: %s", p.lastCommand.Command)
-	if err := p.buffer.ExecuteCopilotCommand(p.lastCommand.Command, p.lastCommand.Arguments); err != nil {
+	logger.Debug("copilot: executing telemetry command: %s", cmd.Command)
+	if err := p.buffer.ExecuteCopilotCommand(cmd.Command, cmd.Arguments); err != nil {
 		logger.Warn("failed to execute copilot command: %v", err)
 	}
-	p.lastCommand = nil
 }
 
 // ensureHandlerRegistered registers the RPC handler for Copilot responses (once per connection)
@@ -221,7 +225,9 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 	edit := edits[0]
 
 	// Store command for telemetry on accept
+	p.mu.Lock()
 	p.lastCommand = edit.Command
+	p.mu.Unlock()
 
 	// Validate version matches (avoid stale edits)
 	if edit.TextDoc.Version != 0 && edit.TextDoc.Version != req.Version {

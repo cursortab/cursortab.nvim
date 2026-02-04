@@ -18,7 +18,7 @@ const (
 	EventEsc               EventType = "esc"
 	EventTextChanged       EventType = "text_changed"
 	EventTextChangeTimeout EventType = "trigger_completion"
-	EventCursorMovedNormal EventType = "cursor_moved_normal"
+	EventCursorMoved       EventType = "cursor_moved"
 	EventInsertEnter       EventType = "insert_enter"
 	EventInsertLeave       EventType = "insert_leave"
 	EventAccept            EventType = "accept"
@@ -61,7 +61,7 @@ func buildEventTypeMap() map[string]EventType {
 		EventEsc,
 		EventTextChanged,
 		EventTextChangeTimeout,
-		EventCursorMovedNormal,
+		EventCursorMoved,
 		EventInsertEnter,
 		EventInsertLeave,
 		EventAccept,
@@ -124,12 +124,12 @@ type Transition struct {
 //	                                     (prefetch?) --> HasCompl. or Pending
 //
 //	Rejection (any -> Idle): Esc, InsertLeave, TextChanged mismatch
-//	CursorMovedNormal: resets idle timer (any state)
+//	CursorMoved: resets idle timer (any state)
 var transitions = []Transition{
 	// From stateIdle
 	{stateIdle, EventTextChangeTimeout, (*Engine).doRequestCompletion},
 	{stateIdle, EventIdleTimeout, (*Engine).doRequestIdleCompletion},
-	{stateIdle, EventCursorMovedNormal, (*Engine).doResetIdleTimer},
+	{stateIdle, EventCursorMoved, (*Engine).doResetIdleTimer},
 	{stateIdle, EventInsertEnter, (*Engine).doStopIdleTimer},
 	{stateIdle, EventInsertLeave, (*Engine).doStartIdleTimer},
 	{stateIdle, EventEsc, (*Engine).doStopIdleTimer},
@@ -139,7 +139,7 @@ var transitions = []Transition{
 	{statePendingCompletion, EventTextChanged, (*Engine).doTextChangePending},
 	{statePendingCompletion, EventEsc, (*Engine).doReject},
 	{statePendingCompletion, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
-	{statePendingCompletion, EventCursorMovedNormal, (*Engine).doResetIdleTimer},
+	{statePendingCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 
 	// From stateHasCompletion
 	{stateHasCompletion, EventAccept, (*Engine).doAcceptCompletion},
@@ -147,14 +147,14 @@ var transitions = []Transition{
 	{stateHasCompletion, EventEsc, (*Engine).doReject},
 	{stateHasCompletion, EventTextChanged, (*Engine).doTextChangeWithCompletion},
 	{stateHasCompletion, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
-	{stateHasCompletion, EventCursorMovedNormal, (*Engine).doResetIdleTimer},
+	{stateHasCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 
 	// From stateHasCursorTarget
 	{stateHasCursorTarget, EventAccept, (*Engine).doAcceptCursorTarget},
 	{stateHasCursorTarget, EventEsc, (*Engine).doReject},
 	{stateHasCursorTarget, EventTextChanged, (*Engine).doRejectAndDebounce},
 	{stateHasCursorTarget, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
-	{stateHasCursorTarget, EventCursorMovedNormal, (*Engine).doResetIdleTimer},
+	{stateHasCursorTarget, EventCursorMoved, (*Engine).doResetIdleTimer},
 
 	// From stateStreamingCompletion
 	{stateStreamingCompletion, EventAccept, (*Engine).doAcceptStreamingCompletion},
@@ -162,7 +162,7 @@ var transitions = []Transition{
 	{stateStreamingCompletion, EventPartialAccept, (*Engine).doPartialAcceptStreaming},
 	{stateStreamingCompletion, EventTextChanged, (*Engine).doRejectStreamingAndDebounce},
 	{stateStreamingCompletion, EventInsertLeave, (*Engine).doRejectStreamingAndStartIdleTimer},
-	{stateStreamingCompletion, EventCursorMovedNormal, (*Engine).doResetIdleTimer},
+	{stateStreamingCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 }
 
 // transitionMap provides O(1) lookup for transitions by (state, event) pair
@@ -192,7 +192,7 @@ func (e *Engine) dispatch(event Event) bool {
 	switch event.Type {
 	case EventTextChanged:
 		e.recordTextChangeAction()
-	case EventCursorMovedNormal:
+	case EventCursorMoved:
 		e.recordCursorMovementAction()
 	}
 

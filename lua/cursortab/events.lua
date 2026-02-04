@@ -27,6 +27,10 @@ local skip_next_cursor_moved = false
 ---@type boolean
 local awaiting_completion_after_jump = false
 
+-- Track if text changed in current event loop tick (to dedupe with CursorMovedI)
+---@type boolean
+local text_changed_this_tick = false
+
 -- Function to clear all visible completions and predictions
 local function clear_all_completions()
 	-- Clear cursor prediction UI
@@ -157,6 +161,12 @@ local function setup_autocommands()
 				return
 			end
 
+			-- Mark that text changed this tick (to dedupe with CursorMovedI)
+			text_changed_this_tick = true
+			vim.schedule(function()
+				text_changed_this_tick = false
+			end)
+
 			-- Handle cursor prediction (always clear - no partial match logic)
 			if ui.has_cursor_prediction() then
 				ui.ensure_close_all()
@@ -178,7 +188,7 @@ local function setup_autocommands()
 		end,
 	})
 
-	-- Cursor movement events
+	-- Cursor movement events (normal mode)
 	vim.api.nvim_create_autocmd({ "CursorMoved" }, {
 		callback = function()
 			-- Skip if cursor movement events are temporarily suppressed (e.g., after tab key)
@@ -195,7 +205,33 @@ local function setup_autocommands()
 			if ui.has_cursor_prediction() or ui.has_completion() then
 				ui.ensure_close_all()
 			end
-			daemon.send_event("cursor_moved_normal")
+			daemon.send_event("cursor_moved")
+		end,
+	})
+
+	-- Cursor movement events (insert mode - e.g., arrow keys)
+	vim.api.nvim_create_autocmd({ "CursorMovedI" }, {
+		callback = function()
+			-- Skip if text changed this tick (typing already triggers completion request)
+			if text_changed_this_tick then
+				return
+			end
+
+			-- Skip if cursor movement events are temporarily suppressed (e.g., after tab key)
+			if skip_next_cursor_moved then
+				skip_next_cursor_moved = false
+				return
+			end
+
+			-- Skip while awaiting completion after cursor target jump
+			if awaiting_completion_after_jump then
+				return
+			end
+
+			if ui.has_cursor_prediction() or ui.has_completion() then
+				ui.ensure_close_all()
+			end
+			daemon.send_event("cursor_moved")
 		end,
 	})
 

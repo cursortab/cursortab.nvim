@@ -67,7 +67,6 @@ func NewDaemon(config Config) (*Daemon, error) {
 		Middle: config.Provider.FIMTokens.Middle,
 	}
 
-	// Create buffer first (needed by Copilot provider)
 	buf := buffer.New(buffer.Config{
 		NsID: config.NsID,
 	})

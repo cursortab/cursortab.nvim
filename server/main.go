@@ -69,9 +69,9 @@ type Config struct {
 // All config must come from the Lua client - no defaults are applied here.
 func (c *Config) Validate() error {
 	// Validate provider type
-	validProviders := map[string]bool{"inline": true, "fim": true, "sweep": true, "sweepapi": true, "zeta": true}
+	validProviders := map[string]bool{"inline": true, "fim": true, "sweep": true, "sweepapi": true, "zeta": true, "copilot": true}
 	if !validProviders[c.Provider.Type] {
-		return fmt.Errorf("invalid provider.type %q: must be one of inline, fim, sweep, sweepapi, zeta", c.Provider.Type)
+		return fmt.Errorf("invalid provider.type %q: must be one of inline, fim, sweep, sweepapi, zeta, copilot", c.Provider.Type)
 	}
 
 	// Validate log level

@@ -25,6 +25,7 @@ Currently supports custom models and models form Zeta (Zed) and SweepAI.
     * [Sweep Provider](#sweep-provider)
     * [Sweep API Provider](#sweep-api-provider)
     * [Zeta Provider](#zeta-provider)
+    * [Copilot Provider](#copilot-provider)
   * [blink.cmp Integration](#blinkcmp-integration)
 * [Usage](#usage)
   * [Commands](#commands)
@@ -112,7 +113,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", or "zeta"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", or "copilot"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -145,8 +146,8 @@ For detailed configuration documentation, see `:help cursortab-config`.
 
 ### Providers
 
-The plugin supports five AI provider backends: Inline, FIM, Sweep, Sweep API,
-and Zeta.
+The plugin supports six AI provider backends: Inline, FIM, Sweep, Sweep API,
+Zeta, and Copilot.
 
 | Provider  | Multi-line | Multi-edit | Cursor Prediction | Model                         |
 | --------- | :--------: | :--------: | :---------------: | ----------------------------- |
@@ -155,6 +156,7 @@ and Zeta.
 | Sweep     |     ✓      |     ✓      |         ✓         | `sweep-next-edit-1.5b`        |
 | Sweep API |     ✓      |     ✓      |         ✓         | `sweep-next-edit-7b` (hosted) |
 | Zeta      |     ✓      |     ✓      |         ✓         | `zeta`                        |
+| Copilot   |     ✓      |     ✓      |         ✓         | GitHub Copilot                |
 
 #### Inline Provider (Default)
 
@@ -312,6 +314,35 @@ require("cursortab").setup({
 vllm serve zed-industries/zeta --served-model-name zeta --port 8000
 
 # See the HuggingFace page for optimized deployment options
+```
+
+#### Copilot Provider
+
+GitHub Copilot completions using the official
+[copilot-language-server](https://github.com/github/copilot-language-server-release)
+LSP server, enabled with `vim.lsp.enable`. Can be installed in multiple ways:
+
+1. Install using `npm` or your OS's package manager
+2. Install with
+   [mason-lspconfig.nvim](https://github.com/mason-org/mason-lspconfig.nvim)
+3. [copilot.lua](https://github.com/zbirenbaum/copilot.lua) and
+   [copilot.vim](https://github.com/github/copilot.vim) both bundle the LSP
+   server in their plugin
+4. Sign in to Copilot: `:LspCopilotSignIn`
+
+**Requirements:**
+
+- GitHub Copilot subscription
+- `copilot-language-server` installed and enabled via `vim.lsp.enable`
+
+**Example Configuration:**
+
+```lua
+require("cursortab").setup({
+  provider = {
+    type = "copilot",
+  },
+})
 ```
 
 ### blink.cmp Integration

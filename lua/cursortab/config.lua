@@ -249,7 +249,7 @@ local function migrate_deprecated_config(user_config)
 end
 
 -- Valid values for enum-like config options
-local valid_provider_types = { inline = true, fim = true, sweep = true, sweepapi = true, zeta = true }
+local valid_provider_types = { inline = true, fim = true, sweep = true, sweepapi = true, zeta = true, copilot = true }
 local valid_log_levels = { trace = true, debug = true, info = true, warn = true, error = true }
 
 -- Validate that all keys in user config exist in default config
@@ -288,7 +288,7 @@ local function validate_config(cfg)
 	if cfg.provider and cfg.provider.type then
 		if not valid_provider_types[cfg.provider.type] then
 			error(string.format(
-				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, sweepapi, zeta",
+				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, sweepapi, zeta, copilot",
 				cfg.provider.type
 			))
 		end

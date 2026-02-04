@@ -747,6 +747,154 @@ func diffResultToLuaFormat(diffResult *text.DiffResult, groups []*text.Group, ne
 	}
 }
 
+// CopilotClientInfo contains information about an attached Copilot LSP client
+type CopilotClientInfo struct {
+	ID             int
+	OffsetEncoding string
+}
+
+// GetCopilotClient returns info about the Copilot LSP client if attached to the current buffer
+func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
+	if b.client == nil {
+		return nil, fmt.Errorf("nvim client not set")
+	}
+
+	var result []map[string]any
+	batch := b.client.NewBatch()
+	// Check for both copilot.vim ("GitHub Copilot") and copilot.lua ("copilot") client names
+	batch.ExecLua(`
+		local function find_copilot_client()
+			-- Try copilot.lua name first
+			local clients = vim.lsp.get_clients({name = "copilot"})
+			if #clients > 0 then return clients[1] end
+			-- Fall back to copilot.vim name
+			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
+			if #clients > 0 then return clients[1] end
+			return nil
+		end
+		local client = find_copilot_client()
+		if not client then
+			return {}
+		end
+		return {{id = client.id, offset_encoding = client.offset_encoding or "utf-16"}}
+	`, &result, nil)
+
+	if err := batch.Execute(); err != nil {
+		return nil, fmt.Errorf("failed to get Copilot client: %w", err)
+	}
+
+	if len(result) == 0 {
+		return nil, nil // No Copilot client attached
+	}
+
+	return &CopilotClientInfo{
+		ID:             getNumber(result[0], "id"),
+		OffsetEncoding: getString(result[0], "offset_encoding"),
+	}, nil
+}
+
+// SendCopilotDidFocus sends textDocument/didFocus notification to Copilot LSP
+func (b *NvimBuffer) SendCopilotDidFocus(uri string) error {
+	if b.client == nil {
+		return fmt.Errorf("nvim client not set")
+	}
+
+	batch := b.client.NewBatch()
+	batch.ExecLua(`
+		local uri = ...
+		local clients = vim.lsp.get_clients({name = "copilot"})
+		if #clients == 0 then
+			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
+		end
+		if #clients > 0 then
+			clients[1]:notify("textDocument/didFocus", { textDocument = { uri = uri } })
+		end
+	`, nil, uri)
+
+	return batch.Execute()
+}
+
+// SendCopilotNESRequest sends textDocument/copilotInlineEdit request and delivers response via registered handler
+func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string, version int, row, col int) error {
+	if b.client == nil {
+		return fmt.Errorf("nvim client not set")
+	}
+
+	// Get the channel ID for RPC communication back to Go
+	chanID := b.client.ChannelID()
+
+	batch := b.client.NewBatch()
+	// The Lua code sends the request and uses rpcnotify to deliver the response back to Go
+	batch.ExecLua(`
+		local chanID, reqID, uri, version, row, col = ...
+		local clients = vim.lsp.get_clients({name = "copilot"})
+		if #clients == 0 then
+			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
+		end
+		if #clients == 0 then
+			vim.fn.rpcnotify(chanID, "cursortab_copilot_response", reqID, "[]", "no copilot client")
+			return
+		end
+		local client = clients[1]
+
+		local params = {
+			textDocument = {
+				uri = uri,
+				version = version,
+			},
+			position = {
+				line = row - 1,  -- Convert to 0-indexed
+				character = col, -- Already 0-indexed
+			},
+			context = { triggerKind = 2 },
+		}
+
+		client:request("textDocument/copilotInlineEdit", params, function(err, result)
+			local edits_json = "[]"
+			local err_msg = ""
+			if err then
+				err_msg = vim.json.encode(err)
+			elseif result and result.edits then
+				edits_json = vim.json.encode(result.edits)
+			end
+			vim.fn.rpcnotify(chanID, "cursortab_copilot_response", reqID, edits_json, err_msg)
+		end)
+	`, nil, chanID, reqID, uri, version, row, col)
+
+	return batch.Execute()
+}
+
+// ExecuteCopilotCommand executes a Copilot telemetry command (for accept tracking)
+func (b *NvimBuffer) ExecuteCopilotCommand(command string, arguments []any) error {
+	if b.client == nil {
+		return fmt.Errorf("nvim client not set")
+	}
+
+	batch := b.client.NewBatch()
+	batch.ExecLua(`
+		local command, arguments = ...
+		local clients = vim.lsp.get_clients({name = "copilot"})
+		if #clients == 0 then
+			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
+		end
+		if #clients > 0 then
+			clients[1]:exec_cmd({command = command, arguments = arguments})
+		end
+	`, nil, command, arguments)
+
+	return batch.Execute()
+}
+
+// RegisterCopilotHandler registers a handler for Copilot NES responses
+func (b *NvimBuffer) RegisterCopilotHandler(handler func(reqID int64, editsJSON string, errMsg string)) error {
+	if b.client == nil {
+		return fmt.Errorf("nvim client not set")
+	}
+	return b.client.RegisterHandler("cursortab_copilot_response", func(_ *nvim.Nvim, reqID int64, editsJSON string, errMsg string) {
+		handler(reqID, editsJSON, errMsg)
+	})
+}
+
 // extractGranularDiffs analyzes old and new lines and returns DiffEntry records
 // for each contiguous region that changed.
 func extractGranularDiffs(oldLines, newLines []string) []*types.DiffEntry {

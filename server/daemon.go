@@ -15,6 +15,7 @@ import (
 	"cursortab/buffer"
 	"cursortab/engine"
 	"cursortab/logger"
+	"cursortab/provider/copilot"
 	"cursortab/provider/fim"
 	"cursortab/provider/inline"
 	"cursortab/provider/sweep"
@@ -66,6 +67,11 @@ func NewDaemon(config Config) (*Daemon, error) {
 		Middle: config.Provider.FIMTokens.Middle,
 	}
 
+	// Create buffer first (needed by Copilot provider)
+	buf := buffer.New(buffer.Config{
+		NsID: config.NsID,
+	})
+
 	var prov engine.Provider
 	switch types.ProviderType(config.Provider.Type) {
 	case types.ProviderTypeInline:
@@ -78,13 +84,11 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = sweepapi.NewProvider(providerConfig)
 	case types.ProviderTypeZeta:
 		prov = zeta.NewProvider(providerConfig)
+	case types.ProviderTypeCopilot:
+		prov = copilot.NewProvider(buf)
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", config.Provider.Type)
 	}
-
-	buf := buffer.New(buffer.Config{
-		NsID: config.NsID,
-	})
 
 	eng, err := engine.NewEngine(prov, buf, engine.EngineConfig{
 		NsID:                config.NsID,

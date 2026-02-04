@@ -145,6 +145,7 @@ const (
 	ProviderTypeSweep    ProviderType = "sweep"
 	ProviderTypeSweepAPI ProviderType = "sweepapi"
 	ProviderTypeZeta     ProviderType = "zeta"
+	ProviderTypeCopilot  ProviderType = "copilot"
 )
 
 // FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration

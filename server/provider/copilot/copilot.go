@@ -2,14 +2,17 @@ package copilot
 
 import (
 	"context"
-	"cursortab/buffer"
-	"cursortab/logger"
-	"cursortab/types"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf16"
+	"unicode/utf8"
+
+	"cursortab/buffer"
+	"cursortab/logger"
+	"cursortab/types"
 )
 
 // CopilotEdit represents a single edit from Copilot NES response
@@ -60,14 +63,15 @@ type Provider struct {
 	pendingReqID  int64
 	pendingResult chan *CopilotResult
 
-	// Last command for telemetry on accept
-	lastCommand *CopilotCmd
+	// Last commands for telemetry on accept (one per edit)
+	lastCommands []*CopilotCmd
 
 	// Track last focused URI to avoid redundant didFocus notifications
 	lastFocusedURI string
 
-	// Handler registration (done once on first connection)
+	// Handler registration tracking
 	handlerRegistered bool
+	lastClientID      int // Track client ID to detect reconnection
 }
 
 // NewProvider creates a new Copilot provider
@@ -82,12 +86,6 @@ func NewProvider(buf *buffer.NvimBuffer) *Provider {
 func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
 	defer logger.Trace("copilot.GetCompletion")()
 
-	// Ensure handler is registered
-	if err := p.ensureHandlerRegistered(); err != nil {
-		logger.Error("failed to register copilot handler: %v", err)
-		return p.emptyResponse(), nil
-	}
-
 	// Check if Copilot client is available
 	clientInfo, err := p.buffer.GetCopilotClient()
 	if err != nil {
@@ -99,6 +97,12 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		return p.emptyResponse(), nil
 	}
 
+	// Ensure handler is registered (and re-register on reconnection)
+	if err := p.ensureHandlerRegistered(clientInfo.ID); err != nil {
+		logger.Error("failed to register copilot handler: %v", err)
+		return p.emptyResponse(), nil
+	}
+
 	// Build URI from file path
 	uri := "file://" + req.FilePath
 	if !strings.HasPrefix(req.FilePath, "/") {
@@ -106,6 +110,11 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		uri = "file://" + req.WorkspacePath + "/" + req.FilePath
 	}
 
+	// Generate unique request ID
+	reqID := atomic.AddInt64(&p.reqIDCounter, 1)
+
+	// Set up pending request (mutex protects all shared state)
+	p.mu.Lock()
 	// Send didFocus if URI changed
 	if uri != p.lastFocusedURI {
 		if err := p.buffer.SendCopilotDidFocus(uri); err != nil {
@@ -114,11 +123,6 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		p.lastFocusedURI = uri
 	}
 
-	// Generate unique request ID
-	reqID := atomic.AddInt64(&p.reqIDCounter, 1)
-
-	// Set up pending request
-	p.mu.Lock()
 	p.pendingReqID = reqID
 	// Drain any stale results
 	select {
@@ -154,12 +158,12 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 // HandleNESResponse is called by the RPC handler when Copilot responds
 func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg string) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if reqID != p.pendingReqID {
-		p.mu.Unlock()
 		logger.Debug("copilot: ignoring stale response reqID=%d (pending=%d)", reqID, p.pendingReqID)
 		return
 	}
-	p.mu.Unlock()
 
 	result := &CopilotResult{}
 
@@ -175,6 +179,7 @@ func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg strin
 	}
 
 	// Non-blocking send to avoid deadlock if no one is waiting
+	// Safe to send while holding mutex since GetCompletion releases lock before receiving
 	select {
 	case p.pendingResult <- result:
 	default:
@@ -185,26 +190,29 @@ func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg strin
 // AcceptCompletion implements engine.CompletionAccepter for telemetry
 func (p *Provider) AcceptCompletion(ctx context.Context) {
 	p.mu.Lock()
-	cmd := p.lastCommand
-	p.lastCommand = nil
+	cmds := p.lastCommands
+	p.lastCommands = nil
 	p.mu.Unlock()
 
-	if cmd == nil {
-		return
-	}
-
-	logger.Debug("copilot: executing telemetry command: %s", cmd.Command)
-	if err := p.buffer.ExecuteCopilotCommand(cmd.Command, cmd.Arguments); err != nil {
-		logger.Warn("failed to execute copilot command: %v", err)
+	for _, cmd := range cmds {
+		if cmd == nil {
+			continue
+		}
+		logger.Debug("copilot: executing telemetry command: %s", cmd.Command)
+		if err := p.buffer.ExecuteCopilotCommand(cmd.Command, cmd.Arguments); err != nil {
+			logger.Warn("failed to execute copilot command: %v", err)
+		}
 	}
 }
 
-// ensureHandlerRegistered registers the RPC handler for Copilot responses (once per connection)
-func (p *Provider) ensureHandlerRegistered() error {
+// ensureHandlerRegistered registers the RPC handler for Copilot responses.
+// Re-registers if the client ID changed (indicating a reconnection).
+func (p *Provider) ensureHandlerRegistered(clientID int) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.handlerRegistered {
+	// Re-register if client changed (reconnection) or not yet registered
+	if p.handlerRegistered && p.lastClientID == clientID {
 		return nil
 	}
 
@@ -212,37 +220,66 @@ func (p *Provider) ensureHandlerRegistered() error {
 		return err
 	}
 	p.handlerRegistered = true
+	p.lastClientID = clientID
 	return nil
 }
 
-// convertEdits transforms Copilot LSP edits to cursortab's CompletionResponse format
+// convertEdits transforms Copilot LSP edits to cursortab's CompletionResponse format.
+// Processes all edits and returns multiple completions for staging to handle.
 func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionRequest) (*types.CompletionResponse, error) {
 	if len(edits) == 0 {
 		return p.emptyResponse(), nil
 	}
 
-	// Process first edit (NES typically returns one edit)
-	edit := edits[0]
+	// Collect commands for telemetry on accept
+	var commands []*CopilotCmd
+	var completions []*types.Completion
 
-	// Store command for telemetry on accept
+	for i, edit := range edits {
+		// Store command for telemetry
+		if edit.Command != nil {
+			commands = append(commands, edit.Command)
+		}
+
+		// Validate version matches (avoid stale edits)
+		// Version 0 means Copilot didn't include version info - allow it
+		if edit.TextDoc.Version != 0 && edit.TextDoc.Version != req.Version {
+			logger.Debug("copilot: discarding stale edit %d (version %d != %d)", i, edit.TextDoc.Version, req.Version)
+			continue
+		}
+
+		completion := p.convertSingleEdit(edit, req, i)
+		if completion != nil {
+			completions = append(completions, completion)
+		}
+	}
+
+	// Store commands for telemetry
 	p.mu.Lock()
-	p.lastCommand = edit.Command
+	p.lastCommands = commands
 	p.mu.Unlock()
 
-	// Validate version matches (avoid stale edits)
-	if edit.TextDoc.Version != 0 && edit.TextDoc.Version != req.Version {
-		logger.Debug("copilot: discarding stale edit (version %d != %d)", edit.TextDoc.Version, req.Version)
+	if len(completions) == 0 {
 		return p.emptyResponse(), nil
 	}
 
+	logger.Debug("copilot: converted %d edits to %d completions", len(edits), len(completions))
+
+	return &types.CompletionResponse{
+		Completions: completions,
+	}, nil
+}
+
+// convertSingleEdit converts a single Copilot edit to a Completion
+func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequest, editIdx int) *types.Completion {
 	// Convert 0-indexed LSP range to 1-indexed buffer lines
 	startLine := edit.Range.Start.Line + 1
 	endLine := edit.Range.End.Line + 1
 
 	// Bounds check
 	if startLine < 1 || startLine > len(req.Lines)+1 {
-		logger.Debug("copilot: edit start line %d out of bounds", startLine)
-		return p.emptyResponse(), nil
+		logger.Debug("copilot: edit %d start line %d out of bounds", editIdx, startLine)
+		return nil
 	}
 
 	// Handle case where end line is beyond buffer (insertion at end)
@@ -256,10 +293,7 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 	// Get original lines being replaced (0-indexed slice)
 	var origLines []string
 	if edit.Range.Start.Line < len(req.Lines) {
-		endIdx := edit.Range.End.Line + 1
-		if endIdx > len(req.Lines) {
-			endIdx = len(req.Lines)
-		}
+		endIdx := min(edit.Range.End.Line+1, len(req.Lines))
 		origLines = req.Lines[edit.Range.Start.Line:endIdx]
 	}
 	if len(origLines) == 0 {
@@ -272,22 +306,21 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 
 	// Check if this is actually a change
 	if isNoOp(newLines, origLines) {
-		logger.Debug("copilot: edit is no-op")
-		return p.emptyResponse(), nil
+		logger.Debug("copilot: edit %d is no-op", editIdx)
+		return nil
 	}
 
-	logger.Debug("copilot: converted edit startLine=%d endLine=%d newLines=%d", startLine, endLine, len(newLines))
+	logger.Debug("copilot: converted edit %d startLine=%d endLine=%d newLines=%d", editIdx, startLine, endLine, len(newLines))
 
-	return &types.CompletionResponse{
-		Completions: []*types.Completion{{
-			StartLine:  startLine,
-			EndLineInc: endLine,
-			Lines:      newLines,
-		}},
-	}, nil
+	return &types.Completion{
+		StartLine:  startLine,
+		EndLineInc: endLine,
+		Lines:      newLines,
+	}
 }
 
-// applyCharacterEdit applies an LSP edit with character positions to original lines
+// applyCharacterEdit applies an LSP edit with character positions to original lines.
+// LSP uses UTF-16 code units for character positions, so we convert to byte offsets.
 func (p *Provider) applyCharacterEdit(origLines []string, edit CopilotEdit) string {
 	if len(origLines) == 0 {
 		return edit.Text
@@ -296,27 +329,19 @@ func (p *Provider) applyCharacterEdit(origLines []string, edit CopilotEdit) stri
 	firstLine := origLines[0]
 	lastLine := origLines[len(origLines)-1]
 
-	// Calculate prefix from first line (before start character)
-	startChar := edit.Range.Start.Character
-	if startChar > len(firstLine) {
-		startChar = len(firstLine)
-	}
-	prefix := firstLine[:startChar]
+	// Convert UTF-16 code unit positions to byte offsets
+	startByte := utf16OffsetToBytes(firstLine, edit.Range.Start.Character)
+	endByte := utf16OffsetToBytes(lastLine, edit.Range.End.Character)
 
-	// Calculate suffix from last line (after end character)
-	endChar := edit.Range.End.Character
-	if endChar > len(lastLine) {
-		endChar = len(lastLine)
-	}
-	suffix := lastLine[endChar:]
+	prefix := firstLine[:startByte]
+	suffix := lastLine[endByte:]
 
 	// Copilot NES sometimes returns ranges that don't cover the full line,
 	// but the edit text is meant as a complete replacement. Detect this case:
-	// If start is 0 (full line replacement) and suffix would create duplicate/garbage,
-	// check if the edit text already contains a logical completion of the original content.
-	if startChar == 0 && suffix != "" {
+	// Only apply heuristic for single-line edits where we can safely compare.
+	if len(origLines) == 1 && startByte == 0 && suffix != "" {
 		// Check if the original line content (minus suffix) is a prefix of the edit text
-		origWithoutSuffix := firstLine[:endChar]
+		origWithoutSuffix := firstLine[:endByte]
 		if strings.HasPrefix(edit.Text, origWithoutSuffix) {
 			// Edit text already includes what was being replaced, don't add suffix
 			suffix = ""
@@ -324,6 +349,34 @@ func (p *Provider) applyCharacterEdit(origLines []string, edit CopilotEdit) stri
 	}
 
 	return prefix + edit.Text + suffix
+}
+
+// utf16OffsetToBytes converts a UTF-16 code unit offset to a byte offset in a UTF-8 string.
+// LSP specifies positions in UTF-16 code units, but Go strings are UTF-8.
+func utf16OffsetToBytes(s string, utf16Offset int) int {
+	if utf16Offset <= 0 {
+		return 0
+	}
+
+	byteOffset := 0
+	utf16Pos := 0
+
+	for _, r := range s {
+		if utf16Pos >= utf16Offset {
+			break
+		}
+
+		// Use standard library to determine UTF-16 code units for this rune
+		utf16Pos += len(utf16.Encode([]rune{r}))
+		byteOffset += utf8.RuneLen(r)
+	}
+
+	// If utf16Offset is beyond the string, clamp to string length
+	if byteOffset > len(s) {
+		return len(s)
+	}
+
+	return byteOffset
 }
 
 // emptyResponse returns an empty completion response

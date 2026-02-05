@@ -753,6 +753,18 @@ type CopilotClientInfo struct {
 	OffsetEncoding string
 }
 
+// copilotClientLookupLua is the shared Lua code for finding the Copilot LSP client.
+// Checks for both copilot.lua ("copilot") and copilot.vim ("GitHub Copilot") client names.
+const copilotClientLookupLua = `
+local function find_copilot_client()
+	local clients = vim.lsp.get_clients({name = "copilot"})
+	if #clients > 0 then return clients[1] end
+	clients = vim.lsp.get_clients({name = "GitHub Copilot"})
+	if #clients > 0 then return clients[1] end
+	return nil
+end
+`
+
 // GetCopilotClient returns info about the Copilot LSP client if attached to the current buffer
 func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
 	if b.client == nil {
@@ -761,17 +773,7 @@ func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
 
 	var result []map[string]any
 	batch := b.client.NewBatch()
-	// Check for both copilot.vim ("GitHub Copilot") and copilot.lua ("copilot") client names
-	batch.ExecLua(`
-		local function find_copilot_client()
-			-- Try copilot.lua name first
-			local clients = vim.lsp.get_clients({name = "copilot"})
-			if #clients > 0 then return clients[1] end
-			-- Fall back to copilot.vim name
-			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
-			if #clients > 0 then return clients[1] end
-			return nil
-		end
+	batch.ExecLua(copilotClientLookupLua+`
 		local client = find_copilot_client()
 		if not client then
 			return {}
@@ -800,14 +802,11 @@ func (b *NvimBuffer) SendCopilotDidFocus(uri string) error {
 	}
 
 	batch := b.client.NewBatch()
-	batch.ExecLua(`
+	batch.ExecLua(copilotClientLookupLua+`
 		local uri = ...
-		local clients = vim.lsp.get_clients({name = "copilot"})
-		if #clients == 0 then
-			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
-		end
-		if #clients > 0 then
-			clients[1]:notify("textDocument/didFocus", { textDocument = { uri = uri } })
+		local client = find_copilot_client()
+		if client then
+			client:notify("textDocument/didFocus", { textDocument = { uri = uri } })
 		end
 	`, nil, uri)
 
@@ -825,17 +824,13 @@ func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string, version int,
 
 	batch := b.client.NewBatch()
 	// The Lua code sends the request and uses rpcnotify to deliver the response back to Go
-	batch.ExecLua(`
+	batch.ExecLua(copilotClientLookupLua+`
 		local chanID, reqID, uri, version, row, col = ...
-		local clients = vim.lsp.get_clients({name = "copilot"})
-		if #clients == 0 then
-			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
-		end
-		if #clients == 0 then
+		local client = find_copilot_client()
+		if not client then
 			vim.fn.rpcnotify(chanID, "cursortab_copilot_response", reqID, "[]", "no copilot client")
 			return
 		end
-		local client = clients[1]
 
 		local params = {
 			textDocument = {
@@ -871,14 +866,11 @@ func (b *NvimBuffer) ExecuteCopilotCommand(command string, arguments []any) erro
 	}
 
 	batch := b.client.NewBatch()
-	batch.ExecLua(`
+	batch.ExecLua(copilotClientLookupLua+`
 		local command, arguments = ...
-		local clients = vim.lsp.get_clients({name = "copilot"})
-		if #clients == 0 then
-			clients = vim.lsp.get_clients({name = "GitHub Copilot"})
-		end
-		if #clients > 0 then
-			clients[1]:exec_cmd({command = command, arguments = arguments})
+		local client = find_copilot_client()
+		if client then
+			client:exec_cmd({command = command, arguments = arguments})
 		end
 	`, nil, command, arguments)
 

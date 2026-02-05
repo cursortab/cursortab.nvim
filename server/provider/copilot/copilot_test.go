@@ -158,6 +158,100 @@ func TestApplyCharacterEdit_PrefixHeuristic(t *testing.T) {
 	assert.Equal(t, "func main() {\n\tfmt.Println(\"hello\")\n}", result, "prefix heuristic applied")
 }
 
+func TestApplyCharacterEdit_MultiLineWithPartialEnd(t *testing.T) {
+	p := &Provider{}
+	origLines := []string{"short", "much longer line here"}
+	edit := CopilotEdit{
+		Text: "replacement",
+		Range: CopilotRange{
+			Start: CopilotPos{Line: 0, Character: 0},
+			End:   CopilotPos{Line: 1, Character: 10},
+		},
+	}
+
+	result := p.applyCharacterEdit(origLines, edit)
+
+	// Should preserve suffix from last line: "r line here"
+	assert.Equal(t, "replacementr line here", result, "multi-line with partial end")
+}
+
+func TestApplyCharacterEdit_UTF16_Emoji(t *testing.T) {
+	p := &Provider{}
+	// 😀 is U+1F600, which is outside BMP and takes 2 UTF-16 code units
+	origLines := []string{"hello 😀 world"}
+	edit := CopilotEdit{
+		Text: "there",
+		Range: CopilotRange{
+			Start: CopilotPos{Line: 0, Character: 0},
+			End:   CopilotPos{Line: 0, Character: 5}, // "hello" is 5 UTF-16 units
+		},
+	}
+
+	result := p.applyCharacterEdit(origLines, edit)
+
+	assert.Equal(t, "there 😀 world", result, "UTF-16 offset handled correctly")
+}
+
+func TestApplyCharacterEdit_UTF16_AfterEmoji(t *testing.T) {
+	p := &Provider{}
+	// 😀 is U+1F600, takes 2 UTF-16 code units (4 bytes in UTF-8)
+	origLines := []string{"a😀b"}
+	edit := CopilotEdit{
+		Text: "X",
+		Range: CopilotRange{
+			Start: CopilotPos{Line: 0, Character: 3}, // After 'a' (1) + 😀 (2) = position 3
+			End:   CopilotPos{Line: 0, Character: 4}, // Replace 'b'
+		},
+	}
+
+	result := p.applyCharacterEdit(origLines, edit)
+
+	assert.Equal(t, "a😀X", result, "position after emoji calculated correctly")
+}
+
+func TestApplyCharacterEdit_UTF16_CJK(t *testing.T) {
+	p := &Provider{}
+	// CJK characters are in BMP, so 1 UTF-16 unit each (but 3 bytes in UTF-8)
+	origLines := []string{"你好世界"}
+	edit := CopilotEdit{
+		Text: "X",
+		Range: CopilotRange{
+			Start: CopilotPos{Line: 0, Character: 2}, // After "你好"
+			End:   CopilotPos{Line: 0, Character: 3}, // Replace "世"
+		},
+	}
+
+	result := p.applyCharacterEdit(origLines, edit)
+
+	assert.Equal(t, "你好X界", result, "CJK UTF-16 offset handled correctly")
+}
+
+func TestUtf16OffsetToBytes(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		utf16Offset int
+		expected    int
+	}{
+		{"empty string", "", 0, 0},
+		{"ascii only", "hello", 3, 3},
+		{"ascii beyond length", "hi", 10, 2},
+		{"emoji at start", "😀hello", 2, 4},     // emoji is 2 UTF-16 units, 4 bytes
+		{"after emoji", "a😀b", 3, 5},           // 'a'(1) + 😀(4 bytes) = 5
+		{"CJK characters", "你好", 1, 3},         // each CJK is 1 UTF-16 unit but 3 bytes
+		{"mixed content", "a😀你b", 4, 8},        // a(1) + 😀(4) + 你(3) = 8 bytes at UTF-16 pos 4
+		{"zero offset", "anything", 0, 0},
+		{"negative offset", "test", -1, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := utf16OffsetToBytes(tt.input, tt.utf16Offset)
+			assert.Equal(t, tt.expected, result, tt.name)
+		})
+	}
+}
+
 func TestConvertEdits_EmptyEdits(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
@@ -316,8 +410,46 @@ func TestConvertEdits_StoresCommand(t *testing.T) {
 
 	p.convertEdits(edits, req)
 
-	assert.NotNil(t, p.lastCommand, "command stored")
-	assert.Equal(t, "copilot/telemetry", p.lastCommand.Command, "command name")
+	assert.Len(t, 1, p.lastCommands, "one command stored")
+	assert.Equal(t, "copilot/telemetry", p.lastCommands[0].Command, "command name")
+}
+
+func TestConvertEdits_MultipleEdits(t *testing.T) {
+	p := &Provider{
+		pendingResult: make(chan *CopilotResult, 1),
+	}
+	req := &types.CompletionRequest{
+		Lines:   []string{"line 1", "line 2", "line 3"},
+		Version: 1,
+	}
+	edits := []CopilotEdit{
+		{
+			Text: "modified 1",
+			Range: CopilotRange{
+				Start: CopilotPos{Line: 0, Character: 0},
+				End:   CopilotPos{Line: 0, Character: 6},
+			},
+			TextDoc: CopilotDoc{Version: 1},
+			Command: &CopilotCmd{Command: "cmd1"},
+		},
+		{
+			Text: "modified 3",
+			Range: CopilotRange{
+				Start: CopilotPos{Line: 2, Character: 0},
+				End:   CopilotPos{Line: 2, Character: 6},
+			},
+			TextDoc: CopilotDoc{Version: 1},
+			Command: &CopilotCmd{Command: "cmd2"},
+		},
+	}
+
+	resp, err := p.convertEdits(edits, req)
+
+	assert.NoError(t, err, "no error")
+	assert.Len(t, 2, resp.Completions, "two completions")
+	assert.Equal(t, 1, resp.Completions[0].StartLine, "first edit start line")
+	assert.Equal(t, 3, resp.Completions[1].StartLine, "second edit start line")
+	assert.Len(t, 2, p.lastCommands, "two commands stored")
 }
 
 func TestHandleNESResponse_ValidResponse(t *testing.T) {
@@ -393,16 +525,16 @@ func TestHandleNESResponse_InvalidJSON(t *testing.T) {
 
 func TestAcceptCompletion_NoCommand(t *testing.T) {
 	p := &Provider{
-		lastCommand: nil,
+		lastCommands: nil,
 	}
 
 	// Should not panic
 	p.AcceptCompletion(context.Background())
 
-	assert.Nil(t, p.lastCommand, "still nil")
+	assert.Nil(t, p.lastCommands, "still nil")
 }
 
-func TestLastCommand_ConcurrentAccess(t *testing.T) {
+func TestLastCommands_ConcurrentAccess(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
@@ -410,15 +542,15 @@ func TestLastCommand_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	iterations := 100
 
-	// Test that concurrent read/write of lastCommand is safe with mutex
-	for i := 0; i < iterations; i++ {
+	// Test that concurrent read/write of lastCommands is safe with mutex
+	for range iterations {
 		wg.Add(2)
 
-		// Writer goroutine (simulates convertEdits setting lastCommand)
+		// Writer goroutine (simulates convertEdits setting lastCommands)
 		go func() {
 			defer wg.Done()
 			p.mu.Lock()
-			p.lastCommand = &CopilotCmd{Command: "test"}
+			p.lastCommands = []*CopilotCmd{{Command: "test"}}
 			p.mu.Unlock()
 		}()
 
@@ -426,11 +558,11 @@ func TestLastCommand_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			p.mu.Lock()
-			cmd := p.lastCommand
-			p.lastCommand = nil
+			cmds := p.lastCommands
+			p.lastCommands = nil
 			p.mu.Unlock()
-			// Just access cmd to prevent "unused" warning
-			_ = cmd
+			// Just access cmds to prevent "unused" warning
+			_ = cmds
 		}()
 	}
 

@@ -218,4 +218,8 @@ type ProviderConfig struct {
 	CompletionTimeout   int            // Timeout for completion requests in milliseconds
 	PrivacyMode         bool           // Don't send telemetry to provider
 	Version             string         // Plugin version for metrics/telemetry
+	EditorVersion       string         // Editor version (e.g., "0.10.0")
+	EditorOS            string         // Operating system name (e.g., "Darwin")
+	StateDir            string         // State directory for persistent data (device_id, etc.)
+	DeviceID            string         // Persistent device identifier
 }

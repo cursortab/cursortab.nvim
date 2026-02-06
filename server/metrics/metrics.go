@@ -1,7 +1,10 @@
 // Package metrics provides unified completion metrics tracking across providers.
 package metrics
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // EventType represents the type of metrics event
 type EventType string
@@ -15,9 +18,10 @@ const (
 
 // CompletionInfo holds metadata about a completion for metrics tracking
 type CompletionInfo struct {
-	ID        string // Provider-specific completion ID
-	Additions int    // Number of lines added
-	Deletions int    // Number of lines deleted
+	ID        string    // Provider-specific completion ID
+	Additions int       // Number of lines added
+	Deletions int       // Number of lines deleted
+	ShownAt   time.Time // When the completion was shown (for lifespan tracking)
 }
 
 // Event represents a metrics event with type and completion info

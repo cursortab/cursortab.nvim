@@ -1,6 +1,7 @@
 package sweepapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -70,6 +71,7 @@ type EventType string
 const (
 	EventAccepted EventType = "autocomplete_suggestion_accepted"
 	EventShown    EventType = "autocomplete_suggestion_shown"
+	EventDisposed EventType = "autocomplete_suggestion_disposed"
 )
 
 // SuggestionType represents how the suggestion was displayed
@@ -101,6 +103,7 @@ type Client struct {
 	URL        string
 	metricsURL string
 	AuthToken  string
+	UserAgent  string
 }
 
 // NewClient creates a new Sweep API client
@@ -128,8 +131,10 @@ func NewClient(url, apiKey string, timeoutMs int) *Client {
 	}
 }
 
-// DoCompletion sends a completion request to the Sweep API
-func (c *Client) DoCompletion(ctx context.Context, req *AutocompleteRequest) (*AutocompleteResponse, error) {
+// DoCompletion sends a completion request to the Sweep API.
+// The response is ndjson (newline-delimited JSON) when multiple_suggestions is true,
+// returning one AutocompleteResponse per line. For single suggestions, returns a slice of one.
+func (c *Client) DoCompletion(ctx context.Context, req *AutocompleteRequest) ([]*AutocompleteResponse, error) {
 	defer logger.Trace("sweepapi.DoCompletion")()
 
 	// Marshal request to JSON
@@ -156,6 +161,9 @@ func (c *Client) DoCompletion(ctx context.Context, req *AutocompleteRequest) (*A
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Content-Encoding", "br")
+	if c.UserAgent != "" {
+		httpReq.Header.Set("User-Agent", c.UserAgent)
+	}
 	if c.AuthToken != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.AuthToken)
 	}
@@ -173,19 +181,94 @@ func (c *Client) DoCompletion(ctx context.Context, req *AutocompleteRequest) (*A
 		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	// Parse ndjson response (one JSON object per line)
+	var results []*AutocompleteResponse
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024) // 1MB max line
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var apiResp AutocompleteResponse
+		if err := json.Unmarshal([]byte(line), &apiResp); err != nil {
+			return nil, fmt.Errorf("failed to parse response line: %w", err)
+		}
+		results = append(results, &apiResp)
+	}
+	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Parse response
-	var apiResp AutocompleteResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
+	return results, nil
+}
 
-	return &apiResp, nil
+// LineStream provides line-by-line streaming of completion results.
+// The stream applies byte-range edits from ndjson responses to the original file
+// content, then emits the resulting lines.
+type LineStream struct {
+	lines  chan string
+	cancel context.CancelFunc
+	// AutocompleteID from the first edit (for metrics)
+	AutocompleteID string
+}
+
+// LinesChan returns the channel that emits complete lines.
+func (s *LineStream) LinesChan() <-chan string {
+	return s.lines
+}
+
+// Cancel stops the stream.
+func (s *LineStream) Cancel() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+// DoCompletionStream sends a completion request and returns a LineStream.
+// The stream reads ndjson responses, applies all byte-range edits to fileContents,
+// and emits the resulting lines of the modified file.
+func (c *Client) DoCompletionStream(ctx context.Context, req *AutocompleteRequest, fileContents string) *LineStream {
+	linesChan := make(chan string, 100)
+	ctx, cancel := context.WithCancel(ctx)
+	ls := &LineStream{lines: linesChan, cancel: cancel}
+
+	go func() {
+		defer close(linesChan)
+
+		responses, err := c.DoCompletion(ctx, req)
+		if err != nil {
+			logger.Warn("sweepapi: stream error: %v", err)
+			return
+		}
+
+		// Filter non-empty edits and capture autocomplete ID
+		var edits []*AutocompleteResponse
+		for _, r := range responses {
+			if r.Completion != "" {
+				edits = append(edits, r)
+			}
+		}
+		if len(edits) == 0 {
+			return
+		}
+
+		ls.AutocompleteID = edits[0].AutocompleteID
+
+		// Apply all byte-range edits to produce the modified text
+		modifiedText := ApplyByteRangeEdits(fileContents, edits)
+
+		// Emit lines of the modified file
+		for line := range strings.SplitSeq(modifiedText, "\n") {
+			select {
+			case linesChan <- line:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return ls
 }
 
 // CursorToByteOffset converts a cursor position (1-indexed row, 0-indexed col)
@@ -201,76 +284,27 @@ func CursorToByteOffset(lines []string, row, col int) int {
 	return offset
 }
 
-// ByteOffsetToLineCol converts a byte offset to a line/column position.
-// Returns (row, col) where row is 1-indexed and col is 0-indexed.
-func ByteOffsetToLineCol(text string, offset int) (row, col int) {
-	if offset < 0 {
-		return 1, 0
-	}
-	if offset >= len(text) {
-		offset = len(text)
-	}
-
-	row = 1
-	col = 0
-	for i := 0; i < offset; i++ {
-		if text[i] == '\n' {
-			row++
-			col = 0
-		} else {
-			col++
+// ApplyByteRangeEdits applies multiple byte-range edits to text sequentially,
+// adjusting offsets as each edit changes the text length.
+// Returns the final modified text.
+func ApplyByteRangeEdits(text string, edits []*AutocompleteResponse) string {
+	offset := 0
+	for _, edit := range edits {
+		start := edit.StartIndex + offset
+		end := edit.EndIndex + offset
+		if start < 0 {
+			start = 0
 		}
+		if end > len(text) {
+			end = len(text)
+		}
+		if start > end {
+			start = end
+		}
+		text = text[:start] + edit.Completion + text[end:]
+		offset += len(edit.Completion) - (edit.EndIndex - edit.StartIndex)
 	}
-	return row, col
-}
-
-// ApplyByteRangeEdit applies a byte-range edit to text and returns the new content.
-// Also returns the affected line range (1-indexed, inclusive).
-func ApplyByteRangeEdit(text string, startIdx, endIdx int, completion string) (newText string, startLine, endLine int) {
-	// Clamp indices
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	if endIdx > len(text) {
-		endIdx = len(text)
-	}
-	if startIdx > endIdx {
-		startIdx = endIdx
-	}
-
-	// Calculate start line before edit
-	startLine, _ = ByteOffsetToLineCol(text, startIdx)
-
-	// Calculate end line in original text
-	endLine, _ = ByteOffsetToLineCol(text, endIdx)
-
-	// Apply the edit
-	newText = text[:startIdx] + completion + text[endIdx:]
-
-	// Calculate new end line (start line + number of lines in completion - 1)
-	// Don't count trailing newline as an extra line
-	completionLines := strings.Count(completion, "\n") + 1
-	if strings.HasSuffix(completion, "\n") {
-		completionLines--
-	}
-	newEndLine := startLine + completionLines - 1
-
-	return newText, startLine, newEndLine
-}
-
-// ExtractLines extracts lines from text within a line range (1-indexed, inclusive).
-func ExtractLines(text string, startLine, endLine int) []string {
-	lines := strings.Split(text, "\n")
-	if startLine < 1 {
-		startLine = 1
-	}
-	if endLine > len(lines) {
-		endLine = len(lines)
-	}
-	if startLine > endLine {
-		return nil
-	}
-	return lines[startLine-1 : endLine]
+	return text
 }
 
 // TrackMetrics sends acceptance/shown metrics to the Sweep API

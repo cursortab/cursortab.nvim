@@ -476,6 +476,7 @@ func (e *Engine) recordMetricsShown(info *types.MetricsInfo) {
 		ID:        info.ID,
 		Additions: info.Additions,
 		Deletions: info.Deletions,
+		ShownAt:   e.clock.Now(),
 	}
 	e.sendMetric(metrics.EventShown)
 }

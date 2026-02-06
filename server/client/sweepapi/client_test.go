@@ -74,216 +74,6 @@ func TestCursorToByteOffset(t *testing.T) {
 	}
 }
 
-func TestByteOffsetToLineCol(t *testing.T) {
-	tests := []struct {
-		name        string
-		text        string
-		offset      int
-		expectedRow int
-		expectedCol int
-	}{
-		{
-			name:        "start of text",
-			text:        "hello\nworld",
-			offset:      0,
-			expectedRow: 1,
-			expectedCol: 0,
-		},
-		{
-			name:        "middle of first line",
-			text:        "hello\nworld",
-			offset:      3,
-			expectedRow: 1,
-			expectedCol: 3,
-		},
-		{
-			name:        "at newline",
-			text:        "hello\nworld",
-			offset:      5,
-			expectedRow: 1,
-			expectedCol: 5,
-		},
-		{
-			name:        "start of second line",
-			text:        "hello\nworld",
-			offset:      6,
-			expectedRow: 2,
-			expectedCol: 0,
-		},
-		{
-			name:        "middle of second line",
-			text:        "hello\nworld",
-			offset:      8,
-			expectedRow: 2,
-			expectedCol: 2,
-		},
-		{
-			name:        "negative offset",
-			text:        "hello",
-			offset:      -1,
-			expectedRow: 1,
-			expectedCol: 0,
-		},
-		{
-			name:        "offset beyond text",
-			text:        "hi",
-			offset:      100,
-			expectedRow: 1,
-			expectedCol: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			row, col := ByteOffsetToLineCol(tt.text, tt.offset)
-			assert.Equal(t, tt.expectedRow, row, "row")
-			assert.Equal(t, tt.expectedCol, col, "col")
-		})
-	}
-}
-
-func TestApplyByteRangeEdit(t *testing.T) {
-	tests := []struct {
-		name              string
-		text              string
-		startIdx          int
-		endIdx            int
-		completion        string
-		expectedText      string
-		expectedStartLine int
-		expectedEndLine   int
-	}{
-		{
-			name:              "insert in middle",
-			text:              "hello world",
-			startIdx:          5,
-			endIdx:            5,
-			completion:        " beautiful",
-			expectedText:      "hello beautiful world",
-			expectedStartLine: 1,
-			expectedEndLine:   1,
-		},
-		{
-			name:              "replace word",
-			text:              "hello world",
-			startIdx:          6,
-			endIdx:            11,
-			completion:        "universe",
-			expectedText:      "hello universe",
-			expectedStartLine: 1,
-			expectedEndLine:   1,
-		},
-		{
-			name:              "multiline replacement",
-			text:              "line1\nline2\nline3",
-			startIdx:          6,
-			endIdx:            11,
-			completion:        "new\nlines",
-			expectedText:      "line1\nnew\nlines\nline3",
-			expectedStartLine: 2,
-			expectedEndLine:   3,
-		},
-		{
-			name:              "delete (empty completion)",
-			text:              "hello world",
-			startIdx:          5,
-			endIdx:            11,
-			completion:        "",
-			expectedText:      "hello",
-			expectedStartLine: 1,
-			expectedEndLine:   1,
-		},
-		{
-			name:              "trailing newline single line",
-			text:              "app.use(cors);",
-			startIdx:          0,
-			endIdx:            3,
-			completion:        "application",
-			expectedText:      "application.use(cors);",
-			expectedStartLine: 1,
-			expectedEndLine:   1,
-		},
-		{
-			name:              "trailing newline should not add extra line",
-			text:              "app.use(cors);",
-			startIdx:          0,
-			endIdx:            14,
-			completion:        "application.use(cors);\n",
-			expectedText:      "application.use(cors);\n",
-			expectedStartLine: 1,
-			expectedEndLine:   1,
-		},
-		{
-			name:              "actual multiline with trailing newline",
-			text:              "line1",
-			startIdx:          0,
-			endIdx:            5,
-			completion:        "line1\nline2\n",
-			expectedText:      "line1\nline2\n",
-			expectedStartLine: 1,
-			expectedEndLine:   2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			newText, startLine, endLine := ApplyByteRangeEdit(tt.text, tt.startIdx, tt.endIdx, tt.completion)
-			assert.Equal(t, tt.expectedText, newText, "newText")
-			assert.Equal(t, tt.expectedStartLine, startLine, "startLine")
-			assert.Equal(t, tt.expectedEndLine, endLine, "endLine")
-		})
-	}
-}
-
-func TestExtractLines(t *testing.T) {
-	tests := []struct {
-		name      string
-		text      string
-		startLine int
-		endLine   int
-		expected  []string
-	}{
-		{
-			name:      "single line",
-			text:      "line1\nline2\nline3",
-			startLine: 2,
-			endLine:   2,
-			expected:  []string{"line2"},
-		},
-		{
-			name:      "multiple lines",
-			text:      "line1\nline2\nline3",
-			startLine: 1,
-			endLine:   3,
-			expected:  []string{"line1", "line2", "line3"},
-		},
-		{
-			name:      "out of bounds",
-			text:      "line1\nline2",
-			startLine: 1,
-			endLine:   10,
-			expected:  []string{"line1", "line2"},
-		},
-		{
-			name:      "start > end",
-			text:      "line1\nline2",
-			startLine: 3,
-			endLine:   1,
-			expected:  nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractLines(tt.text, tt.startLine, tt.endLine)
-			assert.Equal(t, len(tt.expected), len(result), "length")
-			for i := range result {
-				assert.Equal(t, tt.expected[i], result[i], "line")
-			}
-		})
-	}
-}
-
 func TestClientBrotliCompression(t *testing.T) {
 	// Create a test server that verifies brotli encoding
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -303,13 +93,12 @@ func TestClientBrotliCompression(t *testing.T) {
 		err = json.Unmarshal(decompressed, &req)
 		assert.NoError(t, err, "parsing JSON")
 
-		// Send back a valid response
-		resp := AutocompleteResponse{
+		// Send back a valid ndjson response
+		json.NewEncoder(w).Encode(AutocompleteResponse{
 			StartIndex: 0,
 			EndIndex:   5,
 			Completion: "hello",
-		}
-		json.NewEncoder(w).Encode(resp)
+		})
 	}))
 	defer server.Close()
 
@@ -319,8 +108,44 @@ func TestClientBrotliCompression(t *testing.T) {
 		FileContents: "hello",
 	}
 
-	_, err := client.DoCompletion(context.Background(), req)
+	results, err := client.DoCompletion(context.Background(), req)
 	assert.NoError(t, err, "DoCompletion")
+	assert.Equal(t, 1, len(results), "should return 1 response")
+}
+
+func TestClientNdjsonMultipleResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		compressedBody, _ := io.ReadAll(r.Body)
+		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
+		io.ReadAll(brotliReader)
+
+		// Write two ndjson lines
+		json.NewEncoder(w).Encode(AutocompleteResponse{
+			AutocompleteID: "id-1",
+			StartIndex:     0,
+			EndIndex:       5,
+			Completion:     "hello",
+		})
+		json.NewEncoder(w).Encode(AutocompleteResponse{
+			AutocompleteID: "id-2",
+			StartIndex:     6,
+			EndIndex:       11,
+			Completion:     "world",
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-token", 30000)
+	req := &AutocompleteRequest{
+		FilePath:     "test.go",
+		FileContents: "hello world",
+	}
+
+	results, err := client.DoCompletion(context.Background(), req)
+	assert.NoError(t, err, "DoCompletion")
+	assert.Equal(t, 2, len(results), "should return 2 responses")
+	assert.Equal(t, "id-1", results[0].AutocompleteID, "first ID")
+	assert.Equal(t, "id-2", results[1].AutocompleteID, "second ID")
 }
 
 func TestClientAuthorizationHeader(t *testing.T) {
@@ -333,12 +158,11 @@ func TestClientAuthorizationHeader(t *testing.T) {
 		brotliReader := brotli.NewReader(bytes.NewReader(compressedBody))
 		io.ReadAll(brotliReader)
 
-		resp := AutocompleteResponse{
+		json.NewEncoder(w).Encode(AutocompleteResponse{
 			StartIndex: 0,
 			EndIndex:   0,
 			Completion: "",
-		}
-		json.NewEncoder(w).Encode(resp)
+		})
 	}))
 	defer server.Close()
 
@@ -350,4 +174,53 @@ func TestClientAuthorizationHeader(t *testing.T) {
 
 	_, err := client.DoCompletion(context.Background(), req)
 	assert.NoError(t, err, "DoCompletion")
+}
+
+func TestApplyByteRangeEdits(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		edits    []*AutocompleteResponse
+		expected string
+	}{
+		{
+			name: "single edit",
+			text: "hello world",
+			edits: []*AutocompleteResponse{
+				{StartIndex: 6, EndIndex: 11, Completion: "universe"},
+			},
+			expected: "hello universe",
+		},
+		{
+			name: "two non-overlapping edits",
+			text: "aaa bbb ccc",
+			edits: []*AutocompleteResponse{
+				{StartIndex: 0, EndIndex: 3, Completion: "AAA"},
+				{StartIndex: 8, EndIndex: 11, Completion: "CCC"},
+			},
+			expected: "AAA bbb CCC",
+		},
+		{
+			name: "edit that changes length then second edit",
+			text: "ab cd ef",
+			edits: []*AutocompleteResponse{
+				{StartIndex: 0, EndIndex: 2, Completion: "ABCD"},
+				{StartIndex: 6, EndIndex: 8, Completion: "GH"},
+			},
+			expected: "ABCD cd GH",
+		},
+		{
+			name:     "empty edits",
+			text:     "hello",
+			edits:    []*AutocompleteResponse{},
+			expected: "hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ApplyByteRangeEdits(tt.text, tt.edits)
+			assert.Equal(t, tt.expected, result, "result")
+		})
+	}
 }

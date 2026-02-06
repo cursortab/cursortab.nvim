@@ -23,9 +23,11 @@ package sweepapi
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"cursortab/client/sweepapi"
 	"cursortab/engine"
@@ -212,9 +214,12 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 		url = config.ProviderURL
 	}
 
+	client := sweepapi.NewClient(url, config.APIKey, config.CompletionTimeout)
+	client.UserAgent = fmt.Sprintf("Neovim v%s - OS: %s - cursortab.nvim v%s", config.EditorVersion, config.EditorOS, config.Version)
+
 	return &Provider{
 		config: config,
-		client: sweepapi.NewClient(url, config.APIKey, config.CompletionTimeout),
+		client: client,
 		limits: engine.ContextLimits{
 			MaxInputLines: 50_000,
 			MaxInputBytes: 10_000_000,
@@ -231,11 +236,12 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	case metrics.EventAccepted:
 		sweepEvent = sweepapi.EventAccepted
 	case metrics.EventRejected, metrics.EventIgnored:
-		// SweepAPI doesn't support rejected/ignored events
-		return
+		sweepEvent = sweepapi.EventDisposed
 	default:
 		return
 	}
+
+	debugInfo := fmt.Sprintf("Neovim v%s - OS: %s - cursortab.nvim v%s", p.config.EditorVersion, p.config.EditorOS, p.config.Version)
 
 	req := &sweepapi.MetricsRequest{
 		EventType:          sweepEvent,
@@ -243,12 +249,119 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 		Additions:          event.Info.Additions,
 		Deletions:          event.Info.Deletions,
 		AutocompleteID:     event.Info.ID,
-		DebugInfo:          "cursortab-nvim",
+		DebugInfo:          debugInfo,
+		DeviceID:           p.config.DeviceID,
 		PrivacyModeEnabled: p.config.PrivacyMode,
 	}
+
+	if sweepEvent == sweepapi.EventDisposed && !event.Info.ShownAt.IsZero() {
+		lifespan := time.Since(event.Info.ShownAt).Milliseconds()
+		req.Lifespan = &lifespan
+	}
+
 	if err := p.client.TrackMetrics(ctx, req); err != nil {
 		logger.Warn("sweepapi: failed to track %s: %v", event.Type, err)
 	}
+}
+
+// Compile-time check that Provider implements LineStreamProvider
+var _ engine.LineStreamProvider = (*Provider)(nil)
+
+// streamContext carries state through the streaming pipeline
+type streamContext struct {
+	trimmedLines []string
+	trimOffset   int
+	stream       *sweepapi.LineStream
+}
+
+// GetWindowStart implements engine.TrimmedContext
+func (c *streamContext) GetWindowStart() int { return c.trimOffset }
+
+// GetTrimmedLines implements engine.TrimmedContext
+func (c *streamContext) GetTrimmedLines() []string { return c.trimmedLines }
+
+// GetStreamingType implements engine.LineStreamProvider
+func (p *Provider) GetStreamingType() int { return engine.StreamingTypeLines }
+
+// PrepareLineStream implements engine.LineStreamProvider
+func (p *Provider) PrepareLineStream(ctx context.Context, req *types.CompletionRequest) (engine.LineStream, any, error) {
+	defer logger.Trace("sweepapi.PrepareLineStream")()
+
+	lines, cursorRow, cursorCol, trimOffset := p.truncateContext(req.Lines, req.CursorRow, req.CursorCol)
+	if trimOffset > 0 {
+		logger.Debug("sweepapi: truncated context, removed %d lines from start", trimOffset)
+	}
+
+	fileContents := strings.Join(lines, "\n")
+	cursorPosition := sweepapi.CursorToByteOffset(lines, cursorRow, cursorCol)
+
+	diffHistories := p.truncateDiffHistories(req.FileDiffHistories)
+	recentChanges := formatRecentChanges(diffHistories)
+
+	retrievalChunks := p.formatDiagnostics(req.GetDiagnostics())
+	retrievalChunks = append(retrievalChunks, formatTreesitterChunk(req.GetTreesitter())...)
+	retrievalChunks = append(retrievalChunks, formatGitDiffChunk(req.GetGitDiff())...)
+
+	repoName := filepath.Base(req.WorkspacePath)
+	if repoName == "" || repoName == "." {
+		repoName = "untitled"
+	}
+
+	apiReq := &sweepapi.AutocompleteRequest{
+		RepoName:             repoName,
+		FilePath:             req.FilePath,
+		FileContents:         fileContents,
+		OriginalFileContents: fileContents,
+		CursorPosition:       cursorPosition,
+		RecentChanges:        recentChanges,
+		ChangesAboveCursor:   true,
+		MultipleSuggestions:  true,
+		UseBytes:             true,
+		PrivacyModeEnabled:   p.config.PrivacyMode,
+		FileChunks:           p.buildFileChunks(req.RecentBufferSnapshots),
+		RecentUserActions:    convertUserActions(req.UserActions),
+		RetrievalChunks:      retrievalChunks,
+	}
+
+	stream := p.client.DoCompletionStream(ctx, apiReq, fileContents)
+
+	sctx := &streamContext{
+		trimmedLines: lines,
+		trimOffset:   trimOffset,
+		stream:       stream,
+	}
+
+	return stream, sctx, nil
+}
+
+// ValidateFirstLine implements engine.LineStreamProvider
+func (p *Provider) ValidateFirstLine(_ any, _ string) error {
+	return nil
+}
+
+// FinishLineStream implements engine.LineStreamProvider
+func (p *Provider) FinishLineStream(providerCtx any, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error) {
+	sctx, ok := providerCtx.(*streamContext)
+	if !ok {
+		return &types.CompletionResponse{}, nil
+	}
+
+	logger.Debug("sweepapi: stream finished, %d chars, reason=%s", len(text), finishReason)
+
+	autocompleteID := ""
+	if sctx.stream != nil {
+		autocompleteID = sctx.stream.AutocompleteID
+	}
+
+	if autocompleteID != "" {
+		return &types.CompletionResponse{
+			MetricsInfo: &types.MetricsInfo{
+				ID: autocompleteID,
+			},
+		}, nil
+	}
+
+	return &types.CompletionResponse{}, nil
 }
 
 // GetContextLimits implements engine.Provider
@@ -256,7 +369,7 @@ func (p *Provider) GetContextLimits() engine.ContextLimits {
 	return p.limits.WithDefaults()
 }
 
-// GetCompletion implements engine.Provider
+// GetCompletion implements engine.Provider (batch fallback for prefetch)
 func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
 	defer logger.Trace("sweepapi.GetCompletion")()
 
@@ -296,7 +409,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		CursorPosition:       cursorPosition,
 		RecentChanges:        recentChanges,
 		ChangesAboveCursor:   true,
-		MultipleSuggestions:  false,
+		MultipleSuggestions:  true,
 		UseBytes:             true,
 		PrivacyModeEnabled:   p.config.PrivacyMode,
 		FileChunks:           p.buildFileChunks(req.RecentBufferSnapshots),
@@ -304,43 +417,60 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		RetrievalChunks:      retrievalChunks,
 	}
 
-	// Call API
-	apiResp, err := p.client.DoCompletion(ctx, apiReq)
+	// Call API (returns ndjson: one response per line)
+	responses, err := p.client.DoCompletion(ctx, apiReq)
 	if err != nil {
 		return nil, err
 	}
 
-	// Handle empty response
-	if apiResp.Completion == "" {
+	// Filter out empty responses
+	var edits []*sweepapi.AutocompleteResponse
+	for _, r := range responses {
+		if r.Completion != "" {
+			edits = append(edits, r)
+		}
+	}
+	if len(edits) == 0 {
 		return &types.CompletionResponse{}, nil
 	}
 
-	// Convert byte offsets to line-based completion
-	newText, startLine, endLine := sweepapi.ApplyByteRangeEdit(
-		fileContents,
-		apiResp.StartIndex,
-		apiResp.EndIndex,
-		apiResp.Completion,
-	)
+	// Use the autocomplete ID from the first edit for metrics
+	autocompleteID := edits[0].AutocompleteID
 
-	// Extract the affected lines from the new text
-	newLines := sweepapi.ExtractLines(newText, startLine, endLine)
-	if len(newLines) == 0 {
+	// Apply all byte-range edits to produce unified new text
+	modifiedText := sweepapi.ApplyByteRangeEdits(fileContents, edits)
+
+	// Diff original vs modified to find the affected line range
+	origLines := strings.Split(fileContents, "\n")
+	modLines := strings.Split(modifiedText, "\n")
+
+	// Find first and last differing lines (0-indexed)
+	firstDiff := 0
+	for firstDiff < len(origLines) && firstDiff < len(modLines) && origLines[firstDiff] == modLines[firstDiff] {
+		firstDiff++
+	}
+
+	// If no differences found, return empty
+	if firstDiff == len(origLines) && firstDiff == len(modLines) {
 		return &types.CompletionResponse{}, nil
 	}
 
-	// Calculate original end line for buffer replacement
-	// Use endIdx-1 to get the line of the last replaced byte (not the position after)
-	endOffset := apiResp.EndIndex
-	if endOffset > apiResp.StartIndex {
-		endOffset--
+	// Find last differing line from the end
+	origEnd := len(origLines) - 1
+	modEnd := len(modLines) - 1
+	for origEnd > firstDiff && modEnd > firstDiff && origLines[origEnd] == modLines[modEnd] {
+		origEnd--
+		modEnd--
 	}
-	origEndLine, _ := sweepapi.ByteOffsetToLineCol(fileContents, endOffset)
 
-	logger.Debug("sweepapi: byte range [%d:%d] -> lines [%d:%d], origEndLine=%d",
-		apiResp.StartIndex, apiResp.EndIndex, startLine, endLine, origEndLine)
+	// Extract the new lines for the changed region
+	newLines := modLines[firstDiff : modEnd+1]
+	startLine := firstDiff + 1 // Convert to 1-indexed
+	origEndLine := origEnd + 1 // Convert to 1-indexed
 
-	// Calculate metrics info for the engine
+	logger.Debug("sweepapi: %d edits merged -> lines [%d:%d] (orig end %d)",
+		len(edits), startLine, startLine+len(newLines)-1, origEndLine)
+
 	additions, deletions := countChanges(origEndLine-startLine+1, len(newLines))
 
 	return &types.CompletionResponse{
@@ -350,7 +480,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 			Lines:      newLines,
 		}},
 		MetricsInfo: &types.MetricsInfo{
-			ID:        apiResp.AutocompleteID,
+			ID:        autocompleteID,
 			Additions: additions,
 			Deletions: deletions,
 		},

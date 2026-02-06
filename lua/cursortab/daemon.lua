@@ -69,10 +69,13 @@ local function start_daemon()
 
 	-- Create JSON configuration (matches Go Config struct)
 	-- Note: UI config is Lua-only (for highlights), not sent to Go daemon
+	local v = vim.version()
 	local json_config = vim.json.encode({
 		ns_id = ns_id,
 		log_level = cfg.log_level,
 		state_dir = state_dir,
+		editor_version = string.format("%d.%d.%d", v.major, v.minor, v.patch),
+		editor_os = vim.uv.os_uname().sysname, ---@diagnostic disable-line: undefined-field
 		behavior = {
 			idle_completion_delay = cfg.behavior.idle_completion_delay,
 			text_change_debounce = cfg.behavior.text_change_debounce,

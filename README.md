@@ -154,7 +154,7 @@ Zeta, and Copilot.
 | `inline`   |        |            |            |                   |     ✓     | Any base model         |
 | `fim`      |        |     ✓      |            |                   |     ✓     | Any FIM-capable        |
 | `sweep`    |        |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-1.5b` |
-| `sweepapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `sweep-next-edit-7b`   |
+| `sweepapi` |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`   |
 | `zeta`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta`                 |
 | `copilot`  |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot         |
 

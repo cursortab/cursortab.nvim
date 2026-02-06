@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -57,20 +58,20 @@ type DebugConfig struct {
 
 // Config is the main configuration structure
 type Config struct {
-	NsID     int            `json:"ns_id"`
-	LogLevel string         `json:"log_level"`
-	StateDir string         `json:"state_dir"`
-	Behavior BehaviorConfig `json:"behavior"`
-	Provider ProviderConfig `json:"provider"`
-	Debug    DebugConfig    `json:"debug"`
+	NsID          int            `json:"ns_id"`
+	LogLevel      string         `json:"log_level"`
+	StateDir      string         `json:"state_dir"`
+	EditorVersion string         `json:"editor_version"`
+	EditorOS      string         `json:"editor_os"`
+	Behavior      BehaviorConfig `json:"behavior"`
+	Provider      ProviderConfig `json:"provider"`
+	Debug         DebugConfig    `json:"debug"`
 }
 
 // validateEnum checks that value is one of the valid options for the named field.
 func validateEnum(value, field string, valid []string) error {
-	for _, v := range valid {
-		if value == v {
-			return nil
-		}
+	if slices.Contains(valid, value) {
+		return nil
 	}
 	return fmt.Errorf("invalid %s %q: must be one of %s", field, value, strings.Join(valid, ", "))
 }

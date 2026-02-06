@@ -61,6 +61,10 @@ func NewDaemon(config Config) (*Daemon, error) {
 		CompletionTimeout:   config.Provider.CompletionTimeout,
 		PrivacyMode:         config.Provider.PrivacyMode,
 		Version:             "0.4.10-beta", // AUTO-UPDATED by release workflow
+		EditorVersion:       config.EditorVersion,
+		EditorOS:            config.EditorOS,
+		StateDir:            config.StateDir,
+		DeviceID:            loadOrCreateDeviceID(config.StateDir),
 	}
 
 	providerConfig.FIMTokens = types.FIMTokenConfig{

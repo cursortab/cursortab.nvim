@@ -190,12 +190,13 @@ type UserAction struct {
 type ProviderType string
 
 const (
-	ProviderTypeInline   ProviderType = "inline"
-	ProviderTypeFIM      ProviderType = "fim"
-	ProviderTypeSweep    ProviderType = "sweep"
-	ProviderTypeSweepAPI ProviderType = "sweepapi"
-	ProviderTypeZeta     ProviderType = "zeta"
-	ProviderTypeCopilot  ProviderType = "copilot"
+	ProviderTypeInline     ProviderType = "inline"
+	ProviderTypeFIM        ProviderType = "fim"
+	ProviderTypeSweep      ProviderType = "sweep"
+	ProviderTypeSweepAPI   ProviderType = "sweepapi"
+	ProviderTypeZeta       ProviderType = "zeta"
+	ProviderTypeCopilot    ProviderType = "copilot"
+	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
 )
 
 // FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration

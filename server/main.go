@@ -37,7 +37,7 @@ type FIMTokensConfig struct {
 
 // ProviderConfig holds provider-specific settings
 type ProviderConfig struct {
-	Type                 string          `json:"type"` // "inline", "fim", "sweep", "sweepapi", "zeta"
+	Type                 string          `json:"type"` // "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", "mercuryapi"
 	URL                  string          `json:"url"`
 	ApiKeyEnv            string          `json:"api_key_env"` // Environment variable name for API key
 	Model                string          `json:"model"`
@@ -79,7 +79,7 @@ func validateEnum(value, field string, valid []string) error {
 // Validate checks that the config has valid values.
 // All config must come from the Lua client - no defaults are applied here.
 func (c *Config) Validate() error {
-	if err := validateEnum(c.Provider.Type, "provider.type", []string{"inline", "fim", "sweep", "sweepapi", "zeta", "copilot"}); err != nil {
+	if err := validateEnum(c.Provider.Type, "provider.type", []string{"inline", "fim", "sweep", "sweepapi", "zeta", "copilot", "mercuryapi"}); err != nil {
 		return err
 	}
 	if err := validateEnum(c.LogLevel, "log_level", []string{"trace", "debug", "info", "warn", "error"}); err != nil {

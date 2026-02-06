@@ -19,6 +19,7 @@ import (
 	"cursortab/provider/copilot"
 	"cursortab/provider/fim"
 	"cursortab/provider/inline"
+	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
 	"cursortab/provider/sweepapi"
 	"cursortab/provider/zeta"
@@ -91,6 +92,8 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = zeta.NewProvider(providerConfig)
 	case types.ProviderTypeCopilot:
 		prov = copilot.NewProvider(buf)
+	case types.ProviderTypeMercuryAPI:
+		prov = mercuryapi.NewProvider(providerConfig)
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", config.Provider.Type)
 	}

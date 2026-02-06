@@ -26,6 +26,7 @@ Currently supports custom models and models form Zeta (Zed) and SweepAI.
     * [Sweep API Provider](#sweep-api-provider)
     * [Zeta Provider](#zeta-provider)
     * [Copilot Provider](#copilot-provider)
+    * [Mercury API Provider](#mercury-api-provider)
   * [blink.cmp Integration](#blinkcmp-integration)
 * [Usage](#usage)
   * [Commands](#commands)
@@ -113,7 +114,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", or "copilot"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", or "mercuryapi"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -146,30 +147,31 @@ For detailed configuration documentation, see `:help cursortab-config`.
 
 ### Providers
 
-The plugin supports six AI provider backends: Inline, FIM, Sweep, Sweep API,
-Zeta, and Copilot.
+The plugin supports seven AI provider backends: Inline, FIM, Sweep, Sweep API,
+Zeta, Copilot, and Mercury API.
 
-| Provider   | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                  |
-| ---------- | :----: | :--------: | :--------: | :---------------: | :-------: | ---------------------- |
-| `inline`   |        |            |            |                   |     ✓     | Any base model         |
-| `fim`      |        |     ✓      |            |                   |     ✓     | Any FIM-capable        |
-| `sweep`    |        |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-1.5b` |
-| `sweepapi` |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`   |
-| `zeta`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta`                 |
-| `copilot`  |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot         |
+| Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                  |
+| ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ---------------------- |
+| `inline`     |        |            |            |                   |     ✓     | Any base model         |
+| `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable        |
+| `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-1.5b` |
+| `sweepapi`   |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`   |
+| `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta`                 |
+| `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot         |
+| `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-coder`        |
 
 **Context Per Provider:**
 
-| Context             | inline | fim | sweep | zeta | sweepapi | copilot |
-| ------------------- | :----: | :-: | :---: | :--: | :------: | :-----: |
-| Buffer content      |   ✓    |  ✓  |   ✓   |  ✓   |    ✓     |         |
-| Edit history        |        |     |   ✓   |  ✓   |    ✓     |         |
-| Previous file state |        |     |   ✓   |      |    ✓     |         |
-| LSP diagnostics     |        |     |       |  ✓   |    ✓     |         |
-| Treesitter context  |        |     |   ✓   |  ✓   |    ✓     |         |
-| Git diff context    |        |     |   ✓   |  ✓   |    ✓     |         |
-| Recent files        |        |     |       |      |    ✓     |         |
-| User actions        |        |     |       |      |    ✓     |         |
+| Context             | inline | fim | sweep | zeta | sweepapi | copilot | mercuryapi |
+| ------------------- | :----: | :-: | :---: | :--: | :------: | :-----: | :--------: |
+| Buffer content      |   ✓    |  ✓  |   ✓   |  ✓   |    ✓     |         |     ✓      |
+| Edit history        |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
+| Previous file state |        |     |   ✓   |      |    ✓     |         |            |
+| LSP diagnostics     |        |     |       |  ✓   |    ✓     |         |            |
+| Treesitter context  |        |     |   ✓   |  ✓   |    ✓     |         |            |
+| Git diff context    |        |     |   ✓   |  ✓   |    ✓     |         |            |
+| Recent files        |        |     |       |      |    ✓     |         |     ✓      |
+| User actions        |        |     |       |      |    ✓     |         |            |
 
 #### Inline Provider (Default)
 
@@ -378,6 +380,31 @@ LSP server, enabled with `vim.lsp.enable`. Can be installed in multiple ways:
 require("cursortab").setup({
   provider = {
     type = "copilot",
+  },
+})
+```
+
+</details>
+
+#### Mercury API Provider
+
+<details>
+<summary>Details</summary>
+
+[Mercury](https://docs.inceptionlabs.ai/) is Inception Labs' hosted Next-Edit
+prediction model.
+
+**Requirements:**
+
+- Mercury API key (set via `MERCURY_AI_TOKEN` environment variable)
+
+**Example Configuration:**
+
+```lua
+require("cursortab").setup({
+  provider = {
+    type = "mercuryapi",
+    api_key_env = "MERCURY_AI_TOKEN",
   },
 })
 ```

@@ -208,13 +208,7 @@ type Provider struct {
 
 // NewProvider creates a new Sweep API provider
 func NewProvider(config *types.ProviderConfig) *Provider {
-	// Use constant URL, but allow override for testing (httptest servers use 127.0.0.1)
-	url := sweepapi.CompletionURL
-	if strings.HasPrefix(config.ProviderURL, "http://127.0.0.1") {
-		url = config.ProviderURL
-	}
-
-	client := sweepapi.NewClient(url, config.APIKey, config.CompletionTimeout)
+	client := sweepapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout)
 	client.UserAgent = fmt.Sprintf("Neovim v%s - OS: %s - cursortab.nvim v%s", config.EditorVersion, config.EditorOS, config.Version)
 
 	return &Provider{

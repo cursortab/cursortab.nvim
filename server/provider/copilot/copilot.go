@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -336,7 +337,7 @@ func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequ
 	newLines := strings.Split(newText, "\n")
 
 	// Check if this is actually a change
-	if isNoOp(newLines, origLines) {
+	if slices.Equal(newLines, origLines) {
 		logger.Debug("copilot: edit %d is no-op", editIdx)
 		return nil
 	}
@@ -416,17 +417,4 @@ func (p *Provider) emptyResponse() *types.CompletionResponse {
 		Completions:  []*types.Completion{},
 		CursorTarget: nil,
 	}
-}
-
-// isNoOp checks if new lines are identical to original lines
-func isNoOp(newLines, origLines []string) bool {
-	if len(newLines) != len(origLines) {
-		return false
-	}
-	for i := range newLines {
-		if newLines[i] != origLines[i] {
-			return false
-		}
-	}
-	return true
 }

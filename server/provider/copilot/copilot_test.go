@@ -8,42 +8,6 @@ import (
 	"testing"
 )
 
-func TestIsNoOp_IdenticalLines(t *testing.T) {
-	newLines := []string{"line 1", "line 2"}
-	origLines := []string{"line 1", "line 2"}
-
-	result := isNoOp(newLines, origLines)
-
-	assert.True(t, result, "identical lines should be no-op")
-}
-
-func TestIsNoOp_DifferentContent(t *testing.T) {
-	newLines := []string{"line 1", "modified"}
-	origLines := []string{"line 1", "line 2"}
-
-	result := isNoOp(newLines, origLines)
-
-	assert.False(t, result, "different content should not be no-op")
-}
-
-func TestIsNoOp_DifferentLength(t *testing.T) {
-	newLines := []string{"line 1", "line 2", "line 3"}
-	origLines := []string{"line 1", "line 2"}
-
-	result := isNoOp(newLines, origLines)
-
-	assert.False(t, result, "different length should not be no-op")
-}
-
-func TestIsNoOp_Empty(t *testing.T) {
-	newLines := []string{}
-	origLines := []string{}
-
-	result := isNoOp(newLines, origLines)
-
-	assert.True(t, result, "both empty should be no-op")
-}
-
 func TestApplyCharacterEdit_FullLineReplacement(t *testing.T) {
 	p := &Provider{}
 	origLines := []string{"hello world"}

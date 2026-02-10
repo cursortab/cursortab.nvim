@@ -77,16 +77,21 @@ type Client struct {
 	AuthToken   string
 }
 
-// NewClient creates a new Mercury API client
-func NewClient(url, apiKey string, timeoutMs int) *Client {
+// NewClient creates a new Mercury API client.
+// If configURL points to a local server (http://127.0.0.1), it is used
+// directly for both completion and feedback. Otherwise the production
+// endpoints are used.
+func NewClient(configURL, apiKey string, timeoutMs int) *Client {
 	timeout := time.Duration(0)
 	if timeoutMs > 0 {
 		timeout = time.Duration(timeoutMs) * time.Millisecond
 	}
 
+	url := CompletionURL
 	feedbackURL := FeedbackURL
-	if strings.HasPrefix(url, "http://127.0.0.1") {
-		feedbackURL = strings.TrimSuffix(url, "/v1/edit/completions") + "/feedback"
+	if strings.HasPrefix(configURL, "http://127.0.0.1") {
+		url = configURL
+		feedbackURL = strings.TrimSuffix(configURL, "/v1/edit/completions") + "/feedback"
 	}
 
 	return &Client{

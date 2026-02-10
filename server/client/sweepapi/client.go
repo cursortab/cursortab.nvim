@@ -106,19 +106,21 @@ type Client struct {
 	UserAgent  string
 }
 
-// NewClient creates a new Sweep API client
-// apiKey is the resolved API key for authenticated requests
-// timeoutMs is the HTTP client timeout in milliseconds (0 = no timeout)
-func NewClient(url, apiKey string, timeoutMs int) *Client {
+// NewClient creates a new Sweep API client.
+// If configURL points to a local server (http://127.0.0.1), it is used
+// directly for both completion and metrics. Otherwise the production
+// endpoints are used.
+func NewClient(configURL, apiKey string, timeoutMs int) *Client {
 	timeout := time.Duration(0)
 	if timeoutMs > 0 {
 		timeout = time.Duration(timeoutMs) * time.Millisecond
 	}
 
-	// Derive metrics URL from completion URL for test servers
+	url := CompletionURL
 	metricsURL := MetricsURL
-	if strings.HasPrefix(url, "http://127.0.0.1") {
-		metricsURL = strings.TrimSuffix(url, "/backend/next_edit_autocomplete") + "/backend/track_autocomplete_metrics"
+	if strings.HasPrefix(configURL, "http://127.0.0.1") {
+		url = configURL
+		metricsURL = strings.TrimSuffix(configURL, "/backend/next_edit_autocomplete") + "/backend/track_autocomplete_metrics"
 	}
 
 	return &Client{

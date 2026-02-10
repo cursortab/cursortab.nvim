@@ -216,47 +216,6 @@ func TestFormatDiffHistories(t *testing.T) {
 	}
 }
 
-func TestIsNoOp(t *testing.T) {
-	tests := []struct {
-		name     string
-		newLines []string
-		oldLines []string
-		want     bool
-	}{
-		{
-			name:     "identical",
-			newLines: []string{"a", "b"},
-			oldLines: []string{"a", "b"},
-			want:     true,
-		},
-		{
-			name:     "different content",
-			newLines: []string{"a", "c"},
-			oldLines: []string{"a", "b"},
-			want:     false,
-		},
-		{
-			name:     "different length",
-			newLines: []string{"a"},
-			oldLines: []string{"a", "b"},
-			want:     false,
-		},
-		{
-			name:     "empty both",
-			newLines: []string{},
-			oldLines: []string{},
-			want:     true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isNoOp(tt.newLines, tt.oldLines)
-			assert.Equal(t, tt.want, result, "isNoOp")
-		})
-	}
-}
-
 func TestProviderGetCompletion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

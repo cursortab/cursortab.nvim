@@ -2,6 +2,7 @@ package mercuryapi
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"cursortab/client/mercuryapi"
@@ -42,14 +43,9 @@ type Provider struct {
 
 // NewProvider creates a new Mercury API provider
 func NewProvider(config *types.ProviderConfig) *Provider {
-	url := mercuryapi.CompletionURL
-	if strings.HasPrefix(config.ProviderURL, "http://127.0.0.1") {
-		url = config.ProviderURL
-	}
-
 	return &Provider{
 		config: config,
-		client: mercuryapi.NewClient(url, config.APIKey, config.CompletionTimeout),
+		client: mercuryapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
 	}
 }
 
@@ -137,7 +133,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	// Check if it's a no-op (same content)
 	originalEditable := req.Lines[editableStart-1 : editableEnd]
-	if isNoOp(newLines, originalEditable) {
+	if slices.Equal(newLines, originalEditable) {
 		return &types.CompletionResponse{}, nil
 	}
 
@@ -400,17 +396,4 @@ func formatDiffHistories(histories []*types.FileDiffHistory) string {
 		}
 	}
 	return sb.String()
-}
-
-// isNoOp checks if the new lines are identical to the old lines.
-func isNoOp(newLines, oldLines []string) bool {
-	if len(newLines) != len(oldLines) {
-		return false
-	}
-	for i := range newLines {
-		if newLines[i] != oldLines[i] {
-			return false
-		}
-	}
-	return true
 }

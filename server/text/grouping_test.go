@@ -601,3 +601,94 @@ func TestValidateRenderHintsForCursor_AppendVsReplaceAtExactPosition(t *testing.
 	assert.Equal(t, "append_chars", appendGroup.RenderHint, "append_chars at exact cursor position should keep hint")
 	assert.Equal(t, "replace_chars", replaceGroup.RenderHint, "replace_chars at exact cursor position should keep hint")
 }
+
+func TestFinalizeStageGroups_AppendCharsOnNonCursorLine(t *testing.T) {
+	// Scenario: cursor is on line 5 (buffer), completion appends text on lines 5 and 7.
+	// Line 5 (cursor line) gets append_chars validated against cursor position.
+	// Line 7 (non-cursor line) should keep append_chars unconditionally.
+	changes := map[int]LineChange{
+		1: {
+			Type:       ChangeAppendChars,
+			Content:    "    fmt.Println(\"hello\")",
+			OldContent: "    ",
+			ColStart:   4,
+			ColEnd:     23,
+		},
+		3: {
+			Type:       ChangeAppendChars,
+			Content:    "    return nil",
+			OldContent: "    ",
+			ColStart:   4,
+			ColEnd:     14,
+		},
+	}
+	newLines := []string{
+		"    fmt.Println(\"hello\")",
+		"",
+		"    return nil",
+	}
+
+	ctx := &StageContext{
+		BufferStart:         5,
+		CursorRow:           5,
+		CursorCol:           4,
+		LineNumToBufferLine: map[int]int{1: 5, 3: 7},
+	}
+	groups, _, _ := FinalizeStageGroups(changes, newLines, ctx)
+
+	assert.Equal(t, 2, len(groups), "should have 2 groups (hinted changes stay separate)")
+
+	// Line 5 (cursor line): ColStart == cursorCol, so hint is kept
+	assert.Equal(t, 5, groups[0].BufferLine, "first group on cursor line")
+	assert.Equal(t, "append_chars", groups[0].RenderHint, "cursor line keeps hint when ColStart >= cursorCol")
+
+	// Line 7 (non-cursor line): hint always preserved
+	assert.Equal(t, 7, groups[1].BufferLine, "second group on non-cursor line")
+	assert.Equal(t, "append_chars", groups[1].RenderHint, "non-cursor line keeps append_chars")
+	assert.Equal(t, 4, groups[1].ColStart, "non-cursor line ColStart")
+	assert.Equal(t, 14, groups[1].ColEnd, "non-cursor line ColEnd")
+}
+
+func TestFinalizeStageGroups_CursorLineDowngradedNonCursorLineKept(t *testing.T) {
+	// Scenario: cursor is at column 8 on line 10, but append_chars starts at column 4.
+	// The cursor line hint should be downgraded (ColStart < cursorCol).
+	// A different line with the same hint should be kept.
+	changes := map[int]LineChange{
+		1: {
+			Type:       ChangeAppendChars,
+			Content:    "    fmt.Println(\"hello\")",
+			OldContent: "    ",
+			ColStart:   4,
+			ColEnd:     23,
+		},
+		2: {
+			Type:       ChangeAppendChars,
+			Content:    "    return nil",
+			OldContent: "    ",
+			ColStart:   4,
+			ColEnd:     14,
+		},
+	}
+	newLines := []string{
+		"    fmt.Println(\"hello\")",
+		"    return nil",
+	}
+
+	ctx := &StageContext{
+		BufferStart:         10,
+		CursorRow:           10,
+		CursorCol:           8, // past ColStart=4, so cursor line gets downgraded
+		LineNumToBufferLine: map[int]int{1: 10, 2: 11},
+	}
+	groups, _, _ := FinalizeStageGroups(changes, newLines, ctx)
+
+	assert.Equal(t, 2, len(groups), "should have 2 groups")
+
+	// Line 10 (cursor line): ColStart(4) < cursorCol(8), downgraded to plain modification
+	assert.Equal(t, 10, groups[0].BufferLine, "first group on cursor line")
+	assert.Equal(t, "", groups[0].RenderHint, "cursor line hint downgraded")
+
+	// Line 11 (non-cursor line): keeps append_chars
+	assert.Equal(t, 11, groups[1].BufferLine, "second group on non-cursor line")
+	assert.Equal(t, "append_chars", groups[1].RenderHint, "non-cursor line keeps hint")
+}

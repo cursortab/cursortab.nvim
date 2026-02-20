@@ -1221,6 +1221,64 @@ func TestDiffUnicodeContent(t *testing.T) {
 	assert.Equal(t, ChangeAppendChars, change.Type, "should be append_chars")
 }
 
+// TestIndentedLineFilledWithContent verifies that adding code after existing
+// indentation is categorized as append_chars, not a full modification.
+func TestIndentedLineFilledWithContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		oldLine string
+		newLine string
+	}{
+		{"spaces only", "    ", "    return result"},
+		{"tabs only", "\t\t", "\t\tresult := compute()"},
+		{"partial keyword", "    re", "    return result"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := ComputeDiff(tt.oldLine, tt.newLine)
+
+			assert.Equal(t, 1, len(actual.Changes), "should have 1 change")
+			change, exists := actual.Changes[1]
+			assert.True(t, exists, "change at line 1")
+			assert.Equal(t, ChangeAppendChars, change.Type, "should be append_chars")
+			assert.Equal(t, len(tt.oldLine), change.ColStart, "ColStart at end of old content")
+			assert.Equal(t, len(tt.newLine), change.ColEnd, "ColEnd at end of new content")
+		})
+	}
+}
+
+// TestMultiLineAppendCharsOnNonCursorLines verifies that append_chars is
+// correctly assigned to multiple lines in a multi-line completion, including
+// lines that are not the cursor line.
+func TestMultiLineAppendCharsOnNonCursorLines(t *testing.T) {
+	oldText := JoinLines([]string{
+		"func hello() {",
+		"    ",
+		"    ",
+		"}",
+	})
+	newText := JoinLines([]string{
+		"func hello() {",
+		"    fmt.Println(\"hello\")",
+		"    return nil",
+		"}",
+	})
+
+	actual := ComputeDiff(oldText, newText)
+
+	// Both line 2 and line 3 should be append_chars (adding code after indentation)
+	change2, exists := actual.Changes[2]
+	assert.True(t, exists, "change at line 2")
+	assert.Equal(t, ChangeAppendChars, change2.Type, "line 2 should be append_chars")
+	assert.Equal(t, 4, change2.ColStart, "line 2 ColStart after indent")
+
+	change3, exists := actual.Changes[3]
+	assert.True(t, exists, "change at line 3")
+	assert.Equal(t, ChangeAppendChars, change3.Type, "line 3 should be append_chars")
+	assert.Equal(t, 4, change3.ColStart, "line 3 ColStart after indent")
+}
+
 // TestDiffWithTabs tests diff handles tabs correctly.
 func TestDiffWithTabs(t *testing.T) {
 	text1 := "\tfirst\n\tsecond"

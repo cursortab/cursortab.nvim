@@ -1,7 +1,7 @@
 [
   {
-    "cursor_col": 30,
-    "cursor_line": 3,
+    "cursor_col": 20,
+    "cursor_line": 1,
     "groups": [
       {
         "buffer_line": 2,
@@ -19,7 +19,7 @@
         "type": "modification"
       },
       {
-        "buffer_line": 3,
+        "buffer_line": 4,
         "end_line": 3,
         "lines": [
           "    console.log(\"added line\");"

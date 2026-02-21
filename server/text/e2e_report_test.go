@@ -322,6 +322,7 @@ func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursor
 	}
 
 	var preview []previewLine
+	bufToPreview := map[int]int{} // maps buffer line (1-indexed) to preview index (0-indexed)
 	for i, line := range oldLines {
 		bufLine := i + 1
 
@@ -330,6 +331,7 @@ func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursor
 			preview = append(preview, added...)
 		}
 
+		bufToPreview[bufLine] = len(preview)
 		if action, ok := actions[bufLine]; ok {
 			switch action.kind {
 			case "append_chars":
@@ -358,8 +360,9 @@ func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursor
 	for i := range preview {
 		preview[i].CursorCol = -1
 	}
-	if cursorRow >= 1 && cursorRow <= len(preview) {
-		preview[cursorRow-1].CursorCol = cursorCol
+	// Map cursor from buffer coordinates to preview coordinates.
+	if idx, ok := bufToPreview[cursorRow]; ok && idx < len(preview) {
+		preview[idx].CursorCol = cursorCol
 	}
 
 	return preview

@@ -4,7 +4,7 @@
     "cursor_line": 3,
     "groups": [
       {
-        "buffer_line": 2,
+        "buffer_line": 1,
         "end_line": 3,
         "lines": [
           "new line 1",
@@ -16,6 +16,6 @@
         "type": "addition"
       }
     ],
-    "startLine": 2
+    "startLine": 1
   }
 ]

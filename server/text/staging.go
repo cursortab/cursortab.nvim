@@ -254,10 +254,6 @@ func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, buf
 		}
 	}
 
-	// Track if minOldLine was set from a valid anchor (not fallback)
-	// Pure additions with valid anchors need to use insertion point (anchor + 1)
-	hadValidAnchor := minOldLine != -1
-
 	if minOldLine == -1 {
 		minOldLine = stage.startLine + baseLineOffset - 1
 	}
@@ -266,24 +262,6 @@ func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, buf
 			maxOldLine = minOldLine
 		} else {
 			maxOldLine = stage.endLine + baseLineOffset - 1
-		}
-	}
-
-	// For pure additions WITH a valid anchor, the buffer range represents
-	// where the new content will be INSERTED, not the anchor. Additions are inserted
-	// AFTER the anchor line, so we need to add 1 to get the insertion point.
-	// E.g., if anchor is old line 2, new content appears starting at buffer line 3.
-	// Note: We only do this when there was a valid anchor (not fallback to stage.startLine)
-	if hasAdditions && !hasNonAdditions && hadValidAnchor {
-		minOldLine++
-		maxOldLine = minOldLine // For pure additions, start == end (insertion point)
-
-		// Update the per-line buffer mappings to match the adjusted insertion point.
-		// The bufferLines map was populated with anchor positions during the loop above,
-		// but for pure additions we need all positions to reflect the insertion point
-		// (anchor + 1) to maintain consistency between stage.BufferStart and group.BufferLine.
-		for lineNum := range bufferLines {
-			bufferLines[lineNum]++
 		}
 	}
 

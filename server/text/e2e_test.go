@@ -13,10 +13,12 @@ import (
 	"testing"
 )
 
-var update = flag.Bool("update", false, "update expected.json golden files")
+var updateAll = flag.Bool("update", false, "update all expected.json golden files")
+var update multiStringFlag
 var verify multiStringFlag
 
 func init() {
+	flag.Var(&update, "update-only", "update expected.json for specific test cases (can be repeated)")
 	flag.Var(&verify, "verify", "mark a test case as verified by name (can be repeated)")
 }
 
@@ -98,6 +100,7 @@ func TestE2E(t *testing.T) {
 
 	manifestPath := filepath.Join(e2eDir, "verified.json")
 	manifest := loadVerifiedManifest(manifestPath)
+	manifestDirty := false
 
 	var fixtures []fixtureResult
 
@@ -121,6 +124,10 @@ func TestE2E(t *testing.T) {
 
 			oldLines := strings.Split(string(oldBytes), "\n")
 			newLines := strings.Split(string(newBytes), "\n")
+
+			if params.CursorRow < 1 || params.CursorRow > len(oldLines) {
+				t.Fatalf("cursorRow %d is out of bounds for old.txt (%d lines)", params.CursorRow, len(oldLines))
+			}
 
 			// --- Batch pipeline ---
 			oldText := JoinLines(oldLines)
@@ -172,11 +179,19 @@ func TestE2E(t *testing.T) {
 			// --- Update or compare ---
 			expectedPath := filepath.Join(dir, "expected.json")
 
-			if *update {
+			if *updateAll || update.contains(name) {
 				data, err := json.MarshalIndent(batchLua, "", "  ")
 				assert.NoError(t, err, "marshal expected")
-				assert.NoError(t, os.WriteFile(expectedPath, append(data, '\n'), 0644), "write expected.json")
-				t.Logf("updated %s (unverified)", expectedPath)
+				newBytes := append(data, '\n')
+				existingBytes, _ := os.ReadFile(expectedPath)
+				if sha256Hex(newBytes) == sha256Hex(existingBytes) {
+					t.Logf("skipped %s (unchanged)", expectedPath)
+				} else {
+					assert.NoError(t, os.WriteFile(expectedPath, newBytes, 0644), "write expected.json")
+					delete(manifest, name)
+					manifestDirty = true
+					t.Logf("updated %s (unverified)", expectedPath)
+				}
 			}
 
 			expectedBytes, err := os.ReadFile(expectedPath)
@@ -185,19 +200,24 @@ func TestE2E(t *testing.T) {
 			var expected []map[string]any
 			assert.NoError(t, json.Unmarshal(expectedBytes, &expected), "parse expected.json")
 
+			batchJSON := toJSON(t, batchLua)
+			incJSON := toJSON(t, incLua)
+			expectedJSON := toJSON(t, expected)
+
 			// Check verification status
 			currentHash := sha256Hex(expectedBytes)
 			verified := manifest[name] == currentHash
 
 			if verify.contains(name) {
-				manifest[name] = currentHash
-				verified = true
-				t.Logf("verified %s", name)
+				if batchJSON == expectedJSON && incJSON == expectedJSON {
+					manifest[name] = currentHash
+					manifestDirty = true
+					verified = true
+					t.Logf("verified %s", name)
+				} else {
+					t.Errorf("cannot verify %s: batch or incremental output does not match expected", name)
+				}
 			}
-
-			batchJSON := toJSON(t, batchLua)
-			incJSON := toJSON(t, incLua)
-			expectedJSON := toJSON(t, expected)
 
 			fr := fixtureResult{
 				Name:              name,
@@ -221,8 +241,8 @@ func TestE2E(t *testing.T) {
 		})
 	}
 
-	// Save manifest if verifying
-	if len(verify) > 0 {
+	// Save manifest if changed
+	if manifestDirty {
 		if err := saveVerifiedManifest(manifestPath, manifest); err != nil {
 			t.Logf("failed to save verified manifest: %v", err)
 		} else {

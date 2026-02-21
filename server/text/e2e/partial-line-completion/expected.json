@@ -19,7 +19,7 @@
         "type": "modification"
       },
       {
-        "buffer_line": 10,
+        "buffer_line": 9,
         "end_line": 4,
         "lines": [
           "    arr = [64, 34, 25, 12, 22, 11, 90]",

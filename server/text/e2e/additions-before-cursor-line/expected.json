@@ -1,7 +1,7 @@
 [
   {
-    "cursor_col": 12,
-    "cursor_line": 3,
+    "cursor_col": 20,
+    "cursor_line": 4,
     "groups": [
       {
         "buffer_line": 1,
@@ -19,7 +19,7 @@
         "type": "modification"
       },
       {
-        "buffer_line": 1,
+        "buffer_line": 2,
         "end_line": 3,
         "lines": [
           "added line 1",

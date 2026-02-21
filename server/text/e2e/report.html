@@ -56,7 +56,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
-<h1>E2E Pipeline Report <span class="stats"><span class="meta">61 fixtures</span><span class="pass">41 pass</span><span class="fail">20 fail</span><span class="unverified">20 unverified</span></span></h1>
+<h1>E2E Pipeline Report <span class="stats"><span class="meta">57 fixtures</span><span class="pass">35 pass</span><span class="fail">22 fail</span><span class="unverified">22 unverified</span></span></h1>
 <div class="filters">
 <button class="filter-btn active" data-filter="all">All</button>
 <button class="filter-btn" data-filter="passed">Passed</button>
@@ -71,9 +71,9 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 2</span><span class="line"><span class="ln">2</span>line 3</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 2</span><span class="line add"><span class="ln">2</span>line 1</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span><span class="cursor">l</span>ine 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1<span class="cursor"> </span></span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -93,7 +93,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
     &#34;cursor_line&#34;: 1,
     &#34;groups&#34;: [
       {
-        &#34;buffer_line&#34;: 2,
+        &#34;buffer_line&#34;: 1,
         &#34;end_line&#34;: 1,
         &#34;lines&#34;: [
           &#34;line 1&#34;
@@ -103,7 +103,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;addition&#34;
       }
     ],
-    &#34;startLine&#34;: 2
+    &#34;startLine&#34;: 1
   }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
@@ -158,15 +158,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>additions-above-and-below-with-append</h2><button class="copy-btn" data-name="additions-above-and-below-with-append" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>additions-above-and-below-with-append</h2><button class="copy-btn" data-name="additions-above-and-below-with-append" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="fail">batch:FAIL</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">m</span>iddle</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span><span class="cursor">a</span>bove 1</span><span class="line add"><span class="ln">2</span>above 2</span><span class="line"><span class="ln">3</span>middle<span class="ghost"> completed</span></span><span class="line add"><span class="ln">4</span>below 1</span><span class="line add"><span class="ln">5</span>below 2</span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>above 1</span><span class="line add"><span class="ln">2</span>above 2</span><span class="line"><span class="ln">3</span><span class="cursor">m</span>iddle<span class="ghost"> completed</span></span><span class="line add"><span class="ln">4</span>below 1</span><span class="line add"><span class="ln">5</span>below 2</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>above 1</span><span class="line"><span class="ln">2</span>above 2</span><span class="line"><span class="ln">3</span>middle completed</span><span class="line"><span class="ln">4</span>below 1</span><span class="line"><span class="ln">5</span>below 2<span class="cursor"> </span></span></pre></div>
 </div>
@@ -175,7 +175,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">m</span>iddle</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span><span class="cursor">a</span>bove 1</span><span class="line add"><span class="ln">2</span>above 2</span><span class="line"><span class="ln">3</span>middle<span class="ghost"> completed</span></span><span class="line add"><span class="ln">4</span>below 1</span><span class="line add"><span class="ln">5</span>below 2</span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>above 1</span><span class="line add"><span class="ln">2</span>above 2</span><span class="line"><span class="ln">3</span><span class="cursor">m</span>iddle<span class="ghost"> completed</span></span><span class="line add"><span class="ln">4</span>below 1</span><span class="line add"><span class="ln">5</span>below 2</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>above 1</span><span class="line"><span class="ln">2</span>above 2</span><span class="line"><span class="ln">3</span>middle completed</span><span class="line"><span class="ln">4</span>below 1</span><span class="line"><span class="ln">5</span>below 2<span class="cursor"> </span></span></pre></div>
 </div>
@@ -260,7 +260,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 2,
+        &#34;buffer_line&#34;: 4,
         &#34;end_line&#34;: 5,
         &#34;lines&#34;: [
           &#34;below 1&#34;,
@@ -287,24 +287,24 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">p</span>artial</span><span class="line mod side"><span class="ln">→</span>inserted line 1</span><span class="line add"><span class="ln">2</span>inserted line 2</span><span class="line add"><span class="ln">3</span>partial content completed</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>inserted line 1<span class="cursor"> </span></span><span class="line"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span>partial content completed</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>inserted line 1</span><span class="line"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span>partial content completed<span class="cursor"> </span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">p</span>artial</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span><span class="cursor">i</span>nserted line 1</span><span class="line add"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span>partial<span class="ghost"> content completed</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>inserted line 1</span><span class="line add"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span><span class="cursor">p</span>artial<span class="ghost"> content completed</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>inserted line 1</span><span class="line"><span class="ln">2</span>inserted line 2<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>partial content completed</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>inserted line 1</span><span class="line"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span>partial content completed<span class="cursor"> </span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 15,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 25,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
@@ -335,8 +335,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 15,
-    &#34;cursor_line&#34;: 2,
+    &#34;cursor_col&#34;: 25,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
@@ -371,17 +371,17 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="unverified" open>
-<summary class="hdr"><h2>additions-at-beginning</h2><button class="copy-btn" data-name="additions-at-beginning" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>additions-at-beginning</h2><button class="copy-btn" data-name="additions-at-beginning" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span><span class="line add"><span class="ln">2</span>new line 1</span><span class="line add"><span class="ln">3</span>new line 2</span><span class="line add"><span class="ln">4</span>new line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>new line 1</span><span class="line add"><span class="ln">2</span>new line 2</span><span class="line add"><span class="ln">3</span>new line 3</span><span class="line"><span class="ln">4</span><span class="cursor">o</span>riginal line</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>new line 1</span><span class="line"><span class="ln">2</span>new line 2</span><span class="line"><span class="ln">3</span>new line 3</span><span class="line"><span class="ln">4</span>original l<span class="cursor">i</span>ne</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>new line 1</span><span class="line"><span class="ln">2</span>new line 2</span><span class="line"><span class="ln">3</span>new line 3<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>original line</span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -401,7 +401,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
     &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
-        &#34;buffer_line&#34;: 2,
+        &#34;buffer_line&#34;: 1,
         &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;new line 1&#34;,
@@ -413,7 +413,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;addition&#34;
       }
     ],
-    &#34;startLine&#34;: 2
+    &#34;startLine&#34;: 1
   }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
@@ -513,34 +513,34 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>additions-before-cursor-line</h2><button class="copy-btn" data-name="additions-before-cursor-line" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(6,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>additions-before-cursor-line</h2><button class="copy-btn" data-name="additions-before-cursor-line" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(2,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span>first</span><span class="line"><span class="ln">2</span>cursor line content</span></pre></div>
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>first</span><span class="line"><span class="ln">2</span><span class="cursor">c</span>ursor line content</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>added line 1</span><span class="line add"><span class="ln">2</span>added line 2</span><span class="line"><span class="ln">3</span>first<span class="ghost"> modified</span></span><span class="line"><span class="ln">4</span>cursor line <span class="add-hl">replaced</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>first<span class="ghost"> modified</span></span><span class="line add"><span class="ln">2</span>added line 1</span><span class="line add"><span class="ln">3</span>added line 2</span><span class="line"><span class="ln">4</span><span class="cursor">c</span>ursor line <span class="add-hl">replaced</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>first modified</span><span class="line"><span class="ln">2</span>added line 1</span><span class="line"><span class="ln">3</span>added line 2<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>cursor line replaced</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>first modified</span><span class="line"><span class="ln">2</span>added line 1</span><span class="line"><span class="ln">3</span>added line 2</span><span class="line"><span class="ln">4</span>cursor line replaced<span class="cursor"> </span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
 <div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span>first</span><span class="line"><span class="ln">2</span>cursor line content</span></pre></div>
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>first</span><span class="line"><span class="ln">2</span><span class="cursor">c</span>ursor line content</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>first<span class="ghost"> modified</span></span><span class="line add"><span class="ln">2</span>added line 1</span><span class="line add"><span class="ln">3</span>added line 2</span><span class="line"><span class="ln">4</span>cursor line <span class="add-hl">replaced</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>first<span class="ghost"> modified</span></span><span class="line add"><span class="ln">2</span>added line 1</span><span class="line add"><span class="ln">3</span>added line 2</span><span class="line"><span class="ln">4</span><span class="cursor">c</span>ursor line <span class="add-hl">replaced</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>first modified</span><span class="line"><span class="ln">2</span>added line 1</span><span class="line"><span class="ln">3</span>added line 2<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>cursor line replaced</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>first modified</span><span class="line"><span class="ln">2</span>added line 1</span><span class="line"><span class="ln">3</span>added line 2</span><span class="line"><span class="ln">4</span>cursor line replaced<span class="cursor"> </span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 12,
-    &#34;cursor_line&#34;: 3,
+    &#34;cursor_col&#34;: 20,
+    &#34;cursor_line&#34;: 4,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
@@ -558,7 +558,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 1,
+        &#34;buffer_line&#34;: 2,
         &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;added line 1&#34;,
@@ -589,8 +589,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 12,
-    &#34;cursor_line&#34;: 3,
+    &#34;cursor_col&#34;: 20,
+    &#34;cursor_line&#34;: 4,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
@@ -812,8 +812,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>blank-line-additions</h2><button class="copy-btn" data-name="blank-line-additions" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(3,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="unverified" open>
+<summary class="hdr"><h2>blank-line-additions</h2><button class="copy-btn" data-name="blank-line-additions" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(3,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
@@ -925,7 +925,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   return true;</span><span class="line"><span class="ln">3</span>}</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line add"><span class="ln">2</span><span class="cursor"> </span>   let x = 1;</span><span class="line add"><span class="ln">3</span>    let y = 2;</span><span class="line add"><span class="ln">4</span>    let z = 3;</span><span class="line"><span class="ln">5</span>    return true;</span><span class="line"><span class="ln">6</span>}</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line add"><span class="ln">2</span>    let x = 1;</span><span class="line add"><span class="ln">3</span>    let y = 2;</span><span class="line add"><span class="ln">4</span>    let z = 3;</span><span class="line"><span class="ln">5</span><span class="cursor"> </span>   return true;</span><span class="line"><span class="ln">6</span>}</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line"><span class="ln">2</span>    let x = 1;</span><span class="line"><span class="ln">3</span>    let y = 2;</span><span class="line"><span class="ln">4</span>    let z = 3;<span class="cursor"> </span></span><span class="line"><span class="ln">5</span>    return true;</span><span class="line"><span class="ln">6</span>}</span></pre></div>
 </div>
@@ -936,7 +936,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line del"><span class="ln">2</span><span class="cursor"> </span>   return true;</span><span class="line mod side"><span class="ln">→</span>    let x = 1;</span><span class="line add"><span class="ln">3</span>    let y = 2;</span><span class="line add"><span class="ln">4</span>    let z = 3;</span><span class="line add"><span class="ln">5</span>    return true;</span><span class="line"><span class="ln">6</span>}</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line"><span class="ln">2</span>    let x = 1;<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>    let y = 2;</span><span class="line"><span class="ln">4</span>    let z = 3;</span><span class="line"><span class="ln">5</span>    return true;</span><span class="line"><span class="ln">6</span>}</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>function test() {</span><span class="line"><span class="ln">2</span>    let x = 1;</span><span class="line"><span class="ln">3</span>    let y = 2;</span><span class="line"><span class="ln">4</span>    let z = 3;</span><span class="line"><span class="ln">5</span>    return true;<span class="cursor"> </span></span><span class="line"><span class="ln">6</span>}</span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
@@ -964,8 +964,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 14,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 16,
+    &#34;cursor_line&#34;: 4,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 2,
@@ -1008,7 +1008,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine1</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line add"><span class="ln">4</span></span><span class="line"><span class="ln">5</span>line<span class="add-hl">5</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line1</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span><span class="cursor"> </span></span><span class="line"><span class="ln">5</span>line5</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line1</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span></span><span class="line"><span class="ln">5</span>line5<span class="cursor"> </span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -1017,15 +1017,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine1</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line add"><span class="ln">4</span></span><span class="line"><span class="ln">5</span>line<span class="add-hl">5</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line1</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span><span class="cursor"> </span></span><span class="line"><span class="ln">5</span>line5</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line1</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span></span><span class="line"><span class="ln">5</span>line5<span class="cursor"> </span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 5,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 4,
@@ -1058,8 +1058,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 5,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 4,
@@ -1392,39 +1392,37 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="unverified" open>
-<summary class="hdr"><h2>deletion-then-addition</h2><button class="copy-btn" data-name="deletion-then-addition" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>deletion-then-addition</h2><button class="copy-btn" data-name="deletion-then-addition" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span><span class="add-hl">new </span>line</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line del"><span class="ln">2</span>line 2</span><span class="line mod side"><span class="ln">→</span>new line</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>new <span class="cursor">l</span>ine</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>new line<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span><span class="add-hl">new </span>line</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line del"><span class="ln">2</span>line 2</span><span class="line mod side"><span class="ln">→</span>new line</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>new <span class="cursor">l</span>ine</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>new line<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 4,
+    &#34;cursor_col&#34;: 8,
     &#34;cursor_line&#34;: 1,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 2,
-        &#34;col_end&#34;: 4,
-        &#34;col_start&#34;: 0,
         &#34;end_line&#34;: 1,
         &#34;lines&#34;: [
           &#34;new line&#34;
@@ -1432,7 +1430,6 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;old_lines&#34;: [
           &#34;line 2&#34;
         ],
-        &#34;render_hint&#34;: &#34;replace_chars&#34;,
         &#34;start_line&#34;: 1,
         &#34;type&#34;: &#34;modification&#34;
       }
@@ -1442,13 +1439,11 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 4,
+    &#34;cursor_col&#34;: 8,
     &#34;cursor_line&#34;: 1,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 2,
-        &#34;col_end&#34;: 4,
-        &#34;col_start&#34;: 0,
         &#34;end_line&#34;: 1,
         &#34;lines&#34;: [
           &#34;new line&#34;
@@ -1456,7 +1451,6 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;old_lines&#34;: [
           &#34;line 2&#34;
         ],
-        &#34;render_hint&#34;: &#34;replace_chars&#34;,
         &#34;start_line&#34;: 1,
         &#34;type&#34;: &#34;modification&#34;
       }
@@ -1812,162 +1806,42 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>empty-old-text</h2><button class="copy-btn" data-name="empty-old-text" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
-<div class="pipelines">
-<div class="pipeline-col">
-<div class="pipeline-label">Batch</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span></span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost"><span class="cursor">l</span>ine 1</span></span><span class="line add"><span class="ln">2</span>line 2</span><span class="line add"><span class="ln">3</span>line 3</span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3<span class="cursor"> </span></span></pre></div>
-</div>
-<div class="pipeline-col">
-<div class="pipeline-label">Incremental</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span></span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost"><span class="cursor">l</span>ine 1</span></span><span class="line add"><span class="ln">2</span>line 2</span><span class="line add"><span class="ln">3</span>line 3</span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3<span class="cursor"> </span></span></pre></div>
-</div>
-</div>
-<div class="json-section"><details class="json-details" open><summary>JSON</summary>
-<div class="cols-2">
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 6,
-    &#34;cursor_line&#34;: 3,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 6,
-        &#34;col_start&#34;: 0,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;line 1&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;render_hint&#34;: &#34;append_chars&#34;,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 3,
-        &#34;lines&#34;: [
-          &#34;line 2&#34;,
-          &#34;line 3&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 2,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 1
-  }
-]</code></div>
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 6,
-    &#34;cursor_line&#34;: 3,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 6,
-        &#34;col_start&#34;: 0,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;line 1&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;render_hint&#34;: &#34;append_chars&#34;,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 3,
-        &#34;lines&#34;: [
-          &#34;line 2&#34;,
-          &#34;line 3&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 2,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 1
-  }
-]</code></div>
-</div>
-</details></div>
-</details>
 <details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>empty-to-hono-app</h2><button class="copy-btn" data-name="empty-to-hono-app" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(43,0) vp=[1,50]</span></summary>
+<summary class="hdr"><h2>empty-old-text</h2><button class="copy-btn" data-name="empty-old-text" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="fail">batch:FAIL</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span></span></pre></div>
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span></span><span class="line add"><span class="ln">2</span>// Initialize Hono app with types</span><span class="line add"><span class="ln">3</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line add"><span class="ln">4</span></span><span class="line add"><span class="ln">5</span>// Global middleware</span><span class="line add"><span class="ln">6</span>application.use(&#34;*&#34;, corsMiddleware);</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost"><span class="cursor">l</span>ine 1</span></span><span class="line add"><span class="ln">2</span>line 2</span><span class="line add"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Initialize Hono app with types</span><span class="line"><span class="ln">2</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>// Global middleware</span><span class="line"><span class="ln">5</span>application.use(&#34;*&#34;, corsMiddleware);</span><span class="line"><span class="ln">6</span><span class="cursor"> </span></span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3<span class="cursor"> </span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
 <div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span></span></pre></div>
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost">// Initialize Hono app with types</span></span><span class="line add"><span class="ln">2</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line add"><span class="ln">3</span></span><span class="line add"><span class="ln">4</span>// Global middleware</span><span class="line add"><span class="ln">5</span>application.use(&#34;*&#34;, corsMiddleware);</span><span class="line add"><span class="ln">6</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost"><span class="cursor">l</span>ine 1</span></span><span class="line add"><span class="ln">2</span>line 2</span><span class="line add"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Initialize Hono app with types</span><span class="line"><span class="ln">2</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>// Global middleware</span><span class="line"><span class="ln">5</span>application.use(&#34;*&#34;, corsMiddleware);</span><span class="line"><span class="ln">6</span><span class="cursor"> </span></span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3<span class="cursor"> </span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 37,
-    &#34;cursor_line&#34;: 5,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 5,
-        &#34;lines&#34;: [
-          &#34;// Initialize Hono app with types&#34;,
-          &#34;const application = new Hono\u003cApiContext\u003e();&#34;,
-          &#34;&#34;,
-          &#34;// Global middleware&#34;,
-          &#34;application.use(\&#34;*\&#34;, corsMiddleware);&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 2
-  }
-]</code></div>
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 6,
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 33,
+        &#34;col_end&#34;: 6,
         &#34;col_start&#34;: 0,
         &#34;end_line&#34;: 1,
         &#34;lines&#34;: [
-          &#34;// Initialize Hono app with types&#34;
+          &#34;line 1&#34;
         ],
         &#34;old_lines&#34;: [
           &#34;&#34;
@@ -1978,13 +1852,10 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       },
       {
         &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 6,
+        &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
-          &#34;const application = new Hono\u003cApiContext\u003e();&#34;,
-          &#34;&#34;,
-          &#34;// Global middleware&#34;,
-          &#34;application.use(\&#34;*\&#34;, corsMiddleware);&#34;,
-          &#34;&#34;
+          &#34;line 2&#34;,
+          &#34;line 3&#34;
         ],
         &#34;old_lines&#34;: null,
         &#34;start_line&#34;: 2,
@@ -1994,69 +1865,39 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
     &#34;startLine&#34;: 1
   }
 ]</code></div>
-</div>
-</details></div>
-</details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>identical-line-not-marked-as-change</h2><button class="copy-btn" data-name="identical-line-not-marked-as-change" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(11,0) vp=[1,50]</span></summary>
-<div class="pipelines">
-<div class="pipeline-col">
-<div class="pipeline-label">Batch</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n-i-1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j+1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j+1] = arr[j+1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>arr = [64, 34, 25, 12, 22, 11, 90]</span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n-i-1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j+1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j+1] = arr[j+1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line add"><span class="ln">10</span>    print(bubble_sort(arr))</span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n-i-1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j+1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j+1] = arr[j+1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line"><span class="ln">10</span>    print(bubble_sort(arr))<span class="cursor"> </span></span></pre></div>
-</div>
-<div class="pipeline-col">
-<div class="pipeline-label">Incremental</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n-i-1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j+1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j+1] = arr[j+1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>arr = [64, 34, 25, 12, 22, 11, 90]</span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n-i-1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j+1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j+1] = arr[j+1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line add"><span class="ln">10</span>    print(bubble_sort(arr))</span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n-i-1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j+1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j+1] = arr[j+1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line"><span class="ln">10</span>    print(bubble_sort(arr))<span class="cursor"> </span></span></pre></div>
-</div>
-</div>
-<div class="json-section"><details class="json-details" open><summary>JSON</summary>
-<div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 27,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
-        &#34;buffer_line&#34;: 10,
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 6,
+        &#34;col_start&#34;: 0,
         &#34;end_line&#34;: 1,
         &#34;lines&#34;: [
-          &#34;    print(bubble_sort(arr))&#34;
+          &#34;line 1&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;&#34;
+        ],
+        &#34;render_hint&#34;: &#34;append_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;line 2&#34;,
+          &#34;line 3&#34;
         ],
         &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
+        &#34;start_line&#34;: 2,
         &#34;type&#34;: &#34;addition&#34;
       }
     ],
-    &#34;startLine&#34;: 10
-  }
-]</code></div>
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 27,
-    &#34;cursor_line&#34;: 1,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 10,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;    print(bubble_sort(arr))&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 10
+    &#34;startLine&#34;: 1
   }
 ]</code></div>
 </div>
@@ -2242,15 +2083,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>json-block-expansion</h2><button class="copy-btn" data-name="json-block-expansion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>json-block-expansion</h2><button class="copy-btn" data-name="json-block-expansion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span>       {</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span>        }</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span>       {</span><span class="line"><span class="ln">2</span><span class="ghost">            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span></span><span class="line add"><span class="ln">3</span>            &#34;value&#34;: 260,</span><span class="line add"><span class="ln">4</span>            &#34;name&#34;: &#34;John&#34;</span><span class="line"><span class="ln">5</span>        }</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span>       {</span><span class="line add"><span class="ln">2</span>            &#34;value&#34;: 260,</span><span class="line add"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;</span><span class="line"><span class="ln">4</span><span class="ghost">            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span></span><span class="line"><span class="ln">5</span>        }</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>        {</span><span class="line"><span class="ln">2</span>            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span><span class="line"><span class="ln">3</span>            &#34;value&#34;: 260,</span><span class="line"><span class="ln">4</span>            &#34;name&#34;: &#34;John&#34;<span class="cursor"> </span></span><span class="line"><span class="ln">5</span>        }</span></pre></div>
 </div>
@@ -2287,7 +2128,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 3,
+        &#34;buffer_line&#34;: 2,
         &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;            \&#34;value\&#34;: 260,&#34;,
@@ -2407,90 +2248,6 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       }
     ],
     &#34;startLine&#34;: 2
-  }
-]</code></div>
-</div>
-</details></div>
-</details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>leading-empty-line-deletion</h2><button class="copy-btn" data-name="leading-empty-line-deletion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(5,0) vp=[1,100]</span></summary>
-<div class="pipelines">
-<div class="pipeline-col">
-<div class="pipeline-label">Batch</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span>const x = 1;</span><span class="line"><span class="ln">4</span></span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span>const x = 1;</span><span class="line add"><span class="ln">4</span>// New section</span><span class="line add"><span class="ln">5</span><span class="cursor">c</span>onst y = 2;</span><span class="line add"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span><span class="cursor"> </span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span></span></pre></div>
-</div>
-<div class="pipeline-col">
-<div class="pipeline-label">Incremental</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span>const x = 1;</span><span class="line"><span class="ln">4</span></span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost">// Comment</span></span><span class="line add"><span class="ln">2</span>// New section</span><span class="line add"><span class="ln">3</span>const y = 2;</span><span class="line add"><span class="ln">4</span></span><span class="line"><span class="ln">5</span><span class="cursor">/</span>/ Comment</span><span class="line"><span class="ln">6</span>const x = 1;</span><span class="line"><span class="ln">7</span></span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span><span class="cursor"> </span></span></pre></div>
-</div>
-</div>
-<div class="json-section"><details class="json-details" open><summary>JSON</summary>
-<div class="cols-2">
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 3,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 4,
-        &#34;end_line&#34;: 3,
-        &#34;lines&#34;: [
-          &#34;// New section&#34;,
-          &#34;const y = 2;&#34;,
-          &#34;&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 1
-  }
-]</code></div>
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 6,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 10,
-        &#34;col_start&#34;: 0,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;// Comment&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;render_hint&#34;: &#34;append_chars&#34;,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 6,
-        &#34;lines&#34;: [
-          &#34;// New section&#34;,
-          &#34;const y = 2;&#34;,
-          &#34;&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 4,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 1
   }
 ]</code></div>
 </div>
@@ -2641,7 +2398,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine A</span><span class="line del"><span class="ln">2</span>line B</span><span class="line mod side"><span class="ln">→</span>new 1</span><span class="line add"><span class="ln">3</span>new 2</span><span class="line"><span class="ln">4</span>line C</span><span class="line"><span class="ln">5</span>line D</span><span class="line"><span class="ln">6</span>line E</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line A</span><span class="line"><span class="ln">2</span>new 1<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>new 2</span><span class="line"><span class="ln">4</span>line C</span><span class="line"><span class="ln">5</span>line E</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line A</span><span class="line"><span class="ln">2</span>new 1</span><span class="line"><span class="ln">3</span>new 2<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>line C</span><span class="line"><span class="ln">5</span>line E</span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -2650,7 +2407,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine A</span><span class="line"><span class="ln">2</span>line B</span><span class="line del"><span class="ln">3</span>line C</span><span class="line mod side"><span class="ln">→</span>new 1</span><span class="line"><span class="ln">4</span>line <span class="add-hl">C</span></span><span class="line"><span class="ln">5</span>line E</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>line A</span><span class="line"><span class="ln">2</span>new 1</span><span class="line"><span class="ln">3</span>new 2<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>line C</span><span class="line"><span class="ln">5</span>line E</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line A</span><span class="line"><span class="ln">2</span>new 1</span><span class="line"><span class="ln">3</span>new 2</span><span class="line"><span class="ln">4</span>line C<span class="cursor"> </span></span><span class="line"><span class="ln">5</span>line E</span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
@@ -2658,7 +2415,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="json-col"><code class="shiki-json">[
   {
     &#34;cursor_col&#34;: 5,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 2,
@@ -2688,8 +2445,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 5,
-    &#34;cursor_line&#34;: 2,
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 3,
@@ -2727,15 +2484,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="unverified" open>
-<summary class="hdr"><h2>modification-and-addition</h2><button class="copy-btn" data-name="modification-and-addition" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(2,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>modification-and-addition</h2><button class="copy-btn" data-name="modification-and-addition" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="fail">batch:FAIL</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(2,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   console.log(&#34;old message&#34;);</span><span class="line"><span class="ln">3</span>    return true;</span><span class="line"><span class="ln">4</span>}</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   console.log(&#34;<span class="add-hl">new</span> message&#34;);</span><span class="line add"><span class="ln">3</span>    console.log(&#34;added line&#34;);</span><span class="line"><span class="ln">4</span>    return true;</span><span class="line"><span class="ln">5</span>}</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   console.log(&#34;<span class="add-hl">new</span> message&#34;);</span><span class="line"><span class="ln">3</span>    return true;</span><span class="line add"><span class="ln">4</span>    console.log(&#34;added line&#34;);</span><span class="line"><span class="ln">5</span>}</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span>    console.log(&#34;new message&#34;);</span><span class="line"><span class="ln">3</span>    return true;</span><span class="line"><span class="ln">4</span>    console.log(&#34;added line&#34;);<span class="cursor"> </span></span><span class="line"><span class="ln">5</span>}</span></pre></div>
 </div>
@@ -2744,7 +2501,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   console.log(&#34;old message&#34;);</span><span class="line"><span class="ln">3</span>    return true;</span><span class="line"><span class="ln">4</span>}</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   console.log(&#34;<span class="add-hl">new</span> message&#34;);</span><span class="line add"><span class="ln">3</span>    console.log(&#34;added line&#34;);</span><span class="line"><span class="ln">4</span>    return true;</span><span class="line"><span class="ln">5</span>}</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>   console.log(&#34;<span class="add-hl">new</span> message&#34;);</span><span class="line"><span class="ln">3</span>    return true;</span><span class="line add"><span class="ln">4</span>    console.log(&#34;added line&#34;);</span><span class="line"><span class="ln">5</span>}</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>function hello() {</span><span class="line"><span class="ln">2</span>    console.log(&#34;new message&#34;);</span><span class="line"><span class="ln">3</span>    return true;</span><span class="line"><span class="ln">4</span>    console.log(&#34;added line&#34;);<span class="cursor"> </span></span><span class="line"><span class="ln">5</span>}</span></pre></div>
 </div>
@@ -2772,7 +2529,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 3,
+        &#34;buffer_line&#34;: 4,
         &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;    console.log(\&#34;added line\&#34;);&#34;
@@ -2806,7 +2563,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 3,
+        &#34;buffer_line&#34;: 4,
         &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;    console.log(\&#34;added line\&#34;);&#34;
@@ -2901,7 +2658,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">o</span>ld</span><span class="line mod side"><span class="ln">→</span>modified</span><span class="line add"><span class="ln">2</span>added after</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>modified<span class="cursor"> </span></span><span class="line"><span class="ln">2</span>added after</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>modified</span><span class="line"><span class="ln">2</span>added after<span class="cursor"> </span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -2910,15 +2667,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">o</span>ld</span><span class="line mod side"><span class="ln">→</span>modified</span><span class="line add"><span class="ln">2</span>added after</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>modified<span class="cursor"> </span></span><span class="line"><span class="ln">2</span>added after</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>modified</span><span class="line"><span class="ln">2</span>added after<span class="cursor"> </span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 8,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 11,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
@@ -2948,8 +2705,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 8,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 11,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
@@ -3763,15 +3520,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>partial-line-completion</h2><button class="copy-btn" data-name="partial-line-completion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(9,3) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>partial-line-completion</h2><button class="copy-btn" data-name="partial-line-completion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(9,3) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>if <span class="cursor"> </span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>if <span class="ghost"><span class="cursor">_</span>_name__ == &#34;__main__&#34;:</span></span><span class="line add"><span class="ln">10</span>    arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line add"><span class="ln">11</span>    sorted_arr = bubble_sort(arr)</span><span class="line add"><span class="ln">12</span>    print(sorted_arr)</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line add"><span class="ln">9</span>    arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line add"><span class="ln">10</span>    sorted_arr = bubble_sort(arr)</span><span class="line add"><span class="ln">11</span>    print(sorted_arr)</span><span class="line"><span class="ln">12</span>if <span class="ghost"><span class="cursor">_</span>_name__ == &#34;__main__&#34;:</span></span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>if __name__ == &#34;__main__&#34;:</span><span class="line"><span class="ln">10</span>    arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line"><span class="ln">11</span>    sorted_arr = bubble_sort(arr)</span><span class="line"><span class="ln">12</span>    print(sorted_arr)<span class="cursor"> </span></span></pre></div>
 </div>
@@ -3808,7 +3565,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 10,
+        &#34;buffer_line&#34;: 9,
         &#34;end_line&#34;: 4,
         &#34;lines&#34;: [
           &#34;    arr = [64, 34, 25, 12, 22, 11, 90]&#34;,
@@ -4287,8 +4044,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>single-line-to-multiline</h2><button class="copy-btn" data-name="single-line-to-multiline" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,8) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>single-line-to-multiline</h2><button class="copy-btn" data-name="single-line-to-multiline" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="fail">batch:FAIL</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,8) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
@@ -4791,7 +4548,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line del"><span class="ln">2</span>    x<span class="cursor"> </span> </span><span class="line mod side"><span class="ln">→</span>    x = getValue()</span><span class="line add"><span class="ln">3</span>    y = processValue(x)</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    x = getValue()<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>    y = processValue(x)</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    x = getValue()</span><span class="line"><span class="ln">3</span>    y = processValue(x)<span class="cursor"> </span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -4800,15 +4557,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line del"><span class="ln">2</span>    x<span class="cursor"> </span> </span><span class="line mod side"><span class="ln">→</span>    x = getValue()</span><span class="line add"><span class="ln">3</span>    y = processValue(x)</span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    x = getValue()<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>    y = processValue(x)</span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    x = getValue()</span><span class="line"><span class="ln">3</span>    y = processValue(x)<span class="cursor"> </span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details" open><summary>JSON</summary>
 <div class="cols-2">
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 18,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 23,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 2,
@@ -4838,8 +4595,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 ]</code></div>
 <div class="json-col"><code class="shiki-json">[
   {
-    &#34;cursor_col&#34;: 18,
-    &#34;cursor_line&#34;: 1,
+    &#34;cursor_col&#34;: 23,
+    &#34;cursor_line&#34;: 2,
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 2,
@@ -5049,136 +4806,6 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>whitespace-line-expansion</h2><button class="copy-btn" data-name="whitespace-line-expansion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(6,0) vp=[1,50]</span></summary>
-<div class="pipelines">
-<div class="pipeline-col">
-<div class="pipeline-label">Batch</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>        </span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>    ----------</span><span class="line"><span class="ln">2</span><span class="ghost">    Parameters</span></span><span class="line del"><span class="ln">3</span>        </span><span class="line mod side"><span class="ln">→</span>    rA : numpy array</span><span class="line add"><span class="ln">4</span>        The coordinates of point A.</span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>    Parameters</span><span class="line"><span class="ln">2</span>    ----------</span><span class="line"><span class="ln">3</span>    rA : numpy array<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>        The coordinates of point A.</span></pre></div>
-</div>
-<div class="pipeline-col">
-<div class="pipeline-label">Incremental</div>
-<div class="pane">
-<h3>Old</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>        </span></pre></div>
-<div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="ghost">    Parameters</span></span><span class="line del"><span class="ln">2</span>        </span><span class="line mod side"><span class="ln">→</span>    ----------</span><span class="line add"><span class="ln">3</span>    rA : numpy array</span><span class="line add"><span class="ln">4</span>        The coordinates of point A.</span></pre></div>
-<div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>    Parameters</span><span class="line"><span class="ln">2</span>    ----------<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>    rA : numpy array</span><span class="line"><span class="ln">4</span>        The coordinates of point A.</span></pre></div>
-</div>
-</div>
-<div class="json-section"><details class="json-details" open><summary>JSON</summary>
-<div class="cols-2">
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 20,
-    &#34;cursor_line&#34;: 3,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 14,
-        &#34;col_start&#34;: 0,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;    Parameters&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;render_hint&#34;: &#34;append_chars&#34;,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;end_line&#34;: 2,
-        &#34;lines&#34;: [
-          &#34;    ----------&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 2,
-        &#34;type&#34;: &#34;addition&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 3,
-        &#34;lines&#34;: [
-          &#34;    rA : numpy array&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;        &#34;
-        ],
-        &#34;start_line&#34;: 3,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 3,
-        &#34;end_line&#34;: 4,
-        &#34;lines&#34;: [
-          &#34;        The coordinates of point A.&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 4,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 1
-  }
-]</code></div>
-<div class="json-col"><code class="shiki-json">[
-  {
-    &#34;cursor_col&#34;: 14,
-    &#34;cursor_line&#34;: 2,
-    &#34;groups&#34;: [
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 14,
-        &#34;col_start&#34;: 0,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;    Parameters&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;render_hint&#34;: &#34;append_chars&#34;,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 2,
-        &#34;lines&#34;: [
-          &#34;    ----------&#34;
-        ],
-        &#34;old_lines&#34;: [
-          &#34;        &#34;
-        ],
-        &#34;start_line&#34;: 2,
-        &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 3,
-        &#34;end_line&#34;: 4,
-        &#34;lines&#34;: [
-          &#34;    rA : numpy array&#34;,
-          &#34;        The coordinates of point A.&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 3,
-        &#34;type&#34;: &#34;addition&#34;
-      }
-    ],
-    &#34;startLine&#34;: 1
-  }
-]</code></div>
-</div>
-</details></div>
-</details>
 <details class="fixture" data-status="passed">
 <summary class="hdr"><h2>whitespace-only-change</h2><button class="copy-btn" data-name="whitespace-only-change" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
@@ -5254,15 +4881,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="passed">
-<summary class="hdr"><h2>whitespace-only-line-modification</h2><button class="copy-btn" data-name="whitespace-only-line-modification" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(2,4) vp=[1,50]</span></summary>
+<details class="fixture" data-status="failed" open>
+<summary class="hdr"><h2>whitespace-only-line-modification</h2><button class="copy-btn" data-name="whitespace-only-line-modification" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(2,4) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    <span class="cursor"> </span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    <span class="ghost"><span class="cursor">x</span> = getValue()</span></span><span class="line add"><span class="ln">3</span>    y = processValue(x)</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line add"><span class="ln">2</span>    y = processValue(x)</span><span class="line"><span class="ln">3</span>    <span class="ghost"><span class="cursor">x</span> = getValue()</span></span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>func main() {</span><span class="line"><span class="ln">2</span>    x = getValue()</span><span class="line"><span class="ln">3</span>    y = processValue(x)<span class="cursor"> </span></span></pre></div>
 </div>
@@ -5299,7 +4926,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 3,
+        &#34;buffer_line&#34;: 2,
         &#34;end_line&#34;: 2,
         &#34;lines&#34;: [
           &#34;    y = processValue(x)&#34;
@@ -5357,7 +4984,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span>           </span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span><span class="cursor"> </span>           &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span><span class="line"><span class="ln">2</span>            <span class="ghost">&#34;value&#34;: 260,</span></span><span class="line add"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;</span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>           <span class="ghost">&#34;value&#34;: 260,</span></span><span class="line add"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span><span class="line"><span class="ln">2</span>            &#34;value&#34;: 260,</span><span class="line"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;<span class="cursor"> </span></span></pre></div>
 </div>

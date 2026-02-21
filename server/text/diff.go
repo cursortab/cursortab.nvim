@@ -106,9 +106,21 @@ type LineMapping struct {
 // GetBufferLine calculates the buffer line for a change using coordinate mapping.
 // mapKey is the change's key in the changes map (typically newLineNum).
 // baseLineOffset is where the diff range starts in the buffer (1-indexed).
+//
+// For additions, the returned value is the insertion point (where virt_lines_above
+// should render), NOT the anchor line. This means:
+//   - If OldLineNum is set (anchor = line before insertion): returns anchor + 1
+//   - If backward walk finds a mapped line: returns that line + 1
+//   - If forward walk finds a mapped line: returns that line (insert before it)
 func (m *LineMapping) GetBufferLine(change LineChange, mapKey, baseLineOffset int) int {
+	isAddition := change.Type == ChangeAddition
+
 	if change.OldLineNum > 0 {
-		return change.OldLineNum + baseLineOffset - 1
+		bufLine := change.OldLineNum + baseLineOffset - 1
+		if isAddition {
+			bufLine++
+		}
+		return bufLine
 	}
 
 	if m != nil && change.NewLineNum > 0 && change.NewLineNum <= len(m.NewToOld) {
@@ -118,7 +130,18 @@ func (m *LineMapping) GetBufferLine(change LineChange, mapKey, baseLineOffset in
 		}
 		for i := change.NewLineNum - 2; i >= 0; i-- {
 			if m.NewToOld[i] > 0 {
-				return m.NewToOld[i] + baseLineOffset - 1
+				bufLine := m.NewToOld[i] + baseLineOffset - 1
+				if isAddition {
+					bufLine++
+				}
+				return bufLine
+			}
+		}
+		if isAddition {
+			for i := change.NewLineNum; i < len(m.NewToOld); i++ {
+				if m.NewToOld[i] > 0 {
+					return m.NewToOld[i] + baseLineOffset - 1
+				}
 			}
 		}
 	}
@@ -482,17 +505,24 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 	}
 
 	// Fourth pass: Handle unmatched additions (newToOld stays -1)
+	// For each unmatched addition, find the nearest preceding matched insert
+	// to determine the correct anchor. Additions before any match have no anchor
+	// (anchorOld=-1), so GetBufferLine will use the forward walk to find the
+	// correct insertion point. Additions after a match anchor to the matched
+	// old line, placing them after it.
 	for i, insertedLine := range insertedLines {
 		if usedInserts[i] {
 			continue
 		}
 		newIdx := newLineStart + i
-		// Anchor to the first deleted line position (1-indexed) so that additions
-		// have the same buffer line as their related modifications during viewport
-		// partitioning. This ensures delete+insert blocks stay grouped together.
 		anchorOld := -1
-		if oldLineStart >= 0 {
-			anchorOld = oldLineStart + 1 // Use 1-indexed position of first deleted line
+		for delIdx, insIdx := range matches {
+			if insIdx < i {
+				candidate := oldLineStart + delIdx + 1 // 1-indexed
+				if candidate > anchorOld {
+					anchorOld = candidate
+				}
+			}
 		}
 		result.addAddition(anchorOld, newIdx+1, insertedLine)
 	}
@@ -589,6 +619,21 @@ func categorizePureDeletion(diffs []diffmatchpatch.Diff) (ChangeType, int, int) 
 func categorizeSingleReplacement(diffs []diffmatchpatch.Diff, deletedText, insertedText string) (ChangeType, int, int) {
 	// Check if this is a complex modification based on word count heuristics
 	if isComplexModification(deletedText, insertedText) {
+		return ChangeModification, 0, 0
+	}
+
+	// The delete and insert must be adjacent for replace_chars to accurately
+	// represent the change. If there's an Equal segment between them, the changes
+	// are at different positions and can't be shown as a single replacement span.
+	adjacent := false
+	for i := 0; i < len(diffs)-1; i++ {
+		if (diffs[i].Type == diffmatchpatch.DiffDelete && diffs[i+1].Type == diffmatchpatch.DiffInsert) ||
+			(diffs[i].Type == diffmatchpatch.DiffInsert && diffs[i+1].Type == diffmatchpatch.DiffDelete) {
+			adjacent = true
+			break
+		}
+	}
+	if !adjacent {
 		return ChangeModification, 0, 0
 	}
 

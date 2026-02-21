@@ -145,36 +145,9 @@ type StageContext struct {
 func FinalizeStageGroups(changes map[int]LineChange, newLines []string, ctx *StageContext) ([]*Group, int, int) {
 	groups := GroupChanges(changes)
 
-	// Find modification positions for anchoring additions:
-	// - lastModLine/lastModBufLine: for anchoring additions that come after
-	// - cursorModLine/cursorModBufLine: for anchoring additions that precede the cursor
-	lastModLine, lastModBufLine := 0, ctx.BufferStart
-	cursorModLine, cursorModBufLine := 0, 0
-
-	for relLine, change := range changes {
-		if change.Type == ChangeModification || change.Type.IsCharacterLevel() {
-			bufLine := ctx.LineNumToBufferLine[relLine]
-			if bufLine == 0 {
-				bufLine = ctx.BufferStart + relLine - 1
-			}
-			if relLine > lastModLine {
-				lastModLine, lastModBufLine = relLine, bufLine
-			}
-			if bufLine == ctx.CursorRow {
-				cursorModLine, cursorModBufLine = relLine, bufLine
-			}
-		}
-	}
-
-	// Set BufferLine for each group
+	// Set BufferLine for each group using the pre-computed mapping
 	for _, g := range groups {
-		if g.Type == "addition" && lastModLine > 0 && g.StartLine > lastModLine {
-			// Addition after the last modification - render below
-			g.BufferLine = lastModBufLine + 1
-		} else if g.Type == "addition" && cursorModLine > 0 && g.StartLine < cursorModLine {
-			// Addition before cursor line's modification - anchor at cursor line
-			g.BufferLine = cursorModBufLine
-		} else if bufLine := ctx.LineNumToBufferLine[g.StartLine]; bufLine > 0 {
+		if bufLine := ctx.LineNumToBufferLine[g.StartLine]; bufLine > 0 {
 			g.BufferLine = bufLine
 		} else {
 			g.BufferLine = ctx.BufferStart + g.StartLine - 1
@@ -195,24 +168,11 @@ func CalculateCursorPosition(changes map[int]LineChange, newLines []string) (int
 		return -1, -1
 	}
 
-	// Priority order for selecting target line (highest to lowest)
-	priority := []ChangeType{
-		ChangeModification,
-		ChangeAddition,
-		ChangeAppendChars,
-		ChangeReplaceChars,
-		ChangeDeleteChars,
-	}
-
+	// Pick the latest (highest) changed line, excluding deletions
 	targetLine := -1
-	for _, ct := range priority {
-		for lineNum, change := range changes {
-			if change.Type == ct && lineNum > targetLine {
-				targetLine = lineNum
-			}
-		}
-		if targetLine > 0 {
-			break
+	for lineNum, change := range changes {
+		if change.Type != ChangeDeletion && lineNum > targetLine {
+			targetLine = lineNum
 		}
 	}
 

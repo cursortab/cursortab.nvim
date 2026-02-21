@@ -19,14 +19,20 @@ type groupInfo struct {
 }
 
 type stageInfo struct {
-	StartLine int
-	Groups    []groupInfo
+	StartLine  int
+	Groups     []groupInfo
+	CursorLine int // relative to StartLine, from diff result
+	CursorCol  int
 }
 
 func parseStages(data []map[string]any) []stageInfo {
 	var stages []stageInfo
 	for _, s := range data {
-		si := stageInfo{StartLine: jsonInt(s["startLine"])}
+		si := stageInfo{
+			StartLine:  jsonInt(s["startLine"]),
+			CursorLine: jsonInt(s["cursor_line"]),
+			CursorCol:  jsonInt(s["cursor_col"]),
+		}
 
 		// Handle both []any (from JSON) and []map[string]any (from Go directly)
 		var groupMaps []map[string]any
@@ -57,6 +63,17 @@ func parseStages(data []map[string]any) []stageInfo {
 	return stages
 }
 
+// stageFinalCursor returns the absolute (1-indexed row, 0-indexed col) cursor
+// position in the new text after applying all stages, using the last stage's
+// cursor_line/cursor_col from the diff result.
+func stageFinalCursor(stages []stageInfo) (row, col int) {
+	if len(stages) == 0 {
+		return 0, -1
+	}
+	last := stages[len(stages)-1]
+	return last.StartLine + last.CursorLine - 1, last.CursorCol
+}
+
 // lineHighlight describes how to render a single line in the preview.
 // CSS classes map to config.lua highlight groups:
 //
@@ -71,41 +88,123 @@ type lineHighlight struct {
 	ColEnd     int
 }
 
-func renderLine(b *strings.Builder, lineNum int, text string, hl lineHighlight) {
-	escaped := html.EscapeString(text)
+const reportTabSize = 4
+
+// expandTabsWithMap expands tab characters to spaces and returns a mapping
+// from original rune index to expanded rune index, so cursor/col positions
+// can be remapped after expansion.
+func expandTabsWithMap(text string) (string, []int) {
+	runes := []rune(text)
+	mapping := make([]int, len(runes)+1)
+	var out strings.Builder
+	visual := 0
+	for i, ch := range runes {
+		mapping[i] = visual
+		if ch == '\t' {
+			spaces := reportTabSize - (visual % reportTabSize)
+			out.WriteString(strings.Repeat(" ", spaces))
+			visual += spaces
+		} else {
+			out.WriteRune(ch)
+			visual++
+		}
+	}
+	mapping[len(runes)] = visual
+	return out.String(), mapping
+}
+
+// mapCol maps an original rune index through the tab-expansion mapping.
+// Returns -1 unchanged (no cursor).
+func mapCol(col int, mapping []int) int {
+	if col < 0 {
+		return -1
+	}
+	if col >= len(mapping) {
+		return mapping[len(mapping)-1]
+	}
+	return mapping[col]
+}
+
+// injectCursor wraps the character (or appends a space) at col (0-indexed,
+// already tab-expanded) in a cursor span. text must already be tab-expanded.
+func injectCursor(text string, col int) string {
+	runes := []rune(text)
+	if col < 0 {
+		col = 0
+	}
+	if col >= len(runes) {
+		return html.EscapeString(string(runes)) + "<span class=\"cursor\"> </span>"
+	}
+	before := html.EscapeString(string(runes[:col]))
+	ch := html.EscapeString(string(runes[col : col+1]))
+	after := html.EscapeString(string(runes[col+1:]))
+	return before + "<span class=\"cursor\">" + ch + "</span>" + after
+}
+
+func renderLine(b *strings.Builder, lineNum int, text string, hl lineHighlight, cursorCol int) {
+	// Expand tabs so cursor and highlight spans have correct visual widths.
+	expanded, mapping := expandTabsWithMap(text)
+	mappedCursor := mapCol(cursorCol, mapping)
+
+	escaped := html.EscapeString(expanded)
+	if mappedCursor >= 0 {
+		escaped = injectCursor(expanded, mappedCursor)
+	}
 
 	switch hl.RenderHint {
 	case "append_chars":
-		// Show text before col_start normally, appended part in ghost color
-		cs := min(hl.ColStart, len(text))
-		before := html.EscapeString(text[:cs])
-		ghost := html.EscapeString(text[cs:])
+		runes := []rune(expanded)
+		cs := mapCol(hl.ColStart, mapping)
+		cs = min(cs, len(runes))
+		before := html.EscapeString(string(runes[:cs]))
+		ghost := html.EscapeString(string(runes[cs:]))
+		if mappedCursor >= 0 && mappedCursor < cs {
+			before = injectCursor(string(runes[:cs]), mappedCursor)
+		} else if mappedCursor >= cs {
+			ghost = injectCursor(string(runes[cs:]), mappedCursor-cs)
+		}
 		fmt.Fprintf(b, "<span class=\"line\"><span class=\"ln\">%d</span>%s<span class=\"ghost\">%s</span></span>",
 			lineNum, before, ghost)
 		return
 	case "replace_chars":
-		// Full line, with col range highlighted in addition color
-		cs := hl.ColStart
-		ce := min(hl.ColEnd, len(text))
+		runes := []rune(expanded)
+		cs := mapCol(hl.ColStart, mapping)
+		ce := mapCol(hl.ColEnd, mapping)
+		ce = min(ce, len(runes))
 		if ce <= cs {
-			ce = len(text)
+			ce = len(runes)
 		}
-		before := html.EscapeString(text[:cs])
-		mid := html.EscapeString(text[cs:ce])
-		after := html.EscapeString(text[ce:])
+		before := html.EscapeString(string(runes[:cs]))
+		mid := html.EscapeString(string(runes[cs:ce]))
+		after := html.EscapeString(string(runes[ce:]))
+		if mappedCursor >= 0 && mappedCursor < cs {
+			before = injectCursor(string(runes[:cs]), mappedCursor)
+		} else if mappedCursor >= cs && mappedCursor < ce {
+			mid = injectCursor(string(runes[cs:ce]), mappedCursor-cs)
+		} else if mappedCursor >= ce {
+			after = injectCursor(string(runes[ce:]), mappedCursor-ce)
+		}
 		fmt.Fprintf(b, "<span class=\"line\"><span class=\"ln\">%d</span>%s<span class=\"add-hl\">%s</span>%s</span>",
 			lineNum, before, mid, after)
 		return
 	case "delete_chars":
-		// Line with col range highlighted in deletion color
-		cs := hl.ColStart
-		ce := min(hl.ColEnd, len(text))
+		runes := []rune(expanded)
+		cs := mapCol(hl.ColStart, mapping)
+		ce := mapCol(hl.ColEnd, mapping)
+		ce = min(ce, len(runes))
 		if ce <= cs {
-			ce = len(text)
+			ce = len(runes)
 		}
-		before := html.EscapeString(text[:cs])
-		mid := html.EscapeString(text[cs:ce])
-		after := html.EscapeString(text[ce:])
+		before := html.EscapeString(string(runes[:cs]))
+		mid := html.EscapeString(string(runes[cs:ce]))
+		after := html.EscapeString(string(runes[ce:]))
+		if mappedCursor >= 0 && mappedCursor < cs {
+			before = injectCursor(string(runes[:cs]), mappedCursor)
+		} else if mappedCursor >= cs && mappedCursor < ce {
+			mid = injectCursor(string(runes[cs:ce]), mappedCursor-cs)
+		} else if mappedCursor >= ce {
+			after = injectCursor(string(runes[ce:]), mappedCursor-ce)
+		}
 		fmt.Fprintf(b, "<span class=\"line\"><span class=\"ln\">%d</span>%s<span class=\"del-hl\">%s</span>%s</span>",
 			lineNum, before, mid, after)
 		return
@@ -120,15 +219,17 @@ func renderLine(b *strings.Builder, lineNum int, text string, hl lineHighlight) 
 
 // previewLine is a single line in the editor preview.
 type previewLine struct {
-	Text     string
-	HL       lineHighlight
-	SideText string // non-empty for side-by-side modification (shown to the right)
-	SideHL   lineHighlight
+	Text      string
+	HL        lineHighlight
+	SideText  string // non-empty for side-by-side modification (shown to the right)
+	SideHL    lineHighlight
+	CursorCol int    // 0-indexed column of block cursor; -1 means no cursor on this line
 }
 
 // buildPreview renders what the editor buffer looks like with completions overlaid.
 // It mirrors the rendering logic in lua/cursortab/ui.lua's show_completion.
-func buildPreview(oldText, newText string, stages []stageInfo) []previewLine {
+// cursorRow is 1-indexed, cursorCol is 0-indexed; pass 0/−1 to omit the cursor.
+func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursorCol int) []previewLine {
 	oldLines := strings.Split(oldText, "\n")
 	newLines := strings.Split(newText, "\n")
 
@@ -233,57 +334,58 @@ func buildPreview(oldText, newText string, stages []stageInfo) []previewLine {
 	// Additions past the end of the buffer
 	preview = append(preview, additionsAfterEnd...)
 
+	// Default all lines to no cursor, then mark the cursor line.
+	for i := range preview {
+		preview[i].CursorCol = -1
+	}
+	if cursorRow >= 1 && cursorRow <= len(preview) {
+		preview[cursorRow-1].CursorCol = cursorCol
+	}
+
 	return preview
 }
 
 func renderPreviewLine(b *strings.Builder, lineNum int, pl previewLine) {
 	if pl.SideText != "" {
 		// Side-by-side modification: old (del) + separator + new (mod)
-		renderLine(b, lineNum, pl.Text, pl.HL)
+		renderLine(b, lineNum, pl.Text, pl.HL, pl.CursorCol)
 		// Render the side text as an inline companion
 		fmt.Fprintf(b, "<span class=\"line mod side\"><span class=\"ln\">→</span>%s</span>",
 			html.EscapeString(pl.SideText))
 		return
 	}
-	renderLine(b, lineNum, pl.Text, pl.HL)
+	renderLine(b, lineNum, pl.Text, pl.HL, pl.CursorCol)
 }
 
-func renderPlainLine(b *strings.Builder, lineNum int, text string) {
-	fmt.Fprintf(b, "<span class=\"line\"><span class=\"ln\">%d</span>%s</span>",
-		lineNum, html.EscapeString(text))
-}
-
-func renderOldNewPane(b *strings.Builder, oldText, newText string) {
-	oldLines := strings.Split(oldText, "\n")
-	newLines := strings.Split(newText, "\n")
-
-	b.WriteString("<div class=\"old-new-row\"><div class=\"cols-2\">\n")
-
-	b.WriteString("<div class=\"col\"><h3>Old</h3><pre>")
-	for i, line := range oldLines {
-		renderPlainLine(b, i+1, line)
+func renderTextPane(b *strings.Builder, label string, lines []string, cursorRow, cursorCol int) {
+	b.WriteString("<div class=\"pane\">\n")
+	fmt.Fprintf(b, "<h3>%s</h3><pre>", html.EscapeString(label))
+	for i, line := range lines {
+		col := -1
+		if i+1 == cursorRow {
+			col = cursorCol
+		}
+		renderLine(b, i+1, line, lineHighlight{}, col)
 	}
 	b.WriteString("</pre></div>\n")
-
-	b.WriteString("<div class=\"col\"><h3>New</h3><pre>")
-	for i, line := range newLines {
-		renderPlainLine(b, i+1, line)
-	}
-	b.WriteString("</pre></div>\n")
-
-	b.WriteString("</div></div>\n")
 }
 
-func renderPipelineCol(b *strings.Builder, label string, oldText, newText string, stages []stageInfo) {
+func renderPipelineCol(b *strings.Builder, label string, oldText, newText string, stages []stageInfo, oldCursorRow, oldCursorCol int) {
+	newCursorRow, newCursorCol := stageFinalCursor(stages)
+
 	b.WriteString("<div class=\"pipeline-col\">\n")
-	fmt.Fprintf(b, "<div class=\"pipeline-label\">%s</div>\n", label)
+	fmt.Fprintf(b, "<div class=\"pipeline-label\">%s</div>\n", html.EscapeString(label))
 
-	preview := buildPreview(oldText, newText, stages)
-	b.WriteString("<div class=\"preview-pane\"><h3>Preview</h3><pre>")
+	renderTextPane(b, "Old", strings.Split(oldText, "\n"), oldCursorRow, oldCursorCol)
+
+	preview := buildPreview(oldText, newText, stages, oldCursorRow, oldCursorCol)
+	b.WriteString("<div class=\"pane\">\n<h3>Preview</h3><pre>")
 	for i, pl := range preview {
 		renderPreviewLine(b, i+1, pl)
 	}
 	b.WriteString("</pre></div>\n")
+
+	renderTextPane(b, "New", strings.Split(newText, "\n"), newCursorRow, newCursorCol)
 
 	b.WriteString("</div>\n")
 }
@@ -333,17 +435,13 @@ h1 { font-size: 16px; margin-bottom: 16px; display: flex; align-items: baseline;
 .fail { color: #f85149; }
 .unverified { color: #d29922; }
 .meta { color: #7d8590; }
-.old-new-row { border-top: 1px solid #30363d; }
 .cols-2 { display: grid; grid-template-columns: 1fr 1fr; }
 .pipelines { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #30363d; }
-.pipeline-col { background: #0d1117; }
+.pipeline-col { background: #0d1117; display: flex; flex-direction: column; }
 .pipeline-col + .pipeline-col { border-left: 1px solid #30363d; }
 .pipeline-label { background: #161b22; padding: 4px 10px; font-size: 12px; font-weight: 600; color: #e6edf3; }
-.preview-pane { padding: 8px; overflow-x: auto; overflow-y: visible; }
-.preview-pane h3 { font-size: 11px; color: #7d8590; margin-bottom: 4px; }
-.col { padding: 8px; overflow-x: auto; overflow-y: visible; }
-.col + .col { border-left: 1px solid #30363d; }
-.col h3 { font-size: 11px; color: #7d8590; margin-bottom: 4px; }
+.pane { padding: 8px; overflow-x: auto; overflow-y: visible; border-top: 1px solid #30363d; }
+.pane h3 { font-size: 11px; color: #7d8590; margin: 0 0 4px; }
 pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 .line { display: block; line-height: 1.4; padding: 1px 4px; }
 .ln { display: inline-block; width: 24px; text-align: right; color: #545d68; margin-right: 8px; user-select: none; }
@@ -351,6 +449,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 .add { background: #0f5323; color: #7ee787; }
 .mod { background: #1a2332; color: #a5d6ff; }
 .ghost { color: #6e7681; }
+.cursor { background: #c9d1d9; color: #0d1117; }
 .del-hl { background: #67060c; color: #ffa198; }
 .add-hl { background: #0f5323; color: #7ee787; }
 .side { font-style: italic; opacity: 0.85; }
@@ -363,8 +462,8 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 .json-details code { display: block; white-space: pre; font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow-x: auto; overflow-y: visible; color: #e6edf3; }
 .json-details:not([open]) { display: flex; flex-direction: column; }
 .json-details:not([open]) code { display: none; }
-.json-details .shiki { background: #010409 !important; margin: 0; padding: 8px; overflow-x: auto; font-size: 12px; }
-.json-details .shiki code { line-height: 1.3; }
+.json-details .shiki { background: #010409 !important; margin: 0; padding: 8px; overflow-x: auto; overflow-y: hidden; font-size: 12px; }
+.json-details .shiki code { line-height: 1.3; overflow-y: hidden; }
 .json-details .shiki code .line { display: inline; }
 </style>
 </head>
@@ -440,13 +539,9 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 			f.Params.CursorRow, f.Params.CursorCol,
 			f.Params.ViewportTop, f.Params.ViewportBottom)
 
-		// Old / New (shared, shown once)
-		renderOldNewPane(&b, f.OldText, f.NewText)
-
-		// Batch | Incremental side by side
 		b.WriteString("<div class=\"pipelines\">\n")
-		renderPipelineCol(&b, "Batch", f.OldText, f.NewText, batchStages)
-		renderPipelineCol(&b, "Incremental", f.OldText, f.NewText, incStages)
+		renderPipelineCol(&b, "Batch", f.OldText, f.NewText, batchStages, f.Params.CursorRow, f.Params.CursorCol)
+		renderPipelineCol(&b, "Incremental", f.OldText, f.NewText, incStages, f.Params.CursorRow, f.Params.CursorCol)
 		b.WriteString("</div>\n")
 
 		renderJSONSection(&b, f.BatchActual, f.IncrementalActual)

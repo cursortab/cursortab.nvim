@@ -1,5 +1,0 @@
-// Comment
-const x = 1;
-
-// Section
-const y = 2;

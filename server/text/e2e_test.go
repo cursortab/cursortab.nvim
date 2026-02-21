@@ -14,7 +14,24 @@ import (
 )
 
 var update = flag.Bool("update", false, "update expected.json golden files")
-var verifyCase = flag.String("verify-case", "", "mark a specific test case as verified by name")
+var verify multiStringFlag
+
+func init() {
+	flag.Var(&verify, "verify", "mark a test case as verified by name (can be repeated)")
+}
+
+type multiStringFlag []string
+
+func (f *multiStringFlag) String() string { return strings.Join(*f, ",") }
+func (f *multiStringFlag) Set(v string) error { *f = append(*f, v); return nil }
+func (f multiStringFlag) contains(v string) bool {
+	for _, s := range f {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
 
 type fixtureParams struct {
 	CursorRow      int `json:"cursorRow"`
@@ -172,7 +189,7 @@ func TestE2E(t *testing.T) {
 			currentHash := sha256Hex(expectedBytes)
 			verified := manifest[name] == currentHash
 
-			if *verifyCase == name {
+			if verify.contains(name) {
 				manifest[name] = currentHash
 				verified = true
 				t.Logf("verified %s", name)
@@ -205,7 +222,7 @@ func TestE2E(t *testing.T) {
 	}
 
 	// Save manifest if verifying
-	if *verifyCase != "" {
+	if len(verify) > 0 {
 		if err := saveVerifiedManifest(manifestPath, manifest); err != nil {
 			t.Logf("failed to save verified manifest: %v", err)
 		} else {

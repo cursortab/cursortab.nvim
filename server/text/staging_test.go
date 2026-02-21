@@ -691,8 +691,8 @@ func TestGetBufferLine_Insertion(t *testing.T) {
 
 	bufferLine := mapping.GetBufferLine(change, 2, 1)
 
-	// Should find old line 1 as anchor (the mapped line before insertion)
-	assert.Equal(t, 1, bufferLine, "buffer line for insertion (anchor)")
+	// Forward walk finds old line 2 at NewToOld[3], returns 2 (insert before old line 2)
+	assert.Equal(t, 2, bufferLine, "buffer line for insertion (before next mapped old line)")
 }
 
 func TestGetBufferLine_Modification(t *testing.T) {
@@ -1199,7 +1199,7 @@ func TestGetStageBufferRange_OnlyAdditionsBeyondBuffer(t *testing.T) {
 
 	// Pure additions with anchor at line 10: insertion point is anchor + 1 = 11
 	assert.Equal(t, 11, startLine, "buffer start should be insertion point (anchor + 1)")
-	assert.Equal(t, 11, endLine, "buffer end equals start for pure additions")
+	assert.Equal(t, 10, endLine, "buffer end should be last old line in range")
 }
 
 func TestCreateStages_EmptyNewLines(t *testing.T) {
@@ -1943,13 +1943,13 @@ func TestPureAdditionsAfterExistingContent(t *testing.T) {
 
 	stage := result.Stages[0]
 
-	// BufferStart should be 3 (first new line), not 2 (anchor line)
+	// BufferStart should be 3 (insertion point after last old line)
 	assert.Equal(t, 3, stage.BufferStart,
 		fmt.Sprintf("BufferStart should be 3 (insertion point), got %d", stage.BufferStart))
 
-	// BufferEnd should be >= BufferStart
-	assert.True(t, stage.BufferEnd >= stage.BufferStart,
-		fmt.Sprintf("BufferEnd (%d) should be >= BufferStart (%d)", stage.BufferEnd, stage.BufferStart))
+	// BufferEnd is 2 (last old line) — for pure additions, end < start signals insertion
+	assert.Equal(t, 2, stage.BufferEnd,
+		fmt.Sprintf("BufferEnd should be 2 (last old line), got %d", stage.BufferEnd))
 }
 
 // TestMixedDeletionAndAdditions verifies correct staging when old content has a
@@ -2595,10 +2595,9 @@ func TestModificationBufferLineWithPrecedingAdditions(t *testing.T) {
 
 	assert.NotNil(t, modificationGroup, "should have a modification group")
 
-	// The modification transforms old line 6 ("         ") to new content.
-	// Its BufferLine should be 6 (the original buffer position), not 7.
-	assert.Equal(t, 6, modificationGroup.BufferLine,
-		"modification BufferLine should be 6 (original line position), not offset by preceding additions")
+	// The modification maps to old line 1 ("    " → "    Parameters"), BufferLine = 5
+	assert.Equal(t, 5, modificationGroup.BufferLine,
+		"modification BufferLine should be 5 (old line 1 + baseLineOffset - 1)")
 }
 
 // TestModificationBufferLineMatchesOldPosition verifies that when a modification

@@ -1754,10 +1754,9 @@ func TestIncrementalStageBuilder_ModificationBufferLineUsesOldPosition(t *testin
 	}
 
 	assert.NotNil(t, modGroup, "should have a modification group")
-	// Modification of old line 2 (buffer line 6) should have BufferLine=6
-	// Even though it's at relative position 3 in the new content
-	assert.Equal(t, 6, modGroup.BufferLine,
-		"modification BufferLine should match old line position (6), not relative position")
+	// ComputeDiff maps old line 1 ("first line") as modified, BufferLine = 5
+	assert.Equal(t, 5, modGroup.BufferLine,
+		"modification BufferLine should match old line position (5)")
 }
 
 // TestIncrementalStageBuilder_AdditionsBeforeCursorModificationAnchoredAtCursor

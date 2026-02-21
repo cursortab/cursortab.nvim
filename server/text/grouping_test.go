@@ -103,7 +103,7 @@ func TestGroupChanges_MixedTypes(t *testing.T) {
 	assert.Equal(t, 2, len(groups), "should be two groups for different types")
 }
 
-func TestGroupChanges_DeletionsExcluded(t *testing.T) {
+func TestGroupChanges_DeletionsIncluded(t *testing.T) {
 	changes := map[int]LineChange{
 		2: {Type: ChangeDeletion, Content: "deleted"},
 		3: {Type: ChangeAddition, Content: "added"},
@@ -111,8 +111,9 @@ func TestGroupChanges_DeletionsExcluded(t *testing.T) {
 
 	groups := GroupChanges(changes)
 
-	assert.Equal(t, 1, len(groups), "deletion should be excluded")
-	assert.Equal(t, "addition", groups[0].Type, "only addition group")
+	assert.Equal(t, 2, len(groups), "deletion and addition should be separate groups")
+	assert.Equal(t, "deletion", groups[0].Type, "first group is deletion")
+	assert.Equal(t, "addition", groups[1].Type, "second group is addition")
 }
 
 func TestGroupChanges_OnlyDeletions(t *testing.T) {
@@ -123,7 +124,8 @@ func TestGroupChanges_OnlyDeletions(t *testing.T) {
 
 	groups := GroupChanges(changes)
 
-	assert.True(t, len(groups) == 0, "no groups for pure deletions")
+	assert.Equal(t, 1, len(groups), "one group for consecutive deletions")
+	assert.Equal(t, "deletion", groups[0].Type, "group type is deletion")
 }
 
 func TestGroupChanges_Empty(t *testing.T) {
@@ -229,17 +231,18 @@ func TestCalculateCursorPosition_Addition(t *testing.T) {
 	assert.Equal(t, 8, col, "cursor col at end of new line")
 }
 
-func TestCalculateCursorPosition_ModificationPriority(t *testing.T) {
-	// Modification should take priority over addition
+func TestCalculateCursorPosition_LatestLine(t *testing.T) {
+	// Cursor goes to the latest (highest line number) non-deletion change
 	changes := map[int]LineChange{
 		1: {Type: ChangeModification, Content: "mod"},
 		3: {Type: ChangeAddition, Content: "add"},
 	}
 	newLines := []string{"mod", "line 2", "add"}
 
-	line, _ := CalculateCursorPosition(changes, newLines)
+	line, col := CalculateCursorPosition(changes, newLines)
 
-	assert.Equal(t, 1, line, "cursor at modification, not addition")
+	assert.Equal(t, 3, line, "cursor at latest changed line")
+	assert.Equal(t, 3, col, "cursor at end of line")
 }
 
 func TestCalculateCursorPosition_OnlyDeletions(t *testing.T) {
@@ -407,9 +410,8 @@ func TestCalculateCursorPosition_MultipleAppendChars(t *testing.T) {
 	assert.Equal(t, 12, col, "cursor at ColEnd of last append chars")
 }
 
-func TestCalculateCursorPosition_ModificationOverridesCharLevel(t *testing.T) {
-	// Full-line Modification has higher priority than char-level changes
-	// For Modification, cursor should be at end of line (no ColEnd)
+func TestCalculateCursorPosition_LatestLineWithCharLevel(t *testing.T) {
+	// Cursor goes to the latest line; for char-level changes, uses ColEnd
 	changes := map[int]LineChange{
 		1: {Type: ChangeModification, Content: "modified line", OldContent: "old"},
 		2: {
@@ -424,8 +426,8 @@ func TestCalculateCursorPosition_ModificationOverridesCharLevel(t *testing.T) {
 
 	line, col := CalculateCursorPosition(changes, newLines)
 
-	assert.Equal(t, 1, line, "cursor at modification (higher priority)")
-	assert.Equal(t, 13, col, "cursor at end of modification line")
+	assert.Equal(t, 2, line, "cursor at latest changed line")
+	assert.Equal(t, 11, col, "cursor at ColEnd of append_chars")
 }
 
 // TestGroupsMustReflectActualBufferState verifies that groups computed from the

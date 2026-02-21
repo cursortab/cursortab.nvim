@@ -28,6 +28,8 @@ local autocommands_setup_done = false
 ---@type {accept: string|nil, partial_accept: string|nil, trigger: string|nil}
 local current_keymaps = { accept = nil, partial_accept = nil, trigger = nil }
 
+local esc_handler_ns = nil
+
 -- Skip exactly one TextChanged after accepting a completion
 ---@type boolean
 local skip_next_text_changed = false
@@ -64,10 +66,8 @@ local function on_accept()
 end
 
 -- Escape key handler
----@return string
 local function on_escape()
 	daemon.send_event_immediate("esc")
-	return "\27"
 end
 
 -- Partial accept handler (Shift-Tab by default)
@@ -115,7 +115,17 @@ local function setup_keymaps()
 	update_keymap("partial_accept", cfg.keymaps.partial_accept, on_partial_accept, expr_opts)
 	update_keymap("trigger", cfg.keymaps.trigger, on_trigger, plain_opts)
 
-	vim.keymap.set("n", "<Esc>", on_escape, expr_opts)
+	if esc_handler_ns then
+		-- Clear previous handler
+		vim.on_key(nil, esc_handler_ns)
+	end
+
+	local ESC = vim.keycode("<Esc>")
+	esc_handler_ns = vim.on_key(function(_, typed)
+		if typed == ESC then
+			on_escape()
+		end
+	end)
 end
 
 -- Set up autocommands (only once)

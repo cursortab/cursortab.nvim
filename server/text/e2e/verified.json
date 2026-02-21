@@ -22,6 +22,7 @@
   "empty-line-to-function": "c4585b166201266cf75fa4e165b5a6bf17ac2bab4feb9e81b2eac93f9eb1763e",
   "empty-new-text": "f9f2afe8458655cabf37097b290d34056a387f75c0fa1dd3cc386013e60a14a0",
   "empty-old-text": "48dc7d9bef1ca85beff3625a69daf4f48558cd746f48be576dc117a7ee3c8235",
+  "empty-to-hono-app": "5152b8044c88b159e0c5b8505d25d070735afdeed924f0f3fc0f4d30208956f4",
   "identical-line-not-marked-as-change": "5f95e03f067ec6c7fe2827feea451b03635467bbf7843e32d7cf86657de56efd",
   "indentation-change": "8c16667c9a4084a9d44372becdbbee7b5ba2d4fc85cbac2afa898815ee72f060",
   "indented-lines-filled": "68196ba67129468ed68c538f04760db37af0329e28506aef8618cab421e9275e",
@@ -54,6 +55,7 @@
   "trailing-empty-line-preserved": "4e13ff7b00b5110477519a396f28007a94d0d1a7c3924dd68ba3d71ce99bd438",
   "trailing-whitespace-modification": "2f79b4d319d434033e95ec3a208016bf1aa38a371c592c3c2f5d30be84db0a9c",
   "two-clusters": "9f6ebd0914f906888324589bf021a8d938a5f32d3052d6c0618103bcc0080508",
+  "whitespace-line-expansion": "8294de15dff2dd8dc04269cbe4450ec7ddfcf64cd8166b9dbcaf951363165616",
   "whitespace-only-change": "4c3f36f986120836233410c78ba1adec267f018ca51ab47650d1b58e276f8f81",
   "whitespace-only-line-modification": "ee8d961b5ed63844228903745f94d95d356c1c12e759cd6877a123bc3bf26e91",
   "whitespace-to-json": "3733b66e35a589cef21ff22ae0873769261d7edad121111a852880c515d88b36"

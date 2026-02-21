@@ -279,6 +279,19 @@ func ComputeDiff(text1, text2 string) *DiffResult {
 		NewLineCount: newLineCount,
 	}
 
+	// When old text is a single empty line, the diff library may match it as
+	// "equal" to an interior empty line in the new text, producing pure additions
+	// instead of a modification at line 1. Force a delete+insert so the collision
+	// logic in addChange merges them into a modification (append_chars).
+	if oldLineCount == 1 && oldLines[0] == "" && newLineCount > 0 {
+		lineDiffs := []diffmatchpatch.Diff{
+			{Type: diffmatchpatch.DiffDelete, Text: text1},
+			{Type: diffmatchpatch.DiffInsert, Text: text2},
+		}
+		result.LineMapping = processLineDiffsWithMapping(lineDiffs, result, oldLineCount, newLineCount)
+		return result
+	}
+
 	dmp := diffmatchpatch.New()
 	chars1, chars2, lineArray := dmp.DiffLinesToChars(text1, text2)
 	diffs := dmp.DiffMain(chars1, chars2, false)

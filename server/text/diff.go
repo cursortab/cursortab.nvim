@@ -197,6 +197,10 @@ func (r *DiffResult) addChange(oldLineNum, newLineNum int, oldContent, newConten
 		// Note: For deletions, the deleted content is stored in Content field
 		if existing.Type == ChangeDeletion && changeType == ChangeAddition {
 			deletedContent := existing.Content // Deletion stores content in Content field
+			// If the addition is empty, keep the deletion as-is
+			if newContent == "" {
+				return false
+			}
 			changeType, colStart, colEnd = categorizeLineChangeWithColumns(deletedContent, newContent)
 			oldContent = deletedContent
 			// Merge coordinates: take oldLineNum from existing deletion

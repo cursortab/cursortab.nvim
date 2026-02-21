@@ -332,7 +332,7 @@ func finalizeStages(stages []*Stage, newLines []string, filePath string, baseLin
 				stageOldLines[relativeIdx] = change.OldContent
 			}
 
-			if relativeLine > 0 && relativeLine <= len(stageLines) {
+			if relativeLine > 0 && (relativeLine <= len(stageLines) || change.Type == ChangeDeletion) {
 				// Use pre-computed buffer line from getStageBufferRange
 				relativeToBufferLine[relativeLine] = lineNumToBufferLine[lineNum]
 

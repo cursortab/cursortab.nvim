@@ -513,11 +513,11 @@ local function render_single_addition(group, nvim_line, virt_line_offset, curren
 	end
 	table.insert(completion_extmarks, { buf = current_buf, extmark_id = virtual_extmark_id })
 
-	if content ~= "" then
-		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, overlay_line, 0, content, syntax_ft, "CursorTabAddition", nil)
-		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
-	end
+	local win_width = vim.api.nvim_win_get_width(current_win)
+	local display_content = content ~= "" and content or " "
+	local overlay_win, overlay_buf, _ =
+		create_overlay_window(current_win, overlay_line, 0, display_content, syntax_ft, "CursorTabAddition", win_width)
+	table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 end
 
 -- Render multi-line addition group: virtual lines + overlay window
@@ -560,8 +560,14 @@ local function render_addition_group(group, virt_line_offset, current_win, curre
 
 	-- Create overlay window for syntax-highlighted content
 	if #group.lines > 0 then
+		local win_width = vim.api.nvim_win_get_width(current_win)
+		-- Ensure empty lines have at least a space so the overlay renders
+		local display_lines = {}
+		for _, line in ipairs(group.lines) do
+			table.insert(display_lines, line ~= "" and line or " ")
+		end
 		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, overlay_line, 0, group.lines, syntax_ft, "CursorTabAddition", nil)
+			create_overlay_window(current_win, overlay_line, 0, display_lines, syntax_ft, "CursorTabAddition", win_width)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end
 end

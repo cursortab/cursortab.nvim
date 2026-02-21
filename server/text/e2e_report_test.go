@@ -16,6 +16,7 @@ type groupInfo struct {
 	RenderHint string
 	ColStart   int
 	ColEnd     int
+	Lines      []string
 }
 
 type stageInfo struct {
@@ -48,6 +49,19 @@ func parseStages(data []map[string]any) []stageInfo {
 		}
 
 		for _, g := range groupMaps {
+			var lines []string
+			if rawLines, ok := g["lines"]; ok {
+				switch v := rawLines.(type) {
+				case []any:
+					for _, item := range v {
+						if s, ok := item.(string); ok {
+							lines = append(lines, s)
+						}
+					}
+				case []string:
+					lines = v
+				}
+			}
 			si.Groups = append(si.Groups, groupInfo{
 				Type:       jsonStr(g["type"]),
 				StartLine:  jsonInt(g["start_line"]),
@@ -56,6 +70,7 @@ func parseStages(data []map[string]any) []stageInfo {
 				RenderHint: jsonStr(g["render_hint"]),
 				ColStart:   jsonInt(g["col_start"]),
 				ColEnd:     jsonInt(g["col_end"]),
+				Lines:      lines,
 			})
 		}
 		stages = append(stages, si)
@@ -259,7 +274,12 @@ func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursor
 
 				switch g.Type {
 				case "addition":
-					pl := previewLine{Text: newContent, HL: lineHighlight{Class: "add"}}
+					lineIdx := relLine - g.StartLine
+					addContent := newContent
+					if lineIdx >= 0 && lineIdx < len(g.Lines) {
+						addContent = g.Lines[lineIdx]
+					}
+					pl := previewLine{Text: addContent, HL: lineHighlight{Class: "add"}}
 					// ui.lua: virt_lines_above=true at buffer_line, unless past end of buffer
 					if g.BufferLine > len(oldLines) {
 						additionsAfterEnd = append(additionsAfterEnd, pl)

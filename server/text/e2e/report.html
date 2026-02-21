@@ -71,7 +71,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 2</span><span class="line"><span class="ln">2</span>line 3</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 2</span><span class="line add"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 2</span><span class="line add"><span class="ln">2</span>line 1</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2<span class="cursor"> </span></span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 </div>
@@ -379,7 +379,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span><span class="line add"><span class="ln">2</span>new line 2</span><span class="line add"><span class="ln">3</span>new line 3</span><span class="line add"><span class="ln">4</span>original line</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span><span class="line add"><span class="ln">2</span>new line 1</span><span class="line add"><span class="ln">3</span>new line 2</span><span class="line add"><span class="ln">4</span>new line 3</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>new line 1</span><span class="line"><span class="ln">2</span>new line 2</span><span class="line"><span class="ln">3</span>new line 3</span><span class="line"><span class="ln">4</span>original l<span class="cursor">i</span>ne</span></pre></div>
 </div>
@@ -388,7 +388,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span><span class="line add"><span class="ln">2</span>new line 2</span><span class="line add"><span class="ln">3</span>new line 3</span><span class="line add"><span class="ln">4</span>original line</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">o</span>riginal line</span><span class="line add"><span class="ln">2</span>new line 1</span><span class="line add"><span class="ln">3</span>new line 2</span><span class="line add"><span class="ln">4</span>new line 3</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>new line 1</span><span class="line"><span class="ln">2</span>new line 2</span><span class="line"><span class="ln">3</span>new line 3</span><span class="line"><span class="ln">4</span>original l<span class="cursor">i</span>ne</span></pre></div>
 </div>
@@ -1917,7 +1917,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span></span><span class="line add"><span class="ln">2</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line add"><span class="ln">3</span></span><span class="line add"><span class="ln">4</span>// Global middleware</span><span class="line add"><span class="ln">5</span>application.use(&#34;*&#34;, corsMiddleware);</span><span class="line add"><span class="ln">6</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span></span><span class="line add"><span class="ln">2</span>// Initialize Hono app with types</span><span class="line add"><span class="ln">3</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line add"><span class="ln">4</span></span><span class="line add"><span class="ln">5</span>// Global middleware</span><span class="line add"><span class="ln">6</span>application.use(&#34;*&#34;, corsMiddleware);</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>// Initialize Hono app with types</span><span class="line"><span class="ln">2</span>const application = new Hono&lt;ApiContext&gt;();</span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>// Global middleware</span><span class="line"><span class="ln">5</span>application.use(&#34;*&#34;, corsMiddleware);</span><span class="line"><span class="ln">6</span><span class="cursor"> </span></span></pre></div>
 </div>
@@ -2420,7 +2420,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span>const x = 1;</span><span class="line"><span class="ln">4</span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span>const x = 1;</span><span class="line add"><span class="ln">4</span>// Comment</span><span class="line add"><span class="ln">5</span><span class="cursor">c</span>onst x = 1;</span><span class="line add"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span>const x = 1;</span><span class="line add"><span class="ln">4</span>// New section</span><span class="line add"><span class="ln">5</span><span class="cursor">c</span>onst y = 2;</span><span class="line add"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span><span class="cursor"> </span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span></span></pre></div>
 </div>

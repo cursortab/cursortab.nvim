@@ -533,11 +533,20 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 		}
 	}
 
-	// For pure additions WITH a valid anchor, additions are inserted
-	// AFTER the anchor line, so add 1 to get the insertion point.
-	if hasPureAdditionsOnly && olr.minOld > 0 {
-		bufferStart++
-	} else if !hasPureAdditionsOnly {
+	if hasPureAdditionsOnly {
+		// For pure additions, compute bufferStart from GetBufferLine which
+		// already handles the anchor→insertion point conversion.
+		minBuf := -1
+		for lineNum, change := range stage.rawChanges {
+			bufLine := b.diffBuilder.LineMapping.GetBufferLine(change, lineNum, b.BaseLineOffset)
+			if minBuf == -1 || bufLine < minBuf {
+				minBuf = bufLine
+			}
+		}
+		if minBuf > 0 {
+			bufferStart = minBuf
+		}
+	} else {
 		// Streaming may classify modifications as additions due to low similarity.
 		// After fallback matching in remapChanges, we may discover that additions are
 		// actually modifications of a different old line than the anchor. Recompute
@@ -572,12 +581,18 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 	stage.BufferStart = bufferStart
 	stage.BufferEnd = max(bufferStart+len(olr.stageOldLines)-1, bufferStart)
 
-	// Build mapping from relative line to buffer line for modifications.
+	// Build mapping from relative line to buffer line.
 	relativeToBufferLine := make(map[int]int)
 	for relativeLine, change := range remappedChanges {
 		if change.Type == ChangeModification || change.Type.IsCharacterLevel() {
 			if change.OldLineNum > 0 {
 				relativeToBufferLine[relativeLine] = bufferStart + change.OldLineNum - 1
+			}
+		} else if change.Type == ChangeAddition {
+			absoluteNewLine := newStartLine + relativeLine - 1
+			if origChange, ok := b.diffBuilder.Changes[absoluteNewLine]; ok {
+				relativeToBufferLine[relativeLine] = b.diffBuilder.LineMapping.GetBufferLine(
+					origChange, absoluteNewLine, b.BaseLineOffset)
 			}
 		}
 	}

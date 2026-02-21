@@ -1,9 +1,11 @@
 {
   "additions-above-and-below-with-append": "4fb14e923953f37e42106c0d24dcd377ced6080596b19faeeaedbe627ee45526",
+  "additions-at-beginning": "0ee36d24e337379bf528fbad07f3ef68e9fb31e2aae7a9ecb5229eb3c633ff83",
   "additions-at-end-of-file": "58e1a7f777f835f06fabe0c2c2e287affd42fec88584206b2d7c8fb70cfb567c",
   "additions-before-cursor-line": "3c9342dd9cbb38923e626008151c90ddd482d49106f0e316ae57a6ee6c318557",
   "append-and-addition": "57f952b468867d7b0db0c264421c52d0d067aa5cf9f9f9b5550f777c49da398b",
   "append-chars": "04802b0acb0315282d34727d830b66113645a2d50a9378ddf67f3b0df85be6fd",
+  "blank-line-additions": "be4b28852c7eb3a4d4421c8f0c6cce3bdb288a7e262fb8485d885f3e225bcdb8",
   "consecutive-empty-lines": "fe61779607e4bb9704ffddbde2586256e18b988c8e847d0fd624e20829fab6af",
   "consecutive-modifications": "9eb2714f7078167581559c46e3a83e9b0a79056e70e1e7af9a7a8a6fce822600",
   "delete-chars": "cf6de5fbb5b99e37ac93e141d4abd1bcfbf15454bd958987a9625753750fcb9b",

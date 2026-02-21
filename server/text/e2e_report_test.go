@@ -494,17 +494,11 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 `)
 
 	// Compute stats
-	var totalFixtures, verified, batchPass, incPass, allPass int
+	var totalFixtures, verified, allPass int
 	for _, f := range fixtures {
 		totalFixtures++
 		if f.Verified {
 			verified++
-		}
-		if f.BatchPass {
-			batchPass++
-		}
-		if f.IncrementalPass {
-			incPass++
 		}
 		if f.BatchPass && f.IncrementalPass && f.Verified {
 			allPass++
@@ -520,11 +514,20 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 	}
 	b.WriteString("</span></h1>\n")
 
+	var statusFailed, statusUnverified int
+	for _, f := range fixtures {
+		if !f.BatchPass || !f.IncrementalPass {
+			statusFailed++
+		} else if !f.Verified {
+			statusUnverified++
+		}
+	}
+
 	b.WriteString("<div class=\"filters\">\n")
-	b.WriteString("<button class=\"filter-btn active\" data-filter=\"all\">All</button>\n")
-	b.WriteString("<button class=\"filter-btn\" data-filter=\"passed\">Passed</button>\n")
-	b.WriteString("<button class=\"filter-btn\" data-filter=\"failed\">Failed</button>\n")
-	b.WriteString("<button class=\"filter-btn\" data-filter=\"unverified\">Unverified</button>\n")
+	fmt.Fprintf(&b, "<button class=\"filter-btn active\" data-filter=\"all\">All (%d)</button>\n", totalFixtures)
+	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"passed\">Passed (%d)</button>\n", allPass)
+	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"failed\">Failed (%d)</button>\n", statusFailed)
+	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"unverified\">Unverified (%d)</button>\n", statusUnverified)
 	b.WriteString("</div>\n")
 
 	for _, f := range fixtures {

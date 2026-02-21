@@ -1,0 +1,23 @@
+[
+  {
+    "cursor_col": 5,
+    "cursor_line": 5,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "end_line": 5,
+        "lines": [
+          "new a",
+          "new b",
+          "new c",
+          "new d",
+          "new e"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      }
+    ],
+    "startLine": 2
+  }
+]

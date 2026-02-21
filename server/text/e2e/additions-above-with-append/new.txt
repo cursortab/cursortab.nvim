@@ -1,0 +1,3 @@
+inserted line 1
+inserted line 2
+partial content completed

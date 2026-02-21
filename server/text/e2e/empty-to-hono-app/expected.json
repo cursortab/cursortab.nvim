@@ -1,0 +1,23 @@
+[
+  {
+    "cursor_col": 37,
+    "cursor_line": 5,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "end_line": 5,
+        "lines": [
+          "// Initialize Hono app with types",
+          "const application = new Hono\u003cApiContext\u003e();",
+          "",
+          "// Global middleware",
+          "application.use(\"*\", corsMiddleware);"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      }
+    ],
+    "startLine": 2
+  }
+]

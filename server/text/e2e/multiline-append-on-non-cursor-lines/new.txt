@@ -1,0 +1,4 @@
+func hello() {
+    fmt.Println("hello")
+    return nil
+}

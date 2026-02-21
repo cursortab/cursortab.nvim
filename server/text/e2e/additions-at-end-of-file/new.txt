@@ -1,0 +1,7 @@
+import numpy as np
+
+def f1():
+    pass
+
+def f2():
+    pass

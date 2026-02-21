@@ -1,0 +1,5 @@
+line A
+new 1
+new 2
+line C
+line E

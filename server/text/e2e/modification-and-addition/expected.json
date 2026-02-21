@@ -1,0 +1,34 @@
+[
+  {
+    "cursor_col": 30,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "col_end": 20,
+        "col_start": 17,
+        "end_line": 1,
+        "lines": [
+          "    console.log(\"new message\");"
+        ],
+        "old_lines": [
+          "    console.log(\"old message\");"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 3,
+        "end_line": 3,
+        "lines": [
+          "    console.log(\"added line\");"
+        ],
+        "old_lines": null,
+        "start_line": 3,
+        "type": "addition"
+      }
+    ],
+    "startLine": 2
+  }
+]

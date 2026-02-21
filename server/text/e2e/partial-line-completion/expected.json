@@ -1,0 +1,36 @@
+[
+  {
+    "cursor_col": 21,
+    "cursor_line": 4,
+    "groups": [
+      {
+        "buffer_line": 9,
+        "col_end": 26,
+        "col_start": 3,
+        "end_line": 1,
+        "lines": [
+          "if __name__ == \"__main__\":"
+        ],
+        "old_lines": [
+          "if "
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 10,
+        "end_line": 4,
+        "lines": [
+          "    arr = [64, 34, 25, 12, 22, 11, 90]",
+          "    sorted_arr = bubble_sort(arr)",
+          "    print(sorted_arr)"
+        ],
+        "old_lines": null,
+        "start_line": 2,
+        "type": "addition"
+      }
+    ],
+    "startLine": 9
+  }
+]

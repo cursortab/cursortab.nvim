@@ -1,0 +1,46 @@
+[
+  {
+    "cursor_col": 7,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 10,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 10"
+        ],
+        "old_lines": [
+          "content line 10"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 10
+  },
+  {
+    "cursor_col": 7,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 65,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 65"
+        ],
+        "old_lines": [
+          "content line 65"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 65
+  }
+]

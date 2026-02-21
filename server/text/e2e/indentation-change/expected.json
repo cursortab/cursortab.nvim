@@ -1,0 +1,24 @@
+[
+  {
+    "cursor_col": 15,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "col_end": 15,
+        "col_start": 4,
+        "end_line": 1,
+        "lines": [
+          "        double indented line"
+        ],
+        "old_lines": [
+          "    indented line"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 1
+  }
+]

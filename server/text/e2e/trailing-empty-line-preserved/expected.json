@@ -1,0 +1,20 @@
+[
+  {
+    "cursor_col": 8,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 3,
+        "end_line": 2,
+        "lines": [
+          "def test():",
+          "    pass"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      }
+    ],
+    "startLine": 3
+  }
+]

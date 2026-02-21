@@ -1,0 +1,24 @@
+[
+  {
+    "cursor_col": 20,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "col_end": 20,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "def calc_angle(x, y)"
+        ],
+        "old_lines": [
+          ""
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 1
+  }
+]

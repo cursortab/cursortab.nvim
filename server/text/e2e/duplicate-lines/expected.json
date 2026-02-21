@@ -1,0 +1,21 @@
+[
+  {
+    "cursor_col": 8,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "end_line": 1,
+        "lines": [
+          "modified"
+        ],
+        "old_lines": [
+          "duplicate"
+        ],
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 2
+  }
+]

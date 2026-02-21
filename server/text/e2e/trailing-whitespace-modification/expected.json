@@ -1,0 +1,31 @@
+[
+  {
+    "cursor_col": 18,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "end_line": 1,
+        "lines": [
+          "    x = getValue()"
+        ],
+        "old_lines": [
+          "    x  "
+        ],
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 3,
+        "end_line": 2,
+        "lines": [
+          "    y = processValue(x)"
+        ],
+        "old_lines": null,
+        "start_line": 2,
+        "type": "addition"
+      }
+    ],
+    "startLine": 2
+  }
+]

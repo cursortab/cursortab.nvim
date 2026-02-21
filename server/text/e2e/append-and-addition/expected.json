@@ -1,0 +1,35 @@
+[
+  {
+    "cursor_col": 10,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "col_end": 25,
+        "col_start": 7,
+        "end_line": 1,
+        "lines": [
+          "partial content completed"
+        ],
+        "old_lines": [
+          "partial"
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 2,
+        "end_line": 3,
+        "lines": [
+          "new line 1",
+          "new line 2"
+        ],
+        "old_lines": null,
+        "start_line": 2,
+        "type": "addition"
+      }
+    ],
+    "startLine": 1
+  }
+]

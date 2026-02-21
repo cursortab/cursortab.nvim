@@ -1,0 +1,39 @@
+[
+  {
+    "cursor_col": 14,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "col_end": 14,
+        "col_start": 13,
+        "end_line": 1,
+        "lines": [
+          "    let x = 10;"
+        ],
+        "old_lines": [
+          "    let x = 1;"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 4,
+        "col_end": 14,
+        "col_start": 13,
+        "end_line": 3,
+        "lines": [
+          "    let y = 20;"
+        ],
+        "old_lines": [
+          "    let y = 2;"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 3,
+        "type": "modification"
+      }
+    ],
+    "startLine": 2
+  }
+]

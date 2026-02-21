@@ -1,0 +1,5 @@
+function test() {
+    let x = 10;
+    console.log("test");
+    let y = 20;
+}

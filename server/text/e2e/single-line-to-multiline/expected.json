@@ -1,0 +1,36 @@
+[
+  {
+    "cursor_col": 6,
+    "cursor_line": 4,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "col_end": 11,
+        "col_start": 8,
+        "end_line": 1,
+        "lines": [
+          "def test():"
+        ],
+        "old_lines": [
+          "def test"
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 2,
+        "end_line": 4,
+        "lines": [
+          "    print(\"test\")",
+          "",
+          "test()"
+        ],
+        "old_lines": null,
+        "start_line": 2,
+        "type": "addition"
+      }
+    ],
+    "startLine": 1
+  }
+]

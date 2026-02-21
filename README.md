@@ -512,6 +512,34 @@ To run tests:
 cd server && go test ./...
 ```
 
+To run the E2E pipeline tests (ComputeDiff → CreateStages → ToLuaFormat):
+
+```bash
+cd server && go test ./text/... -run TestE2E -v
+```
+
+To record new expected output after changes:
+
+```bash
+cd server && go test ./text/... -run TestE2E -update
+```
+
+Updated fixtures are marked as **unverified**. After reviewing the generated
+`expected.json` files and the HTML report, mark them as verified:
+
+```bash
+cd server && go test ./text/... -run TestE2E -verify
+```
+
+Verification state is tracked in `server/text/e2e/verified.json` (a SHA256
+manifest). In the HTML report, verified passing tests are collapsed while
+unverified or failing tests are shown expanded.
+
+Each fixture is a directory under `server/text/e2e/` with `old.txt`, `new.txt`,
+`params.json`, and `expected.json`. Both batch and incremental pipelines are
+verified against the same expected output. An HTML report is generated at
+`server/text/e2e/report.html`.
+
 ## FAQ
 
 <details>

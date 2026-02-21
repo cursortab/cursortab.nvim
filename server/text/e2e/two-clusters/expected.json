@@ -1,0 +1,76 @@
+[
+  {
+    "cursor_col": 7,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 10,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 10"
+        ],
+        "old_lines": [
+          "content line 10"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 11,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 2,
+        "lines": [
+          "updated line 11"
+        ],
+        "old_lines": [
+          "content line 11"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 10
+  },
+  {
+    "cursor_col": 7,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 25,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 25"
+        ],
+        "old_lines": [
+          "content line 25"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 26,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 2,
+        "lines": [
+          "updated line 26"
+        ],
+        "old_lines": [
+          "content line 26"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 25
+  }
+]

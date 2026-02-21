@@ -1,0 +1,10 @@
+const x = 1;
+
+func helper1() {}
+func helper2() {}
+
+func helper3() {}
+func helper4() {}
+
+func helper5() {}
+func helper6() {}

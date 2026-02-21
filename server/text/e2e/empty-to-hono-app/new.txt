@@ -1,0 +1,5 @@
+// Initialize Hono app with types
+const application = new Hono<ApiContext>();
+
+// Global middleware
+application.use("*", corsMiddleware);

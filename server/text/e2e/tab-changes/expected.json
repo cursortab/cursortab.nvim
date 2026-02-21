@@ -1,0 +1,24 @@
+[
+  {
+    "cursor_col": 8,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "col_end": 8,
+        "col_start": 1,
+        "end_line": 1,
+        "lines": [
+          "\tmodified"
+        ],
+        "old_lines": [
+          "\tsecond"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 2
+  }
+]

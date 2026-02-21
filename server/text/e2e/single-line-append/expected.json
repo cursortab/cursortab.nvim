@@ -1,0 +1,24 @@
+[
+  {
+    "cursor_col": 11,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "col_end": 11,
+        "col_start": 5,
+        "end_line": 1,
+        "lines": [
+          "hello world"
+        ],
+        "old_lines": [
+          "hello"
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 1
+  }
+]

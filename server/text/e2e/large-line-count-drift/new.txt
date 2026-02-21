@@ -1,0 +1,7 @@
+line 1
+new a
+new b
+new c
+new d
+new e
+line 2

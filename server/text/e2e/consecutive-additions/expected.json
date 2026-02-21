@@ -1,0 +1,21 @@
+[
+  {
+    "cursor_col": 14,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "end_line": 3,
+        "lines": [
+          "    let x = 1;",
+          "    let y = 2;",
+          "    let z = 3;"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      }
+    ],
+    "startLine": 2
+  }
+]

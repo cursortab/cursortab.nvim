@@ -1,0 +1,9 @@
+header
+
+func test1() {}
+    body1
+
+func test2() {}
+    body2
+
+func test3() {}

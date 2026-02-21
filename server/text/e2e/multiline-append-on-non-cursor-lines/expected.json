@@ -1,0 +1,39 @@
+[
+  {
+    "cursor_col": 14,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "col_end": 24,
+        "col_start": 4,
+        "end_line": 1,
+        "lines": [
+          "    fmt.Println(\"hello\")"
+        ],
+        "old_lines": [
+          "    "
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 3,
+        "col_end": 14,
+        "col_start": 4,
+        "end_line": 2,
+        "lines": [
+          "    return nil"
+        ],
+        "old_lines": [
+          "    "
+        ],
+        "render_hint": "append_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 2
+  }
+]

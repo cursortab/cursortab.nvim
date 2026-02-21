@@ -1,0 +1,25 @@
+[
+  {
+    "cursor_col": 33,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 2,
+        "end_line": 3,
+        "lines": [
+          "    beginning middle finish extra",
+          "    beginning middle finish extra",
+          "    beginning middle finish extra"
+        ],
+        "old_lines": [
+          "    start middle end",
+          "    start middle end",
+          "    start middle end"
+        ],
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 2
+  }
+]

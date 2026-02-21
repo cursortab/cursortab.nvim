@@ -1,0 +1,44 @@
+[
+  {
+    "cursor_col": 26,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "end_line": 1,
+        "lines": [
+          "            \"timestamp\": \"2022-01-04T01:00:00Z\","
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      },
+      {
+        "buffer_line": 1,
+        "col_end": 25,
+        "col_start": 12,
+        "end_line": 2,
+        "lines": [
+          "            \"value\": 260,"
+        ],
+        "old_lines": [
+          "            "
+        ],
+        "render_hint": "append_chars",
+        "start_line": 2,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 2,
+        "end_line": 3,
+        "lines": [
+          "            \"name\": \"John\""
+        ],
+        "old_lines": null,
+        "start_line": 3,
+        "type": "addition"
+      }
+    ],
+    "startLine": 1
+  }
+]

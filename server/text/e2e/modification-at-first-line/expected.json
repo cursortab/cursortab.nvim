@@ -1,0 +1,21 @@
+[
+  {
+    "cursor_col": 16,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "end_line": 1,
+        "lines": [
+          "new content here"
+        ],
+        "old_lines": [
+          "old content"
+        ],
+        "start_line": 1,
+        "type": "modification"
+      }
+    ],
+    "startLine": 1
+  }
+]

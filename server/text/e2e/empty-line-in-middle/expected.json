@@ -1,0 +1,19 @@
+[
+  {
+    "cursor_col": 0,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 3,
+        "end_line": 1,
+        "lines": [
+          ""
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      }
+    ],
+    "startLine": 3
+  }
+]

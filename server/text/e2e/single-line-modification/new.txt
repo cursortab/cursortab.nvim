@@ -1,0 +1,3 @@
+line1
+modified
+line3

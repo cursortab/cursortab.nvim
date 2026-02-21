@@ -1,0 +1,34 @@
+[
+  {
+    "cursor_col": 0,
+    "cursor_line": 1,
+    "groups": [
+      {
+        "buffer_line": 4,
+        "end_line": 1,
+        "lines": [
+          ""
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      },
+      {
+        "buffer_line": 4,
+        "col_end": 5,
+        "col_start": 4,
+        "end_line": 2,
+        "lines": [
+          "line5"
+        ],
+        "old_lines": [
+          "line4"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 4
+  }
+]

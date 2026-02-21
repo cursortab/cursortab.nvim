@@ -1,0 +1,54 @@
+[
+  {
+    "cursor_col": 13,
+    "cursor_line": 3,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "col_end": 11,
+        "col_start": 6,
+        "end_line": 1,
+        "lines": [
+          "Hello there"
+        ],
+        "old_lines": [
+          "Hello world"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 2,
+        "col_end": 13,
+        "col_start": 8,
+        "end_line": 2,
+        "lines": [
+          "Goodbye there"
+        ],
+        "old_lines": [
+          "Goodbye world"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 3,
+        "col_end": 13,
+        "col_start": 8,
+        "end_line": 3,
+        "lines": [
+          "Welcome there"
+        ],
+        "old_lines": [
+          "Welcome world"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 3,
+        "type": "modification"
+      }
+    ],
+    "startLine": 1
+  }
+]

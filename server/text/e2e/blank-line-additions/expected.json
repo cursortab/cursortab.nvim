@@ -1,0 +1,39 @@
+[
+  {
+    "cursor_col": 15,
+    "cursor_line": 7,
+    "groups": [
+      {
+        "buffer_line": 3,
+        "col_end": 15,
+        "col_start": 7,
+        "end_line": 1,
+        "lines": [
+          "func test1() {}"
+        ],
+        "old_lines": [
+          "func te"
+        ],
+        "render_hint": "append_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 4,
+        "end_line": 7,
+        "lines": [
+          "    body1",
+          "",
+          "func test2() {}",
+          "    body2",
+          "",
+          "func test3() {}"
+        ],
+        "old_lines": null,
+        "start_line": 2,
+        "type": "addition"
+      }
+    ],
+    "startLine": 3
+  }
+]

@@ -1,0 +1,10 @@
+header line
+
+block 1:
+    line a
+
+block 2:
+    line b
+
+block 3:
+    line c

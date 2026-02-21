@@ -1,0 +1,113 @@
+[
+  {
+    "cursor_col": 7,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 20,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 20"
+        ],
+        "old_lines": [
+          "content line 20"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 21,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 2,
+        "lines": [
+          "updated line 21"
+        ],
+        "old_lines": [
+          "content line 21"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 20
+  },
+  {
+    "cursor_col": 7,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 35,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 35"
+        ],
+        "old_lines": [
+          "content line 35"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 36,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 2,
+        "lines": [
+          "updated line 36"
+        ],
+        "old_lines": [
+          "content line 36"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 35
+  },
+  {
+    "cursor_col": 7,
+    "cursor_line": 2,
+    "groups": [
+      {
+        "buffer_line": 5,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 1,
+        "lines": [
+          "updated line 05"
+        ],
+        "old_lines": [
+          "content line 05"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 1,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 6,
+        "col_end": 7,
+        "col_start": 0,
+        "end_line": 2,
+        "lines": [
+          "updated line 06"
+        ],
+        "old_lines": [
+          "content line 06"
+        ],
+        "render_hint": "replace_chars",
+        "start_line": 2,
+        "type": "modification"
+      }
+    ],
+    "startLine": 5
+  }
+]

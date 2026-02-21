@@ -1,0 +1,5 @@
+// Comment
+const x = 1;
+
+// New section
+const y = 2;

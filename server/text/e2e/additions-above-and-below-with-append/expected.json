@@ -1,0 +1,46 @@
+[
+  {
+    "cursor_col": 7,
+    "cursor_line": 5,
+    "groups": [
+      {
+        "buffer_line": 1,
+        "end_line": 2,
+        "lines": [
+          "above 1",
+          "above 2"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      },
+      {
+        "buffer_line": 1,
+        "col_end": 16,
+        "col_start": 6,
+        "end_line": 3,
+        "lines": [
+          "middle completed"
+        ],
+        "old_lines": [
+          "middle"
+        ],
+        "render_hint": "append_chars",
+        "start_line": 3,
+        "type": "modification"
+      },
+      {
+        "buffer_line": 2,
+        "end_line": 5,
+        "lines": [
+          "below 1",
+          "below 2"
+        ],
+        "old_lines": null,
+        "start_line": 4,
+        "type": "addition"
+      }
+    ],
+    "startLine": 1
+  }
+]

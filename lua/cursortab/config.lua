@@ -1,20 +1,11 @@
 -- Configuration management for cursortab.nvim
 
----@class CursortabUIColorsConfig
----@field deletion string
----@field addition string
----@field modification string
----@field completion string
-
 ---@class CursortabUIJumpConfig
 ---@field symbol string
 ---@field text string
 ---@field show_distance boolean
----@field bg_color string
----@field fg_color string
 
 ---@class CursortabUIConfig
----@field colors CursortabUIColorsConfig
 ---@field jump CursortabUIJumpConfig
 
 ---@class CursortabCursorPredictionConfig
@@ -87,18 +78,10 @@ local default_config = {
 	},
 
 	ui = {
-		colors = {
-			deletion = "#4f2f2f",
-			addition = "#394f2f",
-			modification = "#282e38",
-			completion = "#80899c",
-		},
 		jump = {
 			symbol = "",
 			text = " TAB ",
 			show_distance = true,
-			bg_color = "#373b45",
-			fg_color = "#bac1d1",
 		},
 	},
 
@@ -411,46 +394,49 @@ function config.setup(user_config)
 	return current_config
 end
 
--- Set up highlight groups based on current configuration
+-- Set up default values for highlight groups
 function config.setup_highlights()
-	---@type CursortabConfig
-	local cfg = current_config
-
-	vim.api.nvim_set_hl(0, "cursortabhl_deletion", {
+	vim.api.nvim_set_hl(0, "CursorTabDeletion", {
+		default = true,
 		ctermbg = "DarkRed",
-		bg = cfg.ui.colors.deletion,
+		bg = "#4f2f2f",
 		bold = false,
 	})
 
-	vim.api.nvim_set_hl(0, "cursortabhl_addition", {
+	vim.api.nvim_set_hl(0, "CursorTabAddition", {
+		default = true,
 		ctermbg = "DarkGreen",
-		bg = cfg.ui.colors.addition,
+		bg = "#394f2f",
 		bold = false,
 	})
 
-	vim.api.nvim_set_hl(0, "cursortabhl_modification", {
+	vim.api.nvim_set_hl(0, "CursorTabModification", {
+		default = true,
 		ctermbg = "DarkGray",
-		bg = cfg.ui.colors.modification,
+		bg = "#282e38",
 		bold = false,
 	})
 
-	vim.api.nvim_set_hl(0, "cursortabhl_completion", {
+	vim.api.nvim_set_hl(0, "CursorTabCompletion", {
+		default = true,
 		ctermfg = "DarkBlue",
-		fg = cfg.ui.colors.completion,
+		fg = "#80899c",
 		bold = false,
 	})
 
-	vim.api.nvim_set_hl(0, "cursortabhl_jump_symbol", {
+	vim.api.nvim_set_hl(0, "CursorTabJumpSymbol", {
+		default = true,
 		ctermfg = "Cyan",
-		fg = cfg.ui.jump.bg_color,
+		fg = "#373b45",
 		bold = false,
 	})
 
-	vim.api.nvim_set_hl(0, "cursortabhl_jump_text", {
+	vim.api.nvim_set_hl(0, "CursorTabJumpText", {
+		default = true,
 		ctermbg = "Cyan",
 		ctermfg = "Black",
-		bg = cfg.ui.jump.bg_color,
-		fg = cfg.ui.jump.fg_color,
+		bg = "#373b45",
+		fg = "#bac1d1",
 		bold = false,
 	})
 end

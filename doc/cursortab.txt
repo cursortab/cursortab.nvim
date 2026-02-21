@@ -9,8 +9,9 @@ CONTENTS                                                   *cursortab-contents*
   1. Introduction ..................................... |cursortab-introduction|
   2. Setup ............................................ |cursortab-setup|
   3. Configuration .................................... |cursortab-config|
-  4. Commands ......................................... |cursortab-commands|
-  5. Architecture ..................................... |cursortab-architecture|
+  4. Highlight Groups ................................. |cursortab-highlights|
+  5. Commands ......................................... |cursortab-commands|
+  6. Architecture ..................................... |cursortab-architecture|
 
 ==============================================================================
 INTRODUCTION                                           *cursortab-introduction*
@@ -55,18 +56,10 @@ Full configuration with defaults: >lua
     },
 
     ui = {
-      colors = {
-        deletion = "#4f2f2f",
-        addition = "#394f2f",
-        modification = "#282e38",
-        completion = "#80899c",
-      },
       jump = {
         symbol = "",
         text = " TAB ",
         show_distance = true,
-        bg_color = "#373b45",
-        fg_color = "#bac1d1",
       },
     },
 
@@ -159,20 +152,11 @@ keymaps.trigger                              *cursortab-config-keymaps-trigger*
 ------------------------------------------------------------------------------
 UI OPTIONS                                                *cursortab-config-ui*
 
-ui.colors                                          *cursortab-config-ui-colors*
-
-  `deletion`      Background color for deleted text highlights.
-  `addition`      Background color for added text highlights.
-  `modification`  Background color for modified text highlights.
-  `completion`    Foreground color for completion text.
-
 ui.jump                                              *cursortab-config-ui-jump*
 
   `symbol`        Symbol shown before jump indicator (default: "").
   `text`          Text shown in jump indicator (default: " TAB ").
   `show_distance` Show line distance for off-screen jumps (default: true).
-  `bg_color`      Background color for jump indicator.
-  `fg_color`      Foreground color for jump indicator.
 
 ------------------------------------------------------------------------------
 BEHAVIOR OPTIONS                                    *cursortab-config-behavior*
@@ -321,6 +305,41 @@ DEBUG OPTIONS                                          *cursortab-config-debug*
   `immediate_shutdown`
       Shutdown daemon immediately when no clients are connected. Useful for
       development.
+
+==============================================================================
+HIGHLIGHT GROUPS                                       *cursortab-highlights*
+
+All highlight groups are defined with `default = true`, so they can be
+overridden by your colorscheme or by calling `nvim_set_hl` before or after
+`setup()`.
+
+CursorTabDeletion                                        *hl-CursorTabDeletion*
+    Background highlight for deleted text.
+    Default: `ctermbg=DarkRed bg=#4f2f2f`
+
+CursorTabAddition                                        *hl-CursorTabAddition*
+    Background highlight for added text.
+    Default: `ctermbg=DarkGreen bg=#394f2f`
+
+CursorTabModification                                *hl-CursorTabModification*
+    Background highlight for modified text shown beside the original.
+    Default: `ctermbg=DarkGray bg=#282e38`
+
+CursorTabCompletion                                    *hl-CursorTabCompletion*
+    Foreground color for inline completion ghost text.
+    Default: `ctermfg=DarkBlue fg=#80899c`
+
+CursorTabJumpSymbol                                    *hl-CursorTabJumpSymbol*
+    Foreground color for the jump indicator symbol.
+    Default: `ctermfg=Cyan fg=#373b45`
+
+CursorTabJumpText                                        *hl-CursorTabJumpText*
+    Colors for the jump indicator text label.
+    Default: `ctermbg=Cyan ctermfg=Black bg=#373b45 fg=#bac1d1`
+
+Example override: >lua
+    vim.api.nvim_set_hl(0, "CursorTabAddition", { bg = "#1a3a1a" })
+<
 
 ==============================================================================
 COMMANDS                                                   *cursortab-commands*

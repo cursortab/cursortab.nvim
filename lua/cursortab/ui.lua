@@ -337,7 +337,7 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 		local virt_col = math.min(col_start, line_length)
 
 		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, virt_col, {
-			virt_text = { { appended_text, "cursortabhl_completion" } },
+			virt_text = { { appended_text, "CursorTabCompletion" } },
 			virt_text_pos = "overlay",
 			hl_mode = "combine",
 		})
@@ -366,7 +366,7 @@ local function render_delete_chars(group, nvim_line, current_buf)
 	if col_end > col_start then
 		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, col_start, {
 			end_col = col_end,
-			hl_group = "cursortabhl_deletion",
+			hl_group = "CursorTabDeletion",
 			hl_mode = "combine",
 		})
 		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
@@ -397,7 +397,7 @@ local function render_replace_chars(group, nvim_line, current_win, current_buf)
 		if end_col > start_col then
 			vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), 0, start_col, {
 				end_col = end_col,
-				hl_group = "cursortabhl_addition",
+				hl_group = "CursorTabAddition",
 			})
 		end
 	end
@@ -418,7 +418,7 @@ local function render_single_modification(group, nvim_line, virt_line_offset, cu
 	if line_content ~= "" then
 		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
 			end_col = #line_content,
-			hl_group = "cursortabhl_deletion",
+			hl_group = "CursorTabDeletion",
 			hl_mode = "combine",
 		})
 		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
@@ -428,7 +428,7 @@ local function render_single_modification(group, nvim_line, virt_line_offset, cu
 	if content ~= "" then
 		local line_width = vim.fn.strdisplaywidth(line_content)
 		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, nvim_line + virt_line_offset, line_width + 2, content, syntax_ft, "cursortabhl_modification", nil)
+			create_overlay_window(current_win, nvim_line + virt_line_offset, line_width + 2, content, syntax_ft, "CursorTabModification", nil)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end
 end
@@ -461,7 +461,7 @@ local function render_modification_group(group, virt_line_offset, current_win, c
 		if line_content ~= "" then
 			local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), line_nvim, 0, {
 				end_col = #line_content,
-				hl_group = "cursortabhl_deletion",
+				hl_group = "CursorTabDeletion",
 				hl_mode = "combine",
 			})
 			table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
@@ -477,7 +477,7 @@ local function render_modification_group(group, virt_line_offset, current_win, c
 			max_old_width + 2,
 			group.lines,
 			syntax_ft,
-			"cursortabhl_modification",
+			"CursorTabModification",
 			nil
 		)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
@@ -515,7 +515,7 @@ local function render_single_addition(group, nvim_line, virt_line_offset, curren
 
 	if content ~= "" then
 		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, overlay_line, 0, content, syntax_ft, "cursortabhl_addition", nil)
+			create_overlay_window(current_win, overlay_line, 0, content, syntax_ft, "CursorTabAddition", nil)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end
 end
@@ -561,7 +561,7 @@ local function render_addition_group(group, virt_line_offset, current_win, curre
 	-- Create overlay window for syntax-highlighted content
 	if #group.lines > 0 then
 		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, overlay_line, 0, group.lines, syntax_ft, "cursortabhl_addition", nil)
+			create_overlay_window(current_win, overlay_line, 0, group.lines, syntax_ft, "CursorTabAddition", nil)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end
 end
@@ -575,13 +575,13 @@ local function render_deletion(nvim_line, current_buf)
 	if line_content ~= "" then
 		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
 			end_col = #line_content,
-			hl_group = "cursortabhl_deletion",
+			hl_group = "CursorTabDeletion",
 			hl_mode = "combine",
 		})
 		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
 	else
 		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-			virt_text = { { "~", "cursortabhl_deletion" } },
+			virt_text = { { "~", "CursorTabDeletion" } },
 			virt_text_pos = "overlay",
 			hl_mode = "combine",
 		})
@@ -699,8 +699,8 @@ local function show_cursor_prediction(line_num)
 		jump_text_extmark_id =
 			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), line_num - 1, line_length, {
 				virt_text = {
-					{ " " .. cfg.ui.jump.symbol, "cursortabhl_jump_symbol" },
-					{ cfg.ui.jump.text, "cursortabhl_jump_text" },
+					{ " " .. cfg.ui.jump.symbol, "CursorTabJumpSymbol" },
+					{ cfg.ui.jump.text, "CursorTabJumpText" },
 				},
 				virt_text_pos = "overlay",
 				hl_mode = "combine",
@@ -753,8 +753,8 @@ local function show_cursor_prediction(line_num)
 			focusable = false,
 		})
 
-		-- Set window background to match cursortabhl_jump_text highlight
-		vim.api.nvim_set_option_value("winhighlight", "Normal:cursortabhl_jump_text", { win = absolute_jump_win })
+		-- Set window background to match jump text highlight
+		vim.api.nvim_set_option_value("winhighlight", "Normal:CursorTabJumpText", { win = absolute_jump_win })
 	end
 end
 
@@ -855,7 +855,7 @@ function ui.update_ghost_text_for_typing(line_num, current_content)
 		local nvim_line = line_num - 1 -- Convert to 0-indexed
 		local new_extmark_id =
 			vim.api.nvim_buf_set_extmark(append_chars_buf, daemon.get_namespace_id(), nvim_line, current_len, {
-				virt_text = { { remaining_ghost, "cursortabhl_completion" } },
+				virt_text = { { remaining_ghost, "CursorTabCompletion" } },
 				virt_text_pos = "overlay",
 				hl_mode = "combine",
 			})

@@ -19,6 +19,7 @@ Currently supports custom models and models form Zeta (Zed) and SweepAI.
   * [Using lazy.nvim](#using-lazynvim)
   * [Using packer.nvim](#using-packernvim)
 * [Configuration](#configuration)
+  * [Highlight Groups](#highlight-groups)
   * [Providers](#providers)
     * [Inline Provider (Default)](#inline-provider-default)
     * [FIM Provider](#fim-provider)
@@ -87,18 +88,10 @@ require("cursortab").setup({
   },
 
   ui = {
-    colors = {
-      deletion = "#4f2f2f",      -- Background color for deletions
-      addition = "#394f2f",      -- Background color for additions
-      modification = "#282e38",  -- Background color for modifications
-      completion = "#80899c",    -- Foreground color for completions
-    },
     jump = {
       symbol = "",              -- Symbol shown for jump points
       text = " TAB ",            -- Text displayed after jump symbol
       show_distance = true,      -- Show line distance for off-screen jumps
-      bg_color = "#373b45",      -- Jump text background color
-      fg_color = "#bac1d1",      -- Jump text foreground color
     },
   },
 
@@ -157,6 +150,26 @@ require("cursortab").setup({
 ```
 
 For detailed configuration documentation, see `:help cursortab-config`.
+
+### Highlight Groups
+
+The plugin defines the following highlight groups with `default = true`, so you
+can override them in your colorscheme or config:
+
+| Group                   | Default                            | Purpose                        |
+| ----------------------- | ---------------------------------- | ------------------------------ |
+| `CursorTabDeletion`     | `bg = "#4f2f2f"`                   | Background for deleted text    |
+| `CursorTabAddition`     | `bg = "#394f2f"`                   | Background for added text      |
+| `CursorTabModification` | `bg = "#282e38"`                   | Background for modified text   |
+| `CursorTabCompletion`   | `fg = "#80899c"`                   | Foreground for completion text |
+| `CursorTabJumpSymbol`   | `fg = "#373b45"`                   | Jump indicator symbol          |
+| `CursorTabJumpText`     | `bg = "#373b45"`, `fg = "#bac1d1"` | Jump indicator text            |
+
+To customize, set the highlight before or after calling `setup()`:
+
+```lua
+vim.api.nvim_set_hl(0, "CursorTabAddition", { bg = "#1a3a1a" })
+```
 
 ### Providers
 

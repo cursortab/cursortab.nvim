@@ -20,7 +20,7 @@ When modifying config options, update these locations:
 - Default value in `default_config` table (required - Go expects all values)
 - Validation (if enum-like, add to `valid_*` table and update error in `validate_config`)
 - Unknown keys are automatically rejected by `validate_config_keys()` — no update needed there unless changing the validation logic itself
-- If adding/modifying `ui.colors.*` or `ui.jump.*` fields, update `config.setup_highlights()` to use the new values in highlight group definitions
+- If adding/modifying default values for highlight groups, update `config.setup_highlights()` in config.lua
 
 ### 2. Go Side
 
@@ -60,7 +60,7 @@ For simple options:
 - [ ] Add default value in `default_config` table in config.lua
 - [ ] Add struct field with JSON tag in main.go (in `Config` or nested struct) — skip for Lua-only fields
 - [ ] Add validation in `Config.Validate()` if needed (numeric ranges, path validation, etc.)
-- [ ] If `ui.colors.*` or `ui.jump.*`, update `config.setup_highlights()` in config.lua
+- [ ] If `ui.jump.*`, update `config.setup_highlights()` in config.lua
 - [ ] Update README.md example
 - [ ] Update doc/cursortab.txt example
 

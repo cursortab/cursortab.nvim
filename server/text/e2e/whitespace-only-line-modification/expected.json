@@ -19,7 +19,7 @@
         "type": "modification"
       },
       {
-        "buffer_line": 2,
+        "buffer_line": 3,
         "end_line": 2,
         "lines": [
           "    y = processValue(x)"

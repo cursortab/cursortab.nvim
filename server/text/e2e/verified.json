@@ -19,6 +19,7 @@
   "identical-line-not-marked-as-change": "5f95e03f067ec6c7fe2827feea451b03635467bbf7843e32d7cf86657de56efd",
   "indentation-change": "8c16667c9a4084a9d44372becdbbee7b5ba2d4fc85cbac2afa898815ee72f060",
   "indented-lines-filled": "68196ba67129468ed68c538f04760db37af0329e28506aef8618cab421e9275e",
+  "json-block-expansion": "46b6823d2bf6f9bd86781021d959f128a6d9022c99e59a49effd2f6b535d77cc",
   "large-line-count-drift": "f5a7a925308c2e3bd77a02c04cdedeff84f0cdafd77509ba891f19a227466a37",
   "mixed-char-ops": "0aee1a42e4e3ba72bc6778150d7932659146462294d8f7a17ee45cb723884f1e",
   "modification-and-addition": "019685f622b12e5bcb7738053ee81ce232060feac0784ec0fddde0812ff01a8c",
@@ -43,5 +44,6 @@
   "trailing-whitespace-modification": "2f79b4d319d434033e95ec3a208016bf1aa38a371c592c3c2f5d30be84db0a9c",
   "two-clusters": "9f6ebd0914f906888324589bf021a8d938a5f32d3052d6c0618103bcc0080508",
   "whitespace-only-change": "4c3f36f986120836233410c78ba1adec267f018ca51ab47650d1b58e276f8f81",
+  "whitespace-only-line-modification": "ee8d961b5ed63844228903745f94d95d356c1c12e759cd6877a123bc3bf26e91",
   "whitespace-to-json": "3733b66e35a589cef21ff22ae0873769261d7edad121111a852880c515d88b36"
 }

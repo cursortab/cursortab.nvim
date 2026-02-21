@@ -1,29 +1,18 @@
 [
   {
-    "cursor_col": 0,
-    "cursor_line": 1,
+    "cursor_col": -1,
+    "cursor_line": -1,
     "groups": [
       {
         "buffer_line": 1,
-        "end_line": 1,
-        "lines": [
-          ""
-        ],
-        "old_lines": [
-          "line 1"
-        ],
-        "start_line": 1,
-        "type": "modification"
-      },
-      {
-        "buffer_line": 2,
         "end_line": 3,
         "lines": [
+          "line 1",
           "line 2",
           "line 3"
         ],
         "old_lines": null,
-        "start_line": 2,
+        "start_line": 1,
         "type": "deletion"
       }
     ],

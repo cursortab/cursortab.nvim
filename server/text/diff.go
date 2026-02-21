@@ -128,20 +128,21 @@ func (m *LineMapping) GetBufferLine(change LineChange, mapKey, baseLineOffset in
 		if oldLine > 0 {
 			return oldLine + baseLineOffset - 1
 		}
-		for i := change.NewLineNum - 2; i >= 0; i-- {
-			if m.NewToOld[i] > 0 {
-				bufLine := m.NewToOld[i] + baseLineOffset - 1
-				if isAddition {
-					bufLine++
-				}
-				return bufLine
-			}
-		}
 		if isAddition {
+			// For additions, find the nearest mapped old line to determine
+			// the buffer insertion point.
+			// Forward walk: addition goes just before the next old line.
 			for i := change.NewLineNum; i < len(m.NewToOld); i++ {
 				if m.NewToOld[i] > 0 {
 					return m.NewToOld[i] + baseLineOffset - 1
 				}
+			}
+			// No forward match: addition is past the last old line.
+			return len(m.OldToNew) + baseLineOffset
+		}
+		for i := change.NewLineNum - 2; i >= 0; i-- {
+			if m.NewToOld[i] > 0 {
+				return m.NewToOld[i] + baseLineOffset - 1
 			}
 		}
 	}

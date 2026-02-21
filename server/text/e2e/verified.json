@@ -28,6 +28,7 @@
   "indented-lines-filled": "68196ba67129468ed68c538f04760db37af0329e28506aef8618cab421e9275e",
   "json-block-expansion": "46b6823d2bf6f9bd86781021d959f128a6d9022c99e59a49effd2f6b535d77cc",
   "large-line-count-drift": "f5a7a925308c2e3bd77a02c04cdedeff84f0cdafd77509ba891f19a227466a37",
+  "leading-empty-line-deletion": "e2439eae894ef55bd8761b5edc188c38422346ad5f4df38968bb26818555614d",
   "mixed-char-ops": "0aee1a42e4e3ba72bc6778150d7932659146462294d8f7a17ee45cb723884f1e",
   "mixed-insertions-then-deletions": "9ab9a946559059577ce1bf085d6da61b2f24fa28b501048d44a4997d653983b8",
   "modification-and-addition": "019685f622b12e5bcb7738053ee81ce232060feac0784ec0fddde0812ff01a8c",

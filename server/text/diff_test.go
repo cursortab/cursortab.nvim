@@ -849,7 +849,7 @@ func TestDeletionAtLine1(t *testing.T) {
 	assert.True(t, exists, "deletion at line 1 exists")
 	assert.Equal(t, ChangeDeletion, change.Type, "change type")
 	assert.Equal(t, 1, change.OldLineNum, "OldLineNum")
-	assert.True(t, change.NewLineNum <= 0, "no valid new line anchor for first line deletion")
+	assert.Equal(t, 1, change.NewLineNum, "first line deletion anchors to new line 1")
 
 	assert.Equal(t, -1, actual.LineMapping.OldToNew[0], "old line 1 deleted")
 	assert.Equal(t, 1, actual.LineMapping.OldToNew[1], "old line 2 maps to new line 1")

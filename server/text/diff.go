@@ -406,7 +406,9 @@ func processLineDiffsWithMapping(lineDiffs []diffmatchpatch.Diff, result *DiffRe
 					// Find the anchor point in new text (the line before deletion, or -1)
 					anchorNew := -1
 					if newLineNum > 0 {
-						anchorNew = newLineNum // Point to line before (will be used as insertion anchor)
+						anchorNew = newLineNum
+					} else if newLineCount > 0 {
+						anchorNew = 1
 					}
 					result.addDeletion(oldIdx+1, anchorNew, line)
 				}

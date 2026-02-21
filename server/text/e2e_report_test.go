@@ -413,11 +413,15 @@ func renderPipelineCol(b *strings.Builder, label string, oldText, newText string
 	b.WriteString("</div>\n")
 }
 
-func renderJSONSection(b *strings.Builder, batchData, incData []map[string]any) {
+func renderJSONSection(b *strings.Builder, batchData, incData []map[string]any, open bool) {
 	batchJSON, _ := json.MarshalIndent(batchData, "", "  ")
 	incJSON, _ := json.MarshalIndent(incData, "", "  ")
 
-	fmt.Fprintf(b, "<div class=\"json-section\"><details class=\"json-details\" open><summary>JSON</summary>\n")
+	openAttr := ""
+	if open {
+		openAttr = " open"
+	}
+	fmt.Fprintf(b, "<div class=\"json-section\"><details class=\"json-details\"%s><summary>JSON</summary>\n", openAttr)
 	b.WriteString("<div class=\"cols-2\">\n")
 	fmt.Fprintf(b, "<div class=\"json-col\"><code class=\"shiki-json\">%s</code></div>\n", html.EscapeString(string(batchJSON)))
 	fmt.Fprintf(b, "<div class=\"json-col\"><code class=\"shiki-json\">%s</code></div>\n", html.EscapeString(string(incJSON)))
@@ -547,21 +551,16 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 			vStatus = `<span class="unverified">unverified</span>`
 		}
 
-		// Collapse verified+passing fixtures
 		allPass := f.BatchPass && f.IncrementalPass && f.Verified
 		escapedName := html.EscapeString(f.Name)
-		open := ""
-		if !allPass {
-			open = " open"
-		}
 		status := "passed"
 		if !f.BatchPass || !f.IncrementalPass {
 			status = "failed"
 		} else if !f.Verified {
 			status = "unverified"
 		}
-		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\"%s>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button> %s %s %s <span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span></summary>\n",
-			status, open, escapedName, escapedName, vStatus, bStatus, iStatus,
+		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\" open>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button> %s %s %s <span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span></summary>\n",
+			status, escapedName, escapedName, vStatus, bStatus, iStatus,
 			f.Params.CursorRow, f.Params.CursorCol,
 			f.Params.ViewportTop, f.Params.ViewportBottom)
 
@@ -570,7 +569,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 		renderPipelineCol(&b, "Incremental", f.OldText, f.NewText, incStages, f.Params.CursorRow, f.Params.CursorCol)
 		b.WriteString("</div>\n")
 
-		renderJSONSection(&b, f.BatchActual, f.IncrementalActual)
+		renderJSONSection(&b, f.BatchActual, f.IncrementalActual, !allPass)
 
 		b.WriteString("</details>\n")
 	}

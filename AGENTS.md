@@ -17,7 +17,21 @@ cd server && go test ./text/... -run TestDiff
 
 # Check for dead code
 cd server && deadcode .
+
+# Run E2E pipeline tests (ComputeDiff → CreateStages → ToLuaFormat)
+cd server && go test ./text/... -run TestE2E -v
+
+# Record new expected output after changes
+cd server && go test ./text/... -run TestE2E -update
 ```
+
+Each E2E fixture is a directory under `server/text/e2e/` with `old.txt`,
+`new.txt`, `params.json`, and `expected.json`. Both batch and incremental
+pipelines are verified against the same expected output. An HTML report is
+generated at `server/text/e2e/report.html`.
+
+**Important:** Never run `-verify` or `-verify-case`. Verification must always
+be done manually by the user.
 
 When done with your changes run formatting with:
 

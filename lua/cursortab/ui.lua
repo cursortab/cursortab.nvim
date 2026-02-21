@@ -587,9 +587,7 @@ local function render_deletion(nvim_line, current_buf)
 		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
 	else
 		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-			virt_text = { { "~", "CursorTabDeletion" } },
-			virt_text_pos = "overlay",
-			hl_mode = "combine",
+			line_hl_group = "CursorTabDeletion",
 		})
 		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
 	end

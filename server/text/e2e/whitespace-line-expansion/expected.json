@@ -1,7 +1,7 @@
 [
   {
-    "cursor_col": 20,
-    "cursor_line": 3,
+    "cursor_col": 35,
+    "cursor_line": 4,
     "groups": [
       {
         "buffer_line": 1,
@@ -24,30 +24,21 @@
         "lines": [
           "    ----------"
         ],
-        "old_lines": null,
-        "start_line": 2,
-        "type": "addition"
-      },
-      {
-        "buffer_line": 2,
-        "end_line": 3,
-        "lines": [
-          "    rA : numpy array"
-        ],
         "old_lines": [
           "        "
         ],
-        "start_line": 3,
+        "start_line": 2,
         "type": "modification"
       },
       {
-        "buffer_line": 2,
+        "buffer_line": 3,
         "end_line": 4,
         "lines": [
+          "    rA : numpy array",
           "        The coordinates of point A."
         ],
         "old_lines": null,
-        "start_line": 4,
+        "start_line": 3,
         "type": "addition"
       }
     ],

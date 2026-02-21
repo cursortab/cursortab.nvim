@@ -238,7 +238,7 @@ type previewLine struct {
 	HL        lineHighlight
 	SideText  string // non-empty for side-by-side modification (shown to the right)
 	SideHL    lineHighlight
-	CursorCol int    // 0-indexed column of block cursor; -1 means no cursor on this line
+	CursorCol int // 0-indexed column of block cursor; -1 means no cursor on this line
 }
 
 // buildPreview renders what the editor buffer looks like with completions overlaid.

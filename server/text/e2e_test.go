@@ -24,7 +24,7 @@ func init() {
 
 type multiStringFlag []string
 
-func (f *multiStringFlag) String() string { return strings.Join(*f, ",") }
+func (f *multiStringFlag) String() string     { return strings.Join(*f, ",") }
 func (f *multiStringFlag) Set(v string) error { *f = append(*f, v); return nil }
 func (f multiStringFlag) contains(v string) bool {
 	for _, s := range f {

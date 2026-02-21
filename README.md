@@ -525,10 +525,10 @@ cd server && go test ./text/... -run TestE2E -update
 ```
 
 Updated fixtures are marked as **unverified**. After reviewing the generated
-`expected.json` files and the HTML report, mark them as verified:
+`expected.json` files and the HTML report, mark a specific fixture as verified:
 
 ```bash
-cd server && go test ./text/... -run TestE2E -verify
+cd server && go test ./text/... -run TestE2E -verify-case=<name>
 ```
 
 Verification state is tracked in `server/text/e2e/verified.json` (a SHA256
@@ -539,6 +539,10 @@ Each fixture is a directory under `server/text/e2e/` with `old.txt`, `new.txt`,
 `params.json`, and `expected.json`. Both batch and incremental pipelines are
 verified against the same expected output. An HTML report is generated at
 `server/text/e2e/report.html`.
+
+To add a new fixture manually, create a directory with the four files and run
+with `-update` to generate the initial `expected.json`, then review and
+`-verify-case=<name>` to mark it verified.
 
 ## FAQ
 

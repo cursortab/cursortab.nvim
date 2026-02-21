@@ -435,7 +435,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 		} else if !f.Verified {
 			status = "unverified"
 		}
-		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\"%s>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText('TestE2E/'+this.dataset.name)\">copy</button> %s %s %s <span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span></summary>\n",
+		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\"%s>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button> %s %s %s <span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span></summary>\n",
 			status, open, escapedName, escapedName, vStatus, bStatus, iStatus,
 			f.Params.CursorRow, f.Params.CursorCol,
 			f.Params.ViewportTop, f.Params.ViewportBottom)

@@ -14,7 +14,7 @@ import (
 )
 
 var update = flag.Bool("update", false, "update expected.json golden files")
-var verify = flag.Bool("verify", false, "mark current expected.json files as verified")
+var verifyCase = flag.String("verify-case", "", "mark a specific test case as verified by name")
 
 type fixtureParams struct {
 	CursorRow      int `json:"cursorRow"`
@@ -172,7 +172,7 @@ func TestE2E(t *testing.T) {
 			currentHash := sha256Hex(expectedBytes)
 			verified := manifest[name] == currentHash
 
-			if *verify {
+			if *verifyCase == name {
 				manifest[name] = currentHash
 				verified = true
 				t.Logf("verified %s", name)
@@ -205,7 +205,7 @@ func TestE2E(t *testing.T) {
 	}
 
 	// Save manifest if verifying
-	if *verify {
+	if *verifyCase != "" {
 		if err := saveVerifiedManifest(manifestPath, manifest); err != nil {
 			t.Logf("failed to save verified manifest: %v", err)
 		} else {

@@ -2,7 +2,18 @@
   {
     "cursor_col": -1,
     "cursor_line": -1,
-    "groups": null,
+    "groups": [
+      {
+        "buffer_line": 3,
+        "end_line": 1,
+        "lines": [
+          "line 3"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "deletion"
+      }
+    ],
     "startLine": 3
   }
 ]

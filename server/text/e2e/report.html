@@ -1331,7 +1331,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>line 2</span><span class="line"><span class="ln">2</span>line 3</span></pre></div>
 </div>
@@ -1351,7 +1351,18 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
   {
     &#34;cursor_col&#34;: -1,
     &#34;cursor_line&#34;: -1,
-    &#34;groups&#34;: null,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;line 1&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
     &#34;startLine&#34;: 1
   }
 ]</code></div>
@@ -1367,7 +1378,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line del"><span class="ln">3</span>line 3</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 2</span></pre></div>
 </div>
@@ -1387,7 +1398,18 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
   {
     &#34;cursor_col&#34;: -1,
     &#34;cursor_line&#34;: -1,
-    &#34;groups&#34;: null,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 3,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;line 3&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
     &#34;startLine&#34;: 3
   }
 ]</code></div>
@@ -2399,7 +2421,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine A</span><span class="line"><span class="ln">2</span>line B</span><span class="line"><span class="ln">3</span>line C</span><span class="line"><span class="ln">4</span>line D</span><span class="line"><span class="ln">5</span>line E</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine A</span><span class="line del"><span class="ln">2</span>line B</span><span class="line mod side"><span class="ln">→</span>new 1</span><span class="line add"><span class="ln">3</span>new 2</span><span class="line"><span class="ln">4</span>line C</span><span class="line"><span class="ln">5</span>line D</span><span class="line"><span class="ln">6</span>line E</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine A</span><span class="line del"><span class="ln">2</span>line B</span><span class="line mod side"><span class="ln">→</span>new 1</span><span class="line add"><span class="ln">3</span>new 2</span><span class="line"><span class="ln">4</span>line C</span><span class="line del"><span class="ln">5</span>line D</span><span class="line"><span class="ln">6</span>line E</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>line A</span><span class="line"><span class="ln">2</span>new 1</span><span class="line"><span class="ln">3</span>new 2<span class="cursor"> </span></span><span class="line"><span class="ln">4</span>line C</span><span class="line"><span class="ln">5</span>line E</span></pre></div>
 </div>
@@ -2441,6 +2463,16 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;old_lines&#34;: null,
         &#34;start_line&#34;: 2,
         &#34;type&#34;: &#34;addition&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 4,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;line D&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 3,
+        &#34;type&#34;: &#34;deletion&#34;
       }
     ],
     &#34;startLine&#34;: 2
@@ -3067,7 +3099,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line del"><span class="ln">2</span>line 2</span><span class="line del"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 3</span><span class="line"><span class="ln">3</span>line 5</span></pre></div>
 </div>
@@ -3087,7 +3119,19 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
   {
     &#34;cursor_col&#34;: -1,
     &#34;cursor_line&#34;: -1,
-    &#34;groups&#34;: null,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;line 2&#34;,
+          &#34;line 4&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
     &#34;startLine&#34;: 2
   }
 ]</code></div>
@@ -3875,7 +3919,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine 1</span><span class="line del"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>line 1</span><span class="line"><span class="ln">2</span>line 3</span><span class="line"><span class="ln">3</span>line 4</span></pre></div>
 </div>
@@ -3895,7 +3939,18 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
   {
     &#34;cursor_col&#34;: -1,
     &#34;cursor_line&#34;: -1,
-    &#34;groups&#34;: null,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;line 2&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
     &#34;startLine&#34;: 2
   }
 ]</code></div>

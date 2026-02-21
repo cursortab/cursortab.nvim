@@ -24,6 +24,16 @@
         "old_lines": null,
         "start_line": 2,
         "type": "addition"
+      },
+      {
+        "buffer_line": 4,
+        "end_line": 3,
+        "lines": [
+          "line D"
+        ],
+        "old_lines": null,
+        "start_line": 3,
+        "type": "deletion"
       }
     ],
     "startLine": 2

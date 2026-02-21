@@ -28,12 +28,9 @@ func GroupChanges(changes map[int]LineChange) []*Group {
 		return nil
 	}
 
-	// Get sorted line numbers, excluding deletions
 	var lineNums []int
-	for lineNum, change := range changes {
-		if change.Type != ChangeDeletion {
-			lineNums = append(lineNums, lineNum)
-		}
+	for lineNum := range changes {
+		lineNums = append(lineNums, lineNum)
 	}
 
 	if len(lineNums) == 0 {

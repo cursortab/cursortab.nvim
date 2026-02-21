@@ -1,5 +1,6 @@
 {
   "additions-above-and-below-with-append": "4fb14e923953f37e42106c0d24dcd377ced6080596b19faeeaedbe627ee45526",
+  "additions-above-with-append": "e771879d0ecac7cbe79e9b95e5622f8f53f3c7f726980555b10d6614cd984d6c",
   "additions-at-beginning": "0ee36d24e337379bf528fbad07f3ef68e9fb31e2aae7a9ecb5229eb3c633ff83",
   "additions-at-end-of-file": "58e1a7f777f835f06fabe0c2c2e287affd42fec88584206b2d7c8fb70cfb567c",
   "additions-before-cursor-line": "3c9342dd9cbb38923e626008151c90ddd482d49106f0e316ae57a6ee6c318557",
@@ -30,6 +31,7 @@
   "no-changes": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed",
   "non-consecutive-char-changes": "1e58c0434d5e81226b4f454931bbe2080528ab21e83056186413e08226eb19b2",
   "out-of-viewport-change": "83fca920c3650019cc7063da137d3695630a0210aebc7d33c33c5422547a1987",
+  "partial-line-completion": "735f45a5bf05306e7e69b04933962adb52d367dbfe4667646b2ce63ee109641d",
   "replace-chars": "07543b4fddd5004163138a497202f042a88c678800408389fd74104a13f8b223",
   "replace-chars-middle": "248190aef05a1cfa58e220f78e9b863cab6000b8e1bcd6551f951c1c609c905e",
   "single-line-append": "c8dded96d9e6f1eb6a2bd722b54d583b6a2b53adec09ed386443ec2d9fdfaf4d",
@@ -40,5 +42,6 @@
   "trailing-empty-line-preserved": "4e13ff7b00b5110477519a396f28007a94d0d1a7c3924dd68ba3d71ce99bd438",
   "trailing-whitespace-modification": "2f79b4d319d434033e95ec3a208016bf1aa38a371c592c3c2f5d30be84db0a9c",
   "two-clusters": "9f6ebd0914f906888324589bf021a8d938a5f32d3052d6c0618103bcc0080508",
-  "whitespace-only-change": "4c3f36f986120836233410c78ba1adec267f018ca51ab47650d1b58e276f8f81"
+  "whitespace-only-change": "4c3f36f986120836233410c78ba1adec267f018ca51ab47650d1b58e276f8f81",
+  "whitespace-to-json": "3733b66e35a589cef21ff22ae0873769261d7edad121111a852880c515d88b36"
 }

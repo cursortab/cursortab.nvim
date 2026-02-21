@@ -5,26 +5,29 @@
     "groups": [
       {
         "buffer_line": 1,
-        "end_line": 1,
+        "end_line": 2,
         "lines": [
-          "inserted line 1"
+          "inserted line 1",
+          "inserted line 2"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      },
+      {
+        "buffer_line": 1,
+        "col_end": 25,
+        "col_start": 7,
+        "end_line": 3,
+        "lines": [
+          "partial content completed"
         ],
         "old_lines": [
           "partial"
         ],
-        "start_line": 1,
+        "render_hint": "append_chars",
+        "start_line": 3,
         "type": "modification"
-      },
-      {
-        "buffer_line": 2,
-        "end_line": 3,
-        "lines": [
-          "inserted line 2",
-          "partial content completed"
-        ],
-        "old_lines": null,
-        "start_line": 2,
-        "type": "addition"
       }
     ],
     "startLine": 1

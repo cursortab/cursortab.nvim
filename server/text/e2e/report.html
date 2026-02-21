@@ -56,11 +56,11 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
-<h1>E2E Pipeline Report <span class="stats"><span class="meta">57 fixtures</span><span class="pass">41 pass</span><span class="fail">16 fail</span><span class="unverified">16 unverified</span></span></h1>
+<h1>E2E Pipeline Report <span class="stats"><span class="meta">57 fixtures</span><span class="pass">44 pass</span><span class="fail">13 fail</span><span class="unverified">13 unverified</span></span></h1>
 <div class="filters">
 <button class="filter-btn active" data-filter="all">All (57)</button>
-<button class="filter-btn" data-filter="passed">Passed (41)</button>
-<button class="filter-btn" data-filter="failed">Failed (16)</button>
+<button class="filter-btn" data-filter="passed">Passed (44)</button>
+<button class="filter-btn" data-filter="failed">Failed (13)</button>
 <button class="filter-btn" data-filter="unverified">Unverified (0)</button>
 </div>
 <details class="fixture" data-status="failed" open>
@@ -277,15 +277,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>additions-above-with-append</h2><button class="copy-btn" data-name="additions-above-with-append" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>additions-above-with-append</h2><button class="copy-btn" data-name="additions-above-with-append" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">p</span>artial</span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">p</span>artial</span><span class="line mod side"><span class="ln">→</span>inserted line 1</span><span class="line add"><span class="ln">2</span>inserted line 2</span><span class="line add"><span class="ln">3</span>partial content completed</span></pre></div>
+<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>inserted line 1</span><span class="line add"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span><span class="cursor">p</span>artial<span class="ghost"> content completed</span></span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>inserted line 1</span><span class="line"><span class="ln">2</span>inserted line 2</span><span class="line"><span class="ln">3</span>partial content completed<span class="cursor"> </span></span></pre></div>
 </div>
@@ -308,26 +308,29 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
-        &#34;end_line&#34;: 1,
+        &#34;end_line&#34;: 2,
         &#34;lines&#34;: [
-          &#34;inserted line 1&#34;
+          &#34;inserted line 1&#34;,
+          &#34;inserted line 2&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;addition&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 25,
+        &#34;col_start&#34;: 7,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;partial content completed&#34;
         ],
         &#34;old_lines&#34;: [
           &#34;partial&#34;
         ],
-        &#34;start_line&#34;: 1,
+        &#34;render_hint&#34;: &#34;append_chars&#34;,
+        &#34;start_line&#34;: 3,
         &#34;type&#34;: &#34;modification&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 2,
-        &#34;end_line&#34;: 3,
-        &#34;lines&#34;: [
-          &#34;inserted line 2&#34;,
-          &#34;partial content completed&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 2,
-        &#34;type&#34;: &#34;addition&#34;
       }
     ],
     &#34;startLine&#34;: 1
@@ -3520,15 +3523,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>partial-line-completion</h2><button class="copy-btn" data-name="partial-line-completion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(9,3) vp=[1,50]</span></summary>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>partial-line-completion</h2><button class="copy-btn" data-name="partial-line-completion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(9,3) vp=[1,50]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>if <span class="cursor"> </span></span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line add"><span class="ln">9</span>    arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line add"><span class="ln">10</span>    sorted_arr = bubble_sort(arr)</span><span class="line add"><span class="ln">11</span>    print(sorted_arr)</span><span class="line"><span class="ln">12</span>if <span class="ghost"><span class="cursor">_</span>_name__ == &#34;__main__&#34;:</span></span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>if <span class="ghost"><span class="cursor">_</span>_name__ == &#34;__main__&#34;:</span></span><span class="line add"><span class="ln">10</span>    arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line add"><span class="ln">11</span>    sorted_arr = bubble_sort(arr)</span><span class="line add"><span class="ln">12</span>    print(sorted_arr)</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>def bubble_sort(arr):</span><span class="line"><span class="ln">2</span>    n = len(arr)</span><span class="line"><span class="ln">3</span>    for i in range(n):</span><span class="line"><span class="ln">4</span>        for j in range(0, n - i - 1):</span><span class="line"><span class="ln">5</span>            if arr[j] &gt; arr[j + 1]:</span><span class="line"><span class="ln">6</span>                arr[j], arr[j + 1] = arr[j + 1], arr[j]</span><span class="line"><span class="ln">7</span>    return arr</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>if __name__ == &#34;__main__&#34;:</span><span class="line"><span class="ln">10</span>    arr = [64, 34, 25, 12, 22, 11, 90]</span><span class="line"><span class="ln">11</span>    sorted_arr = bubble_sort(arr)</span><span class="line"><span class="ln">12</span>    print(sorted_arr)<span class="cursor"> </span></span></pre></div>
 </div>
@@ -3565,7 +3568,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;type&#34;: &#34;modification&#34;
       },
       {
-        &#34;buffer_line&#34;: 9,
+        &#34;buffer_line&#34;: 10,
         &#34;end_line&#34;: 4,
         &#34;lines&#34;: [
           &#34;    arr = [64, 34, 25, 12, 22, 11, 90]&#34;,
@@ -4976,15 +4979,15 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </div>
 </details></div>
 </details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>whitespace-to-json</h2><button class="copy-btn" data-name="whitespace-to-json" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="unverified">unverified</span> <span class="pass">batch:pass</span> <span class="fail">inc:FAIL</span> <span class="meta">cursor=(1,0) vp=[0,0]</span></summary>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>whitespace-to-json</h2><button class="copy-btn" data-name="whitespace-to-json" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(1,0) vp=[0,0]</span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
 <div class="pipeline-label">Batch</div>
 <div class="pane">
 <h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span>           </span></pre></div>
 <div class="pane">
-<h3>Preview</h3><pre><span class="line add"><span class="ln">1</span>            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span><span class="line"><span class="ln">2</span><span class="cursor"> </span>           <span class="ghost">&#34;value&#34;: 260,</span></span><span class="line add"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;</span></pre></div>
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor"> </span>           <span class="ghost">&#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span></span><span class="line add"><span class="ln">2</span>            &#34;value&#34;: 260,</span><span class="line add"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;</span></pre></div>
 <div class="pane">
 <h3>New</h3><pre><span class="line"><span class="ln">1</span>            &#34;timestamp&#34;: &#34;2022-01-04T01:00:00Z&#34;,</span><span class="line"><span class="ln">2</span>            &#34;value&#34;: 260,</span><span class="line"><span class="ln">3</span>            &#34;name&#34;: &#34;John&#34;<span class="cursor"> </span></span></pre></div>
 </div>
@@ -5007,37 +5010,28 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
     &#34;groups&#34;: [
       {
         &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 48,
+        &#34;col_start&#34;: 12,
         &#34;end_line&#34;: 1,
         &#34;lines&#34;: [
           &#34;            \&#34;timestamp\&#34;: \&#34;2022-01-04T01:00:00Z\&#34;,&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;addition&#34;
-      },
-      {
-        &#34;buffer_line&#34;: 1,
-        &#34;col_end&#34;: 25,
-        &#34;col_start&#34;: 12,
-        &#34;end_line&#34;: 2,
-        &#34;lines&#34;: [
-          &#34;            \&#34;value\&#34;: 260,&#34;
         ],
         &#34;old_lines&#34;: [
           &#34;            &#34;
         ],
         &#34;render_hint&#34;: &#34;append_chars&#34;,
-        &#34;start_line&#34;: 2,
+        &#34;start_line&#34;: 1,
         &#34;type&#34;: &#34;modification&#34;
       },
       {
         &#34;buffer_line&#34;: 2,
         &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
+          &#34;            \&#34;value\&#34;: 260,&#34;,
           &#34;            \&#34;name\&#34;: \&#34;John\&#34;&#34;
         ],
         &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 3,
+        &#34;start_line&#34;: 2,
         &#34;type&#34;: &#34;addition&#34;
       }
     ],

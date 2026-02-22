@@ -56,10 +56,10 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
-<h1>E2E Pipeline Report <span class="stats"><span class="meta">61 fixtures</span><span class="pass">61 pass</span></span></h1>
+<h1>E2E Pipeline Report <span class="stats"><span class="meta">62 fixtures</span><span class="pass">62 pass</span></span></h1>
 <div class="filters">
-<button class="filter-btn active" data-filter="all">All (61)</button>
-<button class="filter-btn" data-filter="passed">Passed (61)</button>
+<button class="filter-btn active" data-filter="all">All (62)</button>
+<button class="filter-btn" data-filter="passed">Passed (62)</button>
 <button class="filter-btn" data-filter="failed">Failed (0)</button>
 <button class="filter-btn" data-filter="unverified">Unverified (0)</button>
 </div>
@@ -3023,6 +3023,97 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       }
     ],
     &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed" open>
+<summary class="hdr"><h2>multi-block-addition</h2><button class="copy-btn" data-name="multi-block-addition" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(12,0) vp=[1,50]</span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>def calculate_mean(data):</span><span class="line"><span class="ln">5</span>    return np.mean(data)</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span><span class="line"><span class="ln">8</span>def calculate_std(data):</span><span class="line"><span class="ln">9</span>    return np.std(data)</span><span class="line"><span class="ln">10</span></span><span class="line"><span class="ln">11</span></span><span class="line"><span class="ln">12</span><span class="cursor"> </span></span><span class="line"><span class="ln">13</span></span><span class="line"><span class="ln">14</span></span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>def calculate_mean(data):</span><span class="line"><span class="ln">5</span>    return np.mean(data)</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span><span class="line"><span class="ln">8</span>def calculate_std(data):</span><span class="line"><span class="ln">9</span>    return np.std(data)</span><span class="line"><span class="ln">10</span></span><span class="line"><span class="ln">11</span></span><span class="line add"><span class="ln">12</span>def calculate_min(data):</span><span class="line add"><span class="ln">13</span>    return np.min(data)</span><span class="line"><span class="ln">14</span><span class="cursor"> </span></span><span class="line add"><span class="ln">15</span></span><span class="line add"><span class="ln">16</span>def calculate_max(data):</span><span class="line add"><span class="ln">17</span>    return np.max(data)</span><span class="line"><span class="ln">18</span></span><span class="line"><span class="ln">19</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>def calculate_mean(data):</span><span class="line"><span class="ln">5</span>    return np.mean(data)</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span><span class="line"><span class="ln">8</span>def calculate_std(data):</span><span class="line"><span class="ln">9</span>    return np.std(data)</span><span class="line"><span class="ln">10</span></span><span class="line"><span class="ln">11</span></span><span class="line"><span class="ln">12</span>def calculate_min(data):</span><span class="line"><span class="ln">13</span>    return np.min(data)</span><span class="line"><span class="ln">14</span></span><span class="line"><span class="ln">15</span></span><span class="line"><span class="ln">16</span>def calculate_max(data):</span><span class="line"><span class="ln">17</span>    return np.max(data)<span class="cursor"> </span></span><span class="line"><span class="ln">18</span></span><span class="line"><span class="ln">19</span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>def calculate_mean(data):</span><span class="line"><span class="ln">5</span>    return np.mean(data)</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span><span class="line"><span class="ln">8</span>def calculate_std(data):</span><span class="line"><span class="ln">9</span>    return np.std(data)</span><span class="line"><span class="ln">10</span></span><span class="line"><span class="ln">11</span></span><span class="line"><span class="ln">12</span><span class="cursor"> </span></span><span class="line"><span class="ln">13</span></span><span class="line"><span class="ln">14</span></span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>def calculate_mean(data):</span><span class="line"><span class="ln">5</span>    return np.mean(data)</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span><span class="line"><span class="ln">8</span>def calculate_std(data):</span><span class="line"><span class="ln">9</span>    return np.std(data)</span><span class="line"><span class="ln">10</span></span><span class="line"><span class="ln">11</span></span><span class="line add"><span class="ln">12</span>def calculate_min(data):</span><span class="line add"><span class="ln">13</span>    return np.min(data)</span><span class="line"><span class="ln">14</span><span class="cursor"> </span></span><span class="line add"><span class="ln">15</span></span><span class="line add"><span class="ln">16</span>def calculate_max(data):</span><span class="line add"><span class="ln">17</span>    return np.max(data)</span><span class="line"><span class="ln">18</span></span><span class="line"><span class="ln">19</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>def calculate_mean(data):</span><span class="line"><span class="ln">5</span>    return np.mean(data)</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span></span><span class="line"><span class="ln">8</span>def calculate_std(data):</span><span class="line"><span class="ln">9</span>    return np.std(data)</span><span class="line"><span class="ln">10</span></span><span class="line"><span class="ln">11</span></span><span class="line"><span class="ln">12</span>def calculate_min(data):</span><span class="line"><span class="ln">13</span>    return np.min(data)</span><span class="line"><span class="ln">14</span></span><span class="line"><span class="ln">15</span></span><span class="line"><span class="ln">16</span>def calculate_max(data):</span><span class="line"><span class="ln">17</span>    return np.max(data)<span class="cursor"> </span></span><span class="line"><span class="ln">18</span></span><span class="line"><span class="ln">19</span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 23,
+    &#34;cursor_line&#34;: 6,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 12,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;def calculate_min(data):&#34;,
+          &#34;    return np.min(data)&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;addition&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 13,
+        &#34;end_line&#34;: 6,
+        &#34;lines&#34;: [
+          &#34;&#34;,
+          &#34;def calculate_max(data):&#34;,
+          &#34;    return np.max(data)&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 4,
+        &#34;type&#34;: &#34;addition&#34;
+      }
+    ],
+    &#34;startLine&#34;: 12
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 23,
+    &#34;cursor_line&#34;: 6,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 12,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;def calculate_min(data):&#34;,
+          &#34;    return np.min(data)&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;addition&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 13,
+        &#34;end_line&#34;: 6,
+        &#34;lines&#34;: [
+          &#34;&#34;,
+          &#34;def calculate_max(data):&#34;,
+          &#34;    return np.max(data)&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 4,
+        &#34;type&#34;: &#34;addition&#34;
+      }
+    ],
+    &#34;startLine&#34;: 12
   }
 ]</code></div>
 </div>

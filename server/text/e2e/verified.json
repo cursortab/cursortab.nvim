@@ -34,6 +34,7 @@
   "modification-and-addition": "019685f622b12e5bcb7738053ee81ce232060feac0784ec0fddde0812ff01a8c",
   "modification-at-first-line": "60883b2c1e40cb3dbdf2909fc9e14388071c5726bedcdf44eacd0dbef13c9b5f",
   "modification-with-adjacent-addition": "b808afd07a3c075cf521237acd16b452391d363485d880a9149b8143cf07e835",
+  "multi-block-addition": "05aa2a80e8ec7575bdf5e8211b269346d8a13c594761ec5208a8111e55a14f52",
   "multiline-append-on-non-cursor-lines": "68196ba67129468ed68c538f04760db37af0329e28506aef8618cab421e9275e",
   "multiple-additions-with-empty-separators": "fee8c4e5511eb299fae75e825ea32f95e32c437daa9960f926cf72da0ecf7ac1",
   "multiple-character-changes": "3db9274863a5374c5017d6ef1b18c50274736e98514478f0260eac997a0b898f",

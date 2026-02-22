@@ -1,0 +1,32 @@
+[
+  {
+    "cursor_col": 23,
+    "cursor_line": 6,
+    "groups": [
+      {
+        "buffer_line": 12,
+        "end_line": 2,
+        "lines": [
+          "def calculate_min(data):",
+          "    return np.min(data)"
+        ],
+        "old_lines": null,
+        "start_line": 1,
+        "type": "addition"
+      },
+      {
+        "buffer_line": 13,
+        "end_line": 6,
+        "lines": [
+          "",
+          "def calculate_max(data):",
+          "    return np.max(data)"
+        ],
+        "old_lines": null,
+        "start_line": 4,
+        "type": "addition"
+      }
+    ],
+    "startLine": 12
+  }
+]

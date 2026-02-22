@@ -787,10 +787,10 @@ func TestGetStageBufferRange_WithInsertions(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	start, end := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// Both insertions anchor to line 1, so range should be 1-1
-	assert.True(t, start <= end, fmt.Sprintf("invalid range: start=%d > end=%d", start, end))
+	assert.True(t, stage.BufferStart <= stage.BufferEnd, fmt.Sprintf("invalid range: start=%d > end=%d", stage.BufferStart, stage.BufferEnd))
 }
 
 func TestGetBufferLine_DeletionAtLine1(t *testing.T) {
@@ -952,12 +952,12 @@ func TestGetStageBufferRange_AllInsertions(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	start, end := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// Pure additions with valid anchors (from mapping) use insertion point (anchor + 1).
 	// The mapping shows these insertions are anchored to old line 1, so insertion point is 2.
-	assert.True(t, start <= end, fmt.Sprintf("valid range: start=%d end=%d", start, end))
-	assert.Equal(t, 2, start, "pure additions with mapping anchor: insertion point is anchor + 1")
+	assert.True(t, stage.BufferStart <= stage.BufferEnd, fmt.Sprintf("valid range: start=%d end=%d", stage.BufferStart, stage.BufferEnd))
+	assert.Equal(t, 2, stage.BufferStart, "pure additions with mapping anchor: insertion point is anchor + 1")
 }
 
 func TestStageGroups_ShouldNotExceedStageContent(t *testing.T) {
@@ -1059,10 +1059,10 @@ func TestGetStageBufferRange_AdditionsAtEndOfFile(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
-	assert.Equal(t, 8, startLine, "buffer start line")
-	assert.Equal(t, 8, endLine, "buffer end covers modification + addition anchor")
+	assert.Equal(t, 8, stage.BufferStart, "buffer start line")
+	assert.Equal(t, 8, stage.BufferEnd, "buffer end covers modification + addition anchor")
 }
 
 func TestGetStageBufferRange_AdditionsWithinBuffer(t *testing.T) {
@@ -1090,11 +1090,11 @@ func TestGetStageBufferRange_AdditionsWithinBuffer(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// Pure additions with anchor at line 4: insertion point is anchor + 1 = 5
-	assert.Equal(t, 5, startLine, "buffer start line is insertion point (anchor + 1)")
-	assert.Equal(t, 5, endLine, "buffer end line equals start for pure additions")
+	assert.Equal(t, 5, stage.BufferStart, "buffer start line is insertion point (anchor + 1)")
+	assert.Equal(t, 5, stage.BufferEnd, "buffer end line equals start for pure additions")
 }
 
 func TestCreateStages_AdditionsAtEndOfFile(t *testing.T) {
@@ -1194,14 +1194,14 @@ func TestGetStageBufferRange_AdditionsAnchoredBeforeModifications(t *testing.T) 
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// StartLine should be 43 (first modification), NOT 42 (anchor of additions)
-	assert.Equal(t, 43, startLine,
+	assert.Equal(t, 43, stage.BufferStart,
 		"buffer start should be 43 (first modification), not 42 (addition anchor)")
 
 	// EndLine should be 44 (end of original buffer)
-	assert.Equal(t, 44, endLine, "buffer end should be 44")
+	assert.Equal(t, 44, stage.BufferEnd, "buffer end should be 44")
 }
 
 func TestGetStageBufferRange_OnlyAdditionsWithAnchor(t *testing.T) {
@@ -1225,11 +1225,11 @@ func TestGetStageBufferRange_OnlyAdditionsWithAnchor(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// Pure additions with anchor at line 10: insertion point is anchor + 1 = 11
-	assert.Equal(t, 11, startLine, "buffer start should be insertion point (anchor + 1)")
-	assert.Equal(t, 11, endLine, "buffer end equals start for pure additions")
+	assert.Equal(t, 11, stage.BufferStart, "buffer start should be insertion point (anchor + 1)")
+	assert.Equal(t, 11, stage.BufferEnd, "buffer end equals start for pure additions")
 }
 
 func TestGetStageBufferRange_OnlyAdditionsBeyondBuffer(t *testing.T) {
@@ -1254,11 +1254,11 @@ func TestGetStageBufferRange_OnlyAdditionsBeyondBuffer(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// Pure additions with anchor at line 10: insertion point is anchor + 1 = 11
-	assert.Equal(t, 11, startLine, "buffer start should be insertion point (anchor + 1)")
-	assert.Equal(t, 11, endLine, "buffer end equals start for pure additions (anchor + 1)")
+	assert.Equal(t, 11, stage.BufferStart, "buffer start should be insertion point (anchor + 1)")
+	assert.Equal(t, 11, stage.BufferEnd, "buffer end equals start for pure additions (anchor + 1)")
 }
 
 func TestCreateStages_EmptyNewLines(t *testing.T) {
@@ -1339,11 +1339,11 @@ func TestGetStageBufferRange_AllAdditionsNoValidAnchor(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	// Anchorless additions with no mapping: falls back to stage start/end lines
-	assert.Equal(t, 5, startLine, "should fallback to stage.startLine")
-	assert.Equal(t, 7, endLine, "should fallback to stage.endLine")
+	assert.Equal(t, 5, stage.BufferStart, "should fallback to stage.startLine")
+	assert.Equal(t, 7, stage.BufferEnd, "should fallback to stage.endLine")
 }
 
 func TestGetStageBufferRange_BaseLineOffsetZero(t *testing.T) {
@@ -1363,11 +1363,11 @@ func TestGetStageBufferRange_BaseLineOffsetZero(t *testing.T) {
 		rawChanges: diff.Changes,
 	}
 
-	startLine, endLine := getStageBufferRange(stage, 0, diff, nil)
+	computeStageRanges(stage, 0, diff, nil)
 
 	// With baseLineOffset=0: bufferLine = 5 + 0 - 1 = 4
-	assert.Equal(t, 4, startLine, "buffer start with offset 0")
-	assert.Equal(t, 4, endLine, "buffer end with offset 0")
+	assert.Equal(t, 4, stage.BufferStart, "buffer start with offset 0")
+	assert.Equal(t, 4, stage.BufferEnd, "buffer end with offset 0")
 }
 
 func TestCreateStages_PartiallyVisibleSingleCluster_FarFromCursor(t *testing.T) {
@@ -1604,9 +1604,10 @@ func TestGetStageNewLineRangeFromChanges_DerivedFromChanges(t *testing.T) {
 	// Unchanged old lines: old 5 maps to 4 (outside range check uses OldToNew
 	// but old 5 is OldToNew[4]=-1, old 6 is OldToNew[5]=5, old 7 is OldToNew[6]=6).
 	// Combined: newStart=5, newEnd=6
-	newStart, newEnd := getStageNewLineRangeFromChanges(stage, 1, mapping)
-	assert.Equal(t, 5, newStart, "newStart")
-	assert.Equal(t, 6, newEnd, "newEnd")
+	diff := &DiffResult{LineMapping: mapping, Changes: stage.rawChanges}
+	computeStageRanges(stage, 1, diff, nil)
+	assert.Equal(t, 5, stage.newLineStart, "newStart")
+	assert.Equal(t, 6, stage.newLineEnd, "newEnd")
 }
 
 func TestFinalizeStages_SingleDeletion(t *testing.T) {
@@ -1625,7 +1626,7 @@ func TestFinalizeStages_SingleDeletion(t *testing.T) {
 		endLine:    5,
 		rawChanges: diff.Changes,
 	}
-	stage.BufferStart, stage.BufferEnd = getStageBufferRange(stage, 1, diff, nil)
+	computeStageRanges(stage, 1, diff, nil)
 
 	newLines := []string{"1", "2", "3", "4", "6", "7", "8", "9", "10"} // Line 5 deleted
 
@@ -2347,14 +2348,14 @@ func TestGetStageBufferRange_PureAdditionsBufferLineMapping(t *testing.T) {
 	lineNumToBufferLine := make(map[int]int)
 	baseLineOffset := 4
 
-	startLine, endLine := getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
+	computeStageRanges(stage, baseLineOffset, diff, lineNumToBufferLine)
 
 	// Stage buffer range should be at insertion point
-	assert.True(t, startLine == endLine, "pure additions have start == end")
+	assert.True(t, stage.BufferStart == stage.BufferEnd, "pure additions have start == end")
 
 	// bufferLines map should contain insertion points matching the stage range
 	for _, bufLine := range lineNumToBufferLine {
-		assert.Equal(t, startLine, bufLine,
+		assert.Equal(t, stage.BufferStart, bufLine,
 			"bufferLines should contain insertion points matching stage range")
 	}
 }

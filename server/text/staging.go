@@ -19,9 +19,11 @@ type Stage struct {
 	IsLastStage  bool
 
 	// Unexported fields for construction (not serialized)
-	rawChanges []LineChange // Original changes with absolute line nums
-	startLine  int          // First change line (absolute, 1-indexed)
-	endLine    int          // Last change line (absolute, 1-indexed)
+	rawChanges   []LineChange // Original changes with absolute line nums
+	startLine    int          // First change line (absolute, 1-indexed)
+	endLine      int          // Last change line (absolute, 1-indexed)
+	newLineStart int          // First new-file line whose content belongs to this stage
+	newLineEnd   int          // Last new-file line whose content belongs to this stage
 }
 
 // StagingResult contains the result of CreateStages
@@ -160,7 +162,7 @@ func groupChangesIntoStages(changes []indexedChange, proximityThreshold int, max
 				}
 				lastBufferLine = ic.bufferLine
 			} else {
-				currentStage.BufferStart, currentStage.BufferEnd = getStageBufferRange(currentStage, baseLineOffset, diff, nil)
+				computeStageRanges(currentStage, baseLineOffset, diff, nil)
 				stages = append(stages, currentStage)
 				currentStage = &Stage{
 					startLine:  mapKey,
@@ -173,7 +175,7 @@ func groupChangesIntoStages(changes []indexedChange, proximityThreshold int, max
 	}
 
 	if currentStage != nil {
-		currentStage.BufferStart, currentStage.BufferEnd = getStageBufferRange(currentStage, baseLineOffset, diff, nil)
+		computeStageRanges(currentStage, baseLineOffset, diff, nil)
 		stages = append(stages, currentStage)
 	}
 
@@ -213,18 +215,21 @@ func stageDistanceFromCursor(stage *Stage, cursorRow int) int {
 	return cursorRow - stage.BufferEnd
 }
 
-// getStageBufferRange computes the buffer line range (old coordinates) for a
-// stage and optionally populates lineNum→bufferLine mappings for UI rendering.
+// computeStageRanges sets BufferStart, BufferEnd, newLineStart, and newLineEnd on the
+// stage in a single pass. It also optionally populates a bufferLines map (mapKey →
+// buffer line) used later for UI group positioning.
 //
-// The returned range [bufStart, bufEnd] defines which old buffer lines get
-// replaced by Stage.Lines via SetBufferLines. For pure insertions (all
-// additions from the same anchor), bufStart == bufEnd and no old lines are
-// replaced.
+// Buffer range (old-file space):
+//   - Modifications/deletions contribute their OldLineNum directly.
+//   - Additions contribute their anchor (OldLineNum of the preceding old line).
+//   - Anchorless additions (OldLineNum=-1) are resolved via a forward walk of NewToOld.
 //
-// For additions, OldLineNum is the anchor (line before insertion). In mixed
-// stages the anchor extends the old range so that the replacement captures
-// the correct new-file content between surrounding unchanged lines.
-func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, bufferLines map[int]int) (int, int) {
+// New-file range:
+//   - Seeded from the NewLineNum of every non-deletion change.
+//   - Expanded to include unchanged old lines in [oldStart, oldEnd] that map to new
+//     lines via OldToNew (skipped for pure same-anchor-addition stages, which insert
+//     without replacing any existing content).
+func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult, bufferLines map[int]int) {
 	// Populate buffer line mappings for UI group positioning
 	if bufferLines != nil {
 		for _, change := range stage.rawChanges {
@@ -238,8 +243,20 @@ func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, buf
 	maxAnchor := -1
 	hasNonAdditions := false
 	hasAdditions := false
+	newStart := 0
+	newEnd := 0
 
 	for _, change := range stage.rawChanges {
+		// Track new-line range from every non-deletion change
+		if change.Type != ChangeDeletion && change.NewLineNum > 0 {
+			if newStart == 0 || change.NewLineNum < newStart {
+				newStart = change.NewLineNum
+			}
+			if change.NewLineNum > newEnd {
+				newEnd = change.NewLineNum
+			}
+		}
+
 		if change.Type == ChangeAddition {
 			hasAdditions = true
 			if change.OldLineNum > 0 {
@@ -263,6 +280,7 @@ func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, buf
 		}
 	}
 
+	// Compute old-file range (buffer range)
 	var oldStart, oldEnd int
 
 	if !hasNonAdditions && hasAdditions {
@@ -328,54 +346,21 @@ func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, buf
 		oldEnd = stage.endLine
 	}
 
-	return oldStart + baseLineOffset - 1, oldEnd + baseLineOffset - 1
-}
+	stage.BufferStart = oldStart + baseLineOffset - 1
+	stage.BufferEnd = oldEnd + baseLineOffset - 1
 
-// getStageNewLineRangeFromChanges computes the new-file line range for a stage
-// directly from its changes' NewLineNum values, rather than deriving it from
-// the old-line range via LineMapping.
-//
-// This is correct for multi-stage scenarios where multiple stages may share
-// the same old-line anchor (e.g. consecutive additions at the end of a file).
-// The old approach of mapping bufRange → newRange was ambiguous in those cases.
-//
-// For replacement stages (non-pure-insertion), unchanged old lines within
-// [BufferStart, BufferEnd] that map to new lines are also included so that
-// SetBufferLines gets the complete replacement content.
-//
-// For pure deletion stages (no non-deletion changes), returns an empty range
-// (newStart > newEnd) so Stage.Lines is empty and the old lines are deleted.
-func getStageNewLineRangeFromChanges(stage *Stage, baseLineOffset int, mapping *LineMapping) (int, int) {
-	newStart := 0
-	newEnd := 0
-
-	// Collect new-line coordinates from the stage's changes
-	for _, change := range stage.rawChanges {
-		if change.Type == ChangeDeletion {
-			continue
-		}
-		if change.NewLineNum > 0 {
-			if newStart == 0 || change.NewLineNum < newStart {
-				newStart = change.NewLineNum
-			}
-			if change.NewLineNum > newEnd {
-				newEnd = change.NewLineNum
-			}
-		}
-	}
-
-	// For non-pure-insertion stages, also include unchanged old lines within
-	// the buffer range that map to new lines (they must appear in Stage.Lines
-	// since SetBufferLines replaces the entire old range).
-	isPureInsert := stage.BufferStart == stage.BufferEnd && isSameAnchorAdditions(stage.rawChanges)
-	if !isPureInsert && mapping != nil {
-		oldRelStart := stage.BufferStart - baseLineOffset + 1
-		oldRelEnd := stage.BufferEnd - baseLineOffset + 1
-		for oldRel := oldRelStart; oldRel <= oldRelEnd && oldRel-1 < len(mapping.OldToNew); oldRel++ {
+	// Expand new-line range to include unchanged old lines that fall within
+	// [oldStart, oldEnd] and map to new lines. These must be included in
+	// Stage.Lines because SetBufferLines replaces the entire old range.
+	// Skip this for pure same-anchor-addition stages — they insert without
+	// replacing, so only the added lines are needed.
+	isPureSameAnchorInsert := !hasNonAdditions && hasAdditions && minAnchor == maxAnchor
+	if !isPureSameAnchorInsert && diff.LineMapping != nil {
+		for oldRel := oldStart; oldRel <= oldEnd && oldRel-1 < len(diff.LineMapping.OldToNew); oldRel++ {
 			if oldRel < 1 {
 				continue
 			}
-			newLine := mapping.OldToNew[oldRel-1]
+			newLine := diff.LineMapping.OldToNew[oldRel-1]
 			if newLine > 0 {
 				if newStart == 0 || newLine < newStart {
 					newStart = newLine
@@ -387,30 +372,14 @@ func getStageNewLineRangeFromChanges(stage *Stage, baseLineOffset int, mapping *
 		}
 	}
 
-	// No new lines for this stage
 	if newStart == 0 {
-		return 1, 0
+		// Pure deletion stage — no new content
+		stage.newLineStart = 1
+		stage.newLineEnd = 0
+	} else {
+		stage.newLineStart = newStart
+		stage.newLineEnd = newEnd
 	}
-
-	return newStart, newEnd
-}
-
-// isSameAnchorAdditions returns true if all changes are additions anchored
-// at the same old line (or all anchorless). This is the condition for a pure
-// insertion where SetBufferLines inserts without replacing any existing lines.
-func isSameAnchorAdditions(changes []LineChange) bool {
-	anchor := 0 // 0 = unset
-	for _, c := range changes {
-		if c.Type != ChangeAddition {
-			return false
-		}
-		if anchor == 0 {
-			anchor = c.OldLineNum
-		} else if c.OldLineNum != anchor {
-			return false
-		}
-	}
-	return anchor != 0
 }
 
 // finalizeStages populates the remaining fields of partial stages.
@@ -420,9 +389,9 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 	for i, stage := range stages {
 		isLastStage := i == len(stages)-1
 
-		// Get buffer line mappings for this stage
+		// Populate buffer line mappings for UI group positioning
 		lineNumToBufferLine := make(map[int]int)
-		getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
+		computeStageRanges(stage, baseLineOffset, diff, lineNumToBufferLine)
 
 		// Convert a single addition on the cursor line to a modification (append_chars).
 		// When the cursor sits on a whitespace-only line and the diff produces a
@@ -447,21 +416,15 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 							ColStart:   colStart,
 							ColEnd:     colEnd,
 						}
-						stage.BufferStart, stage.BufferEnd = getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
+						computeStageRanges(stage, baseLineOffset, diff, lineNumToBufferLine)
 					}
 				}
 			}
 		}
 
-		// Compute new line range directly from the stage's changes.
-		// Each non-deletion change has a NewLineNum that maps it to a specific
-		// new-file line. For replacement stages, also include unchanged old lines
-		// within the buffer range that map to new lines.
-		newStartLine, newEndLine := getStageNewLineRangeFromChanges(stage, baseLineOffset, diff.LineMapping)
-
-		// Extract the new content using new coordinates
+		// Extract the new content using the pre-computed new-line range
 		var stageLines []string
-		for j := newStartLine; j <= newEndLine && j-1 < len(newLines); j++ {
+		for j := stage.newLineStart; j <= stage.newLineEnd && j-1 < len(newLines); j++ {
 			if j > 0 {
 				stageLines = append(stageLines, newLines[j-1])
 			}
@@ -502,7 +465,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 				if newLineNum <= 0 {
 					newLineNum = mapKey
 				}
-				relativeLine = newLineNum - newStartLine + 1
+				relativeLine = newLineNum - stage.newLineStart + 1
 			}
 			relativeIdx := relativeLine - 1
 

@@ -345,17 +345,16 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 		bufferStart := minOld + b.BaseLineOffset - 1
 		bufferEnd := maxOld + b.BaseLineOffset - 1
 
-		// Build buffer line mappings using diff
+		// Build buffer line mappings and compute new-line range via diff
 		lineNumToBufferLine := make(map[int]int)
 		diffStage := &Stage{rawChanges: diff.Changes}
-		getStageBufferRange(diffStage, b.BaseLineOffset+minOld-1, diff, lineNumToBufferLine)
+		computeStageRanges(diffStage, b.BaseLineOffset+minOld-1, diff, lineNumToBufferLine)
 
 		// Remap changes to relative line numbers
 		remappedChanges := make(map[int]LineChange)
 		relativeToBufferLine := make(map[int]int)
 
-		tempStage := &Stage{rawChanges: diff.Changes, BufferStart: bufferStart, BufferEnd: bufferEnd}
-		newStart, _ := getStageNewLineRangeFromChanges(tempStage, b.BaseLineOffset+minOld-1, diff.LineMapping)
+		newStart := diffStage.newLineStart
 
 		for _, change := range diff.Changes {
 			mapKey := change.MapKey()
@@ -458,7 +457,8 @@ func (b *IncrementalStageBuilder) computeStageBufferRange(stage *Stage) (int, in
 		NewLineCount: len(b.diffBuilder.NewLines),
 	}
 
-	return getStageBufferRange(stage, b.BaseLineOffset, diffResult, nil)
+	computeStageRanges(stage, b.BaseLineOffset, diffResult, nil)
+	return stage.BufferStart, stage.BufferEnd
 }
 
 // computeCurrentBufferLine computes the buffer line for the current position

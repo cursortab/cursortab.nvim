@@ -528,6 +528,74 @@ func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
 	assert.NotNil(t, eng.stagedCompletion, "should have new staged completion from prefetch")
 }
 
+// TestTryShowPrefetchedCompletion_StaleEndLineInc tests that when a prefetch completion
+// has a stale EndLineInc (computed against a buffer before stage accepts added lines),
+// the extra lines are not shown as phantom additions if they already exist in the buffer.
+func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
+	buf := newMockBuffer()
+	// Buffer after accepting stages 1-4: all 15 lines are present
+	buf.lines = []string{
+		"import numpy as np",
+		"",
+		"def bubble_sort(arr):",
+		"    n = len(arr)",
+		"    for i in range(n):",
+		"        for j in range(0, n-i-1):",
+		"            if arr[j] > arr[j+1]:",
+		"                arr[j], arr[j+1] = arr[j+1], arr[j]",
+		"    return arr",
+		"",
+		"if __name__ == \"__main__\":",
+		"    arr = np.random.randint(0, 100, 10)",
+		"    print(\"Original array:\", arr)",
+		"    sorted_arr = bubble_sort(arr)",
+		"    print(\"Sorted array:\", sorted_arr)",
+	}
+	buf.row = 15
+	buf.col = 0
+	buf.viewportTop = 1
+	buf.viewportBottom = 20
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.state = stateIdle
+
+	// Prefetch was computed against a 11-line buffer (before stage 4 added 4 lines).
+	// EndLineInc=11 is stale - the buffer now has 15 lines.
+	// The completion's Lines match the current buffer exactly.
+	eng.prefetchState = prefetchReady
+	eng.prefetchedCompletions = []*types.Completion{{
+		StartLine:  1,
+		EndLineInc: 11,
+		Lines: []string{
+			"import numpy as np",
+			"",
+			"def bubble_sort(arr):",
+			"    n = len(arr)",
+			"    for i in range(n):",
+			"        for j in range(0, n-i-1):",
+			"            if arr[j] > arr[j+1]:",
+			"                arr[j], arr[j+1] = arr[j+1], arr[j]",
+			"    return arr",
+			"",
+			"if __name__ == \"__main__\":",
+			"    arr = np.random.randint(0, 100, 10)",
+			"    print(\"Original array:\", arr)",
+			"    sorted_arr = bubble_sort(arr)",
+			"    print(\"Sorted array:\", sorted_arr)",
+		},
+	}}
+
+	result := eng.tryShowPrefetchedCompletion()
+
+	// Should return false because all content already exists in the buffer.
+	// Without the EndLineInc fix, this would return true and show lines 12-15
+	// as phantom additions even though they're already present.
+	assert.False(t, result, "should return false when prefetch content already in buffer")
+}
+
 // TestAcceptLastStage_WaitsForInflightPrefetch tests that when accepting the last stage
 // and prefetch is still in-flight, the engine waits for it instead of going idle.
 func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {

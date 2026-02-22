@@ -246,6 +246,17 @@ func (e *Engine) tryShowPrefetchedCompletion() bool {
 	e.prefetchedCursorTarget = nil
 	e.prefetchState = prefetchNone
 
+	// Extend EndLineInc to cover all completion lines that exist in the buffer.
+	// The prefetch was computed against a potentially stale buffer state, so
+	// EndLineInc may not cover lines that were added by subsequent stage accepts.
+	// Without this, processCompletion would see the extra lines as "additions"
+	// even though they already exist in the buffer.
+	bufferLineCount := len(e.buffer.Lines())
+	completionEnd := comp.StartLine + len(comp.Lines) - 1
+	if completionEnd > comp.EndLineInc && completionEnd <= bufferLineCount {
+		comp.EndLineInc = completionEnd
+	}
+
 	return e.processCompletion(comp)
 }
 

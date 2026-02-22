@@ -46,6 +46,22 @@ func (e *Engine) acceptCompletion() {
 	// Send accept metric
 	e.sendMetric(metrics.EventAccepted)
 
+	// Sync the current staged completion with what was actually rendered.
+	// When streaming renders a stage incrementally, Finalize() recomputes stages
+	// from scratch and may produce different boundaries. The staged completion's
+	// current stage must match the rendered completion for correct offset calculation
+	// in advanceStagedCompletion.
+	if e.stagedCompletion != nil && len(e.completions) > 0 {
+		currentStage := e.getStage(e.stagedCompletion.CurrentIdx)
+		if currentStage != nil {
+			rendered := e.completions[0]
+			currentStage.Lines = rendered.Lines
+			currentStage.BufferStart = rendered.StartLine
+			currentStage.BufferEnd = rendered.EndLineInc
+			currentStage.Groups = e.currentGroups
+		}
+	}
+
 	// 2. Clear completion state (keep prefetch)
 	e.clearState(ClearOptions{})
 

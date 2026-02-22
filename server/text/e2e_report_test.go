@@ -498,34 +498,26 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 `)
 
 	// Compute stats
-	var totalFixtures, verified, allPass int
+	var totalFixtures, allPass, statusFailed, statusUnverified int
 	for _, f := range fixtures {
 		totalFixtures++
-		if f.Verified {
-			verified++
-		}
-		if f.BatchPass && f.IncrementalPass && f.Verified {
+		if !f.BatchPass || !f.IncrementalPass {
+			statusFailed++
+		} else if !f.Verified {
+			statusUnverified++
+		} else {
 			allPass++
 		}
 	}
 	fmt.Fprintf(&b, `<h1>E2E Pipeline Report <span class="stats"><span class="meta">%d fixtures</span>`, totalFixtures)
 	fmt.Fprintf(&b, `<span class="pass">%d pass</span>`, allPass)
-	if totalFixtures-allPass > 0 {
-		fmt.Fprintf(&b, `<span class="fail">%d fail</span>`, totalFixtures-allPass)
+	if statusFailed > 0 {
+		fmt.Fprintf(&b, `<span class="fail">%d fail</span>`, statusFailed)
 	}
-	if totalFixtures-verified > 0 {
-		fmt.Fprintf(&b, `<span class="unverified">%d unverified</span>`, totalFixtures-verified)
+	if statusUnverified > 0 {
+		fmt.Fprintf(&b, `<span class="unverified">%d unverified</span>`, statusUnverified)
 	}
 	b.WriteString("</span></h1>\n")
-
-	var statusFailed, statusUnverified int
-	for _, f := range fixtures {
-		if !f.BatchPass || !f.IncrementalPass {
-			statusFailed++
-		} else if !f.Verified {
-			statusUnverified++
-		}
-	}
 
 	b.WriteString("<div class=\"filters\">\n")
 	fmt.Fprintf(&b, "<button class=\"filter-btn active\" data-filter=\"all\">All (%d)</button>\n", totalFixtures)

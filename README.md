@@ -88,8 +88,9 @@ require("cursortab").setup({
   },
 
   ui = {
-    additions = {
-      style = "dimmed",          -- "dimmed" or "highlight"
+    completions = {
+      addition_style = "dimmed",  -- "dimmed" or "highlight"
+      fg_opacity = 0.5,           -- opacity for completion overlays (0=invisible, 1=fully visible)
     },
     jump = {
       symbol = "",              -- Symbol shown for jump points

@@ -10,6 +10,12 @@ local ui = {}
 ---@type table<string, integer>
 local dimmed_ns_cache = {}
 
+vim.api.nvim_create_autocmd("ColorScheme", {
+	callback = function()
+		dimmed_ns_cache = {}
+	end,
+})
+
 --- Blend a color toward the background by a factor (0=original, 1=fully bg)
 ---@param fg integer
 ---@param bg integer
@@ -28,8 +34,9 @@ end
 ---@param factor number blend factor (0=original, 1=fully bg)
 ---@return integer namespace id
 local function get_dimmed_ns(factor)
-	if dimmed_ns_cache["default"] then
-		return dimmed_ns_cache["default"]
+	local key = tostring(factor)
+	if dimmed_ns_cache[key] then
+		return dimmed_ns_cache[key]
 	end
 
 	local ns = vim.api.nvim_create_namespace("cursortab_dimmed")
@@ -71,7 +78,7 @@ local function get_dimmed_ns(factor)
 		bg = normal_bg_str,
 	})
 
-	dimmed_ns_cache["default"] = ns
+	dimmed_ns_cache[key] = ns
 	return ns
 end
 
@@ -341,8 +348,8 @@ local function create_overlay_window(
 
 	-- Set background highlighting to match main window
 	if bg_highlight and bg_highlight ~= "" then
-		if bg_highlight == "CursorTabAddition" and config.get().ui.additions.style == "dimmed" then
-			vim.api.nvim_win_set_hl_ns(overlay_win, get_dimmed_ns(0.5))
+		if bg_highlight == "CursorTabAddition" and config.get().ui.completions.addition_style == "dimmed" then
+			vim.api.nvim_win_set_hl_ns(overlay_win, get_dimmed_ns(1 - config.get().ui.completions.fg_opacity))
 			if match_cursorline then
 				local cursorline_enabled = vim.api.nvim_win_call(parent_win, function()
 					return vim.wo.cursorline
@@ -433,7 +440,7 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 	end
 
 	if appended_text and appended_text ~= "" then
-		if config.get().ui.additions.style == "dimmed" then
+		if config.get().ui.completions.addition_style == "dimmed" then
 			local current_win = vim.api.nvim_get_current_win()
 			local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
 			local overlay_win, overlay_buf, _ = create_overlay_window(
@@ -520,7 +527,7 @@ local function render_replace_chars(group, nvim_line, current_win, current_buf)
 		if end_col > start_col then
 			vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), 0, start_col, {
 				end_col = end_col,
-				hl_group = "CursorTabAdditionInline",
+				hl_group = "CursorTabAddition",
 			})
 		end
 	end

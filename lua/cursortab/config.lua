@@ -5,11 +5,12 @@
 ---@field text string
 ---@field show_distance boolean
 
----@class CursortabUIAdditionsConfig
----@field style string "dimmed" or "highlight"
+---@class CursortabUICompletionsConfig
+---@field addition_style string "dimmed" or "highlight"
+---@field fg_opacity number opacity for completion overlays (0=invisible, 1=fully visible)
 
 ---@class CursortabUIConfig
----@field additions CursortabUIAdditionsConfig
+---@field completions CursortabUICompletionsConfig
 ---@field jump CursortabUIJumpConfig
 
 ---@class CursortabCursorPredictionConfig
@@ -82,8 +83,9 @@ local default_config = {
 	},
 
 	ui = {
-		additions = {
-			style = "dimmed", -- "dimmed" or "highlight"
+		completions = {
+			addition_style = "dimmed", -- "dimmed" or "highlight"
+			fg_opacity = 0.5, -- opacity for completion overlays (0=invisible, 1=fully visible)
 		},
 		jump = {
 			symbol = "",
@@ -310,12 +312,20 @@ local function validate_config(cfg)
 	end
 
 	-- Validate addition style
-	if cfg.ui and cfg.ui.additions and cfg.ui.additions.style then
-		if not valid_addition_styles[cfg.ui.additions.style] then
+	if cfg.ui and cfg.ui.completions and cfg.ui.completions.addition_style then
+		if not valid_addition_styles[cfg.ui.completions.addition_style] then
 			error(string.format(
-				"[cursortab.nvim] Invalid ui.additions.style '%s'. Must be one of: dimmed, highlight",
-				cfg.ui.additions.style
+				"[cursortab.nvim] Invalid ui.completions.addition_style '%s'. Must be one of: dimmed, highlight",
+				cfg.ui.completions.addition_style
 			))
+		end
+	end
+
+	-- Validate fg_opacity
+	if cfg.ui and cfg.ui.completions and cfg.ui.completions.fg_opacity then
+		local f = cfg.ui.completions.fg_opacity
+		if type(f) ~= "number" or f < 0 or f > 1 then
+			error("[cursortab.nvim] ui.completions.fg_opacity must be a number between 0 and 1")
 		end
 	end
 
@@ -421,22 +431,7 @@ function config.setup_highlights()
 		bold = false,
 	})
 
-	if config.get().ui.additions.style == "dimmed" then
-		vim.api.nvim_set_hl(0, "CursorTabAddition", {
-			default = true,
-			bg = "NONE",
-			bold = false,
-		})
-	else
-		vim.api.nvim_set_hl(0, "CursorTabAddition", {
-			default = true,
-			ctermbg = "DarkGreen",
-			bg = "#394f2f",
-			bold = false,
-		})
-	end
-
-	vim.api.nvim_set_hl(0, "CursorTabAdditionInline", {
+	vim.api.nvim_set_hl(0, "CursorTabAddition", {
 		default = true,
 		ctermbg = "DarkGreen",
 		bg = "#394f2f",

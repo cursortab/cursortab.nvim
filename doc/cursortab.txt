@@ -56,8 +56,9 @@ Full configuration with defaults: >lua
     },
 
     ui = {
-      additions = {
-        style = "dimmed",       -- "dimmed" or "highlight"
+      completions = {
+        addition_style = "dimmed", -- "dimmed" or "highlight"
+        fg_opacity = 0.5,          -- 0=invisible, 1=fully visible
       },
       jump = {
         symbol = "",
@@ -155,11 +156,14 @@ keymaps.trigger                              *cursortab-config-keymaps-trigger*
 ------------------------------------------------------------------------------
 UI OPTIONS                                                *cursortab-config-ui*
 
-ui.additions                                *cursortab-config-ui-additions*
+ui.completions                            *cursortab-config-ui-completions*
 
-  `style`         Rendering style for addition groups (default: "dimmed").
+  `addition_style` Rendering style for addition groups (default: "dimmed").
                   "dimmed"    - Dimmed treesitter-highlighted overlay.
                   "highlight" - Classic green background highlight.
+
+  `fg_opacity`     Opacity for completion overlays (default: 0.5).
+                  0 = invisible, 1 = fully visible.
 
 ui.jump                                              *cursortab-config-ui-jump*
 

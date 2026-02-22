@@ -85,7 +85,7 @@ local default_config = {
 	ui = {
 		completions = {
 			addition_style = "dimmed", -- "dimmed" or "highlight"
-			fg_opacity = 0.5, -- opacity for completion overlays (0=invisible, 1=fully visible)
+			fg_opacity = 0.6, -- opacity for completion overlays (0=invisible, 1=fully visible)
 		},
 		jump = {
 			symbol = "",

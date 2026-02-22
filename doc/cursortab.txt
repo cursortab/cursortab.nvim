@@ -58,7 +58,7 @@ Full configuration with defaults: >lua
     ui = {
       completions = {
         addition_style = "dimmed", -- "dimmed" or "highlight"
-        fg_opacity = 0.5,          -- 0=invisible, 1=fully visible
+        fg_opacity = 0.6,          -- 0=invisible, 1=fully visible
       },
       jump = {
         symbol = "",
@@ -162,7 +162,7 @@ ui.completions                            *cursortab-config-ui-completions*
                   "dimmed"    - Dimmed treesitter-highlighted overlay.
                   "highlight" - Classic green background highlight.
 
-  `fg_opacity`     Opacity for completion overlays (default: 0.5).
+  `fg_opacity`     Opacity for completion overlays (default: 0.6).
                   0 = invisible, 1 = fully visible.
 
 ui.jump                                              *cursortab-config-ui-jump*

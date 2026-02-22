@@ -102,8 +102,20 @@ type LineMapping struct {
 	OldToNew []int // OldToNew[i] = new line num for old line i+1, or -1 if deleted
 }
 
+// MapKey returns the primary coordinate for a change: NewLineNum for non-deletions,
+// OldLineNum for deletions. This is used when a numeric key is needed for sorting
+// or map insertion.
+func (c LineChange) MapKey() int {
+	if c.Type == ChangeDeletion {
+		return c.OldLineNum
+	}
+	if c.NewLineNum > 0 {
+		return c.NewLineNum
+	}
+	return c.OldLineNum
+}
+
 // GetBufferLine calculates the buffer line for a change using coordinate mapping.
-// mapKey is the change's key in the changes map (typically newLineNum).
 // baseLineOffset is where the diff range starts in the buffer (1-indexed).
 //
 // For additions, the returned value is the insertion point (where virt_lines_above
@@ -111,7 +123,7 @@ type LineMapping struct {
 //   - If OldLineNum is set (anchor = line before insertion): returns anchor + 1
 //   - If backward walk finds a mapped line: returns that line + 1
 //   - If forward walk finds a mapped line: returns that line (insert before it)
-func (m *LineMapping) GetBufferLine(change LineChange, mapKey, baseLineOffset int) int {
+func (m *LineMapping) GetBufferLine(change LineChange, baseLineOffset int) int {
 	isAddition := change.Type == ChangeAddition
 
 	if change.OldLineNum > 0 {
@@ -128,15 +140,11 @@ func (m *LineMapping) GetBufferLine(change LineChange, mapKey, baseLineOffset in
 			return oldLine + baseLineOffset - 1
 		}
 		if isAddition {
-			// For additions, find the nearest mapped old line to determine
-			// the buffer insertion point.
-			// Forward walk: addition goes just before the next old line.
 			for i := change.NewLineNum; i < len(m.NewToOld); i++ {
 				if m.NewToOld[i] > 0 {
 					return m.NewToOld[i] + baseLineOffset - 1
 				}
 			}
-			// No forward match: addition is past the last old line.
 			return len(m.OldToNew) + baseLineOffset
 		}
 		for i := change.NewLineNum - 2; i >= 0; i-- {
@@ -146,72 +154,68 @@ func (m *LineMapping) GetBufferLine(change LineChange, mapKey, baseLineOffset in
 		}
 	}
 
-	return mapKey + baseLineOffset - 1
+	return change.MapKey() + baseLineOffset - 1
 }
 
-// DiffResult contains all categorized change operations mapped by line number
+// DiffResult contains all categorized change operations
 type DiffResult struct {
-	Changes      map[int]LineChange // Map of line number (1-indexed) to change operation
-	LineMapping  *LineMapping       // Coordinate mapping between old and new line numbers
-	OldLineCount int                // Number of lines in original text
-	NewLineCount int                // Number of lines in new text
+	Changes      []LineChange // All changes, unordered
+	LineMapping  *LineMapping // Coordinate mapping between old and new line numbers
+	OldLineCount int          // Number of lines in original text
+	NewLineCount int          // Number of lines in new text
 }
 
-// =============================================================================
-// DiffResult helper methods - SINGLE POINT for adding changes
-// All invariants are enforced here, making it impossible to add invalid changes.
-// =============================================================================
-
-// addChange is the SINGLE ENTRY POINT for adding changes to the result.
-// It enforces all invariants:
-//   - Identical content is not a change (silently rejected)
-//   - At least one line number must be valid
-//   - Collision handling: deletion + addition at same line = modification
-//
-// oldLineNum: position in old text (1-indexed), -1 if pure insertion
-// newLineNum: position in new text (1-indexed), -1 if pure deletion
-// Returns true if the change was added, false if rejected.
-func (r *DiffResult) addChange(oldLineNum, newLineNum int, oldContent, newContent string, changeType ChangeType, colStart, colEnd int) bool {
-	// INVARIANT 1: Identical content is not a change
-	// Exception: additions always have oldContent="" as placeholder, so we can't
-	// compare content for them (adding an empty line is still a valid change)
-	if oldContent == newContent && changeType != ChangeDeletion && changeType != ChangeAddition {
-		return false
+// ChangesMap returns the changes as a map keyed by MapKey() for consumers
+// that need keyed access (e.g., GroupChanges, CalculateCursorPosition).
+func (r *DiffResult) ChangesMap() map[int]LineChange {
+	m := make(map[int]LineChange, len(r.Changes))
+	for _, c := range r.Changes {
+		m[c.MapKey()] = c
 	}
+	return m
+}
 
-	// INVARIANT 2: At least one line number must be valid
-	if oldLineNum <= 0 && newLineNum <= 0 {
-		return false
+// addDeletion appends a deletion change.
+func (r *DiffResult) addDeletion(oldLineNum, newLineNum int, content string) {
+	if oldLineNum <= 0 {
+		return
 	}
+	r.Changes = append(r.Changes, LineChange{
+		Type:       ChangeDeletion,
+		OldLineNum: oldLineNum,
+		NewLineNum: newLineNum,
+		Content:    content,
+	})
+}
 
-	// Use newLineNum as the map key (primary coordinate for content extraction)
-	// For deletions, use oldLineNum as the key since there's no new line
-	mapKey := newLineNum
-	if newLineNum <= 0 {
-		mapKey = oldLineNum
-	}
-
-	// INVARIANT 3: Handle collisions
-	if existing, exists := r.Changes[mapKey]; exists {
-		// Deletion + Addition at same line = Modification
-		// Note: For deletions, the deleted content is stored in Content field
-		if existing.Type == ChangeDeletion && changeType == ChangeAddition {
-			deletedContent := existing.Content // Deletion stores content in Content field
-			// If the addition is empty, keep the deletion as-is
-			if newContent == "" {
-				return false
-			}
-			changeType, colStart, colEnd = categorizeLineChangeWithColumns(deletedContent, newContent)
-			oldContent = deletedContent
-			// Merge coordinates: take oldLineNum from existing deletion
-			oldLineNum = existing.OldLineNum
-		} else {
-			// Other collisions: keep the existing change
-			return false
+// removeDeletion removes a deletion change by OldLineNum.
+func (r *DiffResult) removeDeletion(oldLineNum int) {
+	for i, c := range r.Changes {
+		if c.Type == ChangeDeletion && c.OldLineNum == oldLineNum {
+			r.Changes = append(r.Changes[:i], r.Changes[i+1:]...)
+			return
 		}
 	}
+}
 
-	r.Changes[mapKey] = LineChange{
+// addAddition appends an addition change.
+func (r *DiffResult) addAddition(oldLineNum, newLineNum int, content string) {
+	r.Changes = append(r.Changes, LineChange{
+		Type:       ChangeAddition,
+		OldLineNum: oldLineNum,
+		NewLineNum: newLineNum,
+		Content:    content,
+	})
+}
+
+// addModification appends a modification change, auto-categorizing the change
+// type based on content differences. Identical content is silently rejected.
+func (r *DiffResult) addModification(oldLineNum, newLineNum int, oldContent, newContent string) {
+	if oldContent == newContent {
+		return
+	}
+	changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, newContent)
+	r.Changes = append(r.Changes, LineChange{
 		Type:       changeType,
 		OldLineNum: oldLineNum,
 		NewLineNum: newLineNum,
@@ -219,48 +223,7 @@ func (r *DiffResult) addChange(oldLineNum, newLineNum int, oldContent, newConten
 		OldContent: oldContent,
 		ColStart:   colStart,
 		ColEnd:     colEnd,
-	}
-	return true
-}
-
-// addDeletion adds a deletion change with explicit coordinates.
-// Note: For deletions, the deleted content is stored in the Content field (not OldContent).
-// oldLineNum: position in old text (1-indexed, required)
-// newLineNum: anchor point in new text (1-indexed), or -1 if no anchor
-func (r *DiffResult) addDeletion(oldLineNum, newLineNum int, content string) bool {
-	if oldLineNum <= 0 {
-		return false
-	}
-	// Use oldLineNum as map key for deletions (no new line exists)
-	mapKey := oldLineNum
-	// For deletions, we bypass addChange to store content correctly
-	// Deletions don't need identical-content check (deleting empty line is valid)
-	if _, exists := r.Changes[mapKey]; exists {
-		return false // Don't overwrite existing change
-	}
-	r.Changes[mapKey] = LineChange{
-		Type:       ChangeDeletion,
-		OldLineNum: oldLineNum,
-		NewLineNum: newLineNum, // -1 or anchor point
-		Content:    content,    // Deleted content goes in Content field
-	}
-	return true
-}
-
-// addAddition adds an addition change with explicit coordinates.
-// oldLineNum: anchor point in old text (1-indexed), or -1 if no anchor
-// newLineNum: position in new text (1-indexed, required)
-func (r *DiffResult) addAddition(oldLineNum, newLineNum int, content string) bool {
-	return r.addChange(oldLineNum, newLineNum, "", content, ChangeAddition, 0, 0)
-}
-
-// addModification adds a modification change with explicit coordinates,
-// auto-categorizing the change type based on content differences.
-// oldLineNum: position in old text (1-indexed)
-// newLineNum: position in new text (1-indexed)
-func (r *DiffResult) addModification(oldLineNum, newLineNum int, oldContent, newContent string) bool {
-	changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, newContent)
-	return r.addChange(oldLineNum, newLineNum, oldContent, newContent, changeType, colStart, colEnd)
+	})
 }
 
 // ComputeDiff computes and categorizes line-level changes between two texts
@@ -273,21 +236,26 @@ func ComputeDiff(text1, text2 string) *DiffResult {
 	newLineCount := len(newLines)
 
 	result := &DiffResult{
-		Changes:      make(map[int]LineChange),
 		OldLineCount: oldLineCount,
 		NewLineCount: newLineCount,
 	}
 
 	// When old text is a single empty line, the diff library may match it as
-	// "equal" to an interior empty line in the new text, producing pure additions
-	// instead of a modification at line 1. Force a delete+insert so the collision
-	// logic in addChange merges them into a modification (append_chars).
+	// "equal" to an interior empty line in the new text, producing incorrect
+	// additions. Handle directly: line 1 is a modification, rest are additions.
 	if oldLineCount == 1 && oldLines[0] == "" && newLineCount > 0 {
-		lineDiffs := []diffmatchpatch.Diff{
-			{Type: diffmatchpatch.DiffDelete, Text: text1},
-			{Type: diffmatchpatch.DiffInsert, Text: text2},
+		result.addModification(1, 1, "", newLines[0])
+		for i := 1; i < newLineCount; i++ {
+			result.addAddition(1, i+1, newLines[i])
 		}
-		result.LineMapping = processLineDiffsWithMapping(lineDiffs, result, oldLineCount, newLineCount)
+		newToOld := make([]int, newLineCount)
+		oldToNew := make([]int, 1)
+		for i := range newToOld {
+			newToOld[i] = -1
+		}
+		newToOld[0] = 1
+		oldToNew[0] = 1
+		result.LineMapping = &LineMapping{NewToOld: newToOld, OldToNew: oldToNew}
 		return result
 	}
 
@@ -529,12 +497,47 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 		result.addDeletion(oldIdx+1, anchorNew, deletedLine)
 	}
 
-	// Emit unmatched additions, anchored to the nearest preceding matched old line
+	// Emit unmatched additions, anchored to the nearest preceding matched old line.
+	// When an empty addition shares a map key with a deletion, the deletion already
+	// covers the line removal — skip the addition to avoid a spurious empty change.
 	for i, insertedLine := range insertedLines {
 		if usedInserts[i] {
 			continue
 		}
 		newIdx := newLineStart + i
+		mapKey := newIdx + 1
+
+		// Check for deletion collision: if an unmatched deletion exists at the
+		// same map key, merge into modification (non-empty) or skip (empty).
+		collidedDel := -1
+		for j := range deletedLines {
+			if _, matched := matches[j]; matched {
+				continue
+			}
+			oldIdx := oldLineStart + j
+			if oldIdx+1 == mapKey {
+				collidedDel = j
+				break
+			}
+		}
+		if collidedDel >= 0 {
+			if insertedLine == "" {
+				continue // empty addition + deletion → keep deletion
+			}
+			// Non-empty addition + deletion → merge into modification
+			oldIdx := oldLineStart + collidedDel
+			if newIdx < newLineCount {
+				newToOld[newIdx] = oldIdx + 1
+			}
+			if oldIdx < oldLineCount {
+				oldToNew[oldIdx] = newIdx + 1
+			}
+			result.addModification(oldIdx+1, newIdx+1, deletedLines[collidedDel], insertedLine)
+			result.removeDeletion(oldIdx + 1)
+			matches[collidedDel] = i
+			continue
+		}
+
 		anchorOld := -1
 		for delIdx, insIdx := range matches {
 			if insIdx < i {

@@ -49,7 +49,7 @@ func TestChangeDeletion(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeAddition(t *testing.T) {
@@ -65,7 +65,7 @@ func TestChangeAddition(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeAppendChars(t *testing.T) {
@@ -84,7 +84,7 @@ func TestChangeAppendChars(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeDeleteChars(t *testing.T) {
@@ -103,7 +103,7 @@ func TestChangeDeleteChars(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeDeleteCharsMiddle(t *testing.T) {
@@ -122,7 +122,7 @@ func TestChangeDeleteCharsMiddle(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeReplaceChars(t *testing.T) {
@@ -141,7 +141,7 @@ func TestChangeReplaceChars(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeReplaceCharsMiddle(t *testing.T) {
@@ -160,7 +160,7 @@ func TestChangeReplaceCharsMiddle(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeModificationAndAddition(t *testing.T) {
@@ -191,7 +191,7 @@ func TestChangeModificationAndAddition(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestMultipleDeletions(t *testing.T) {
@@ -211,7 +211,7 @@ func TestMultipleDeletions(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestMultipleAdditions(t *testing.T) {
@@ -231,7 +231,7 @@ func TestMultipleAdditions(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestMultipleCharacterChanges(t *testing.T) {
@@ -264,7 +264,7 @@ func TestMultipleCharacterChanges(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestMixedCharacterOperations(t *testing.T) {
@@ -297,7 +297,7 @@ func TestMixedCharacterOperations(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestChangeModification(t *testing.T) {
@@ -316,7 +316,7 @@ func TestChangeModification(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestNoChanges(t *testing.T) {
@@ -325,7 +325,7 @@ func TestNoChanges(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.Equal(t, 0, len(actual.Changes), "no changes")
+	assert.Equal(t, 0, len(actual.ChangesMap()), "no changes")
 }
 
 func TestConsecutiveModifications(t *testing.T) {
@@ -361,7 +361,7 @@ func TestConsecutiveModifications(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestConsecutiveAdditions(t *testing.T) {
@@ -393,7 +393,7 @@ func TestConsecutiveAdditions(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestMixedChangesNoGrouping(t *testing.T) {
@@ -412,7 +412,7 @@ func TestMixedChangesNoGrouping(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should have changes for lines 2 and 4 (not consecutive)
-	assert.True(t, len(actual.Changes) > 0, "changes detected")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes detected")
 }
 
 func TestLineChangeClassification(t *testing.T) {
@@ -474,7 +474,7 @@ func TestEmptyOldText(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.True(t, len(actual.Changes) > 0, "changes when adding content to empty file")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes when adding content to empty file")
 }
 
 func TestEmptyNewText(t *testing.T) {
@@ -483,10 +483,10 @@ func TestEmptyNewText(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.True(t, len(actual.Changes) > 0, "changes when deleting all content")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes when deleting all content")
 
 	// Should all be deletions
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		assert.Equal(t, ChangeDeletion, change.Type, "all deletions")
 	}
 }
@@ -507,7 +507,7 @@ func TestSingleLineFile(t *testing.T) {
 		},
 	}
 
-	assertChangesEqual(t, expected, actual.Changes)
+	assertChangesEqual(t, expected, actual.ChangesMap())
 }
 
 func TestAdditionAtFirstLine(t *testing.T) {
@@ -516,7 +516,7 @@ func TestAdditionAtFirstLine(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	change, exists := actual.Changes[1]
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "addition at line 1 exists")
 	assert.Equal(t, ChangeAddition, change.Type, "addition type")
 }
@@ -527,7 +527,7 @@ func TestMultipleAdditionsAtBeginning(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.True(t, len(actual.Changes) > 0, "changes for additions at beginning")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes for additions at beginning")
 }
 
 func TestModificationAtFirstLine(t *testing.T) {
@@ -536,7 +536,7 @@ func TestModificationAtFirstLine(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	_, exists := actual.Changes[1]
+	_, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "change at line 1")
 }
 
@@ -547,7 +547,7 @@ func TestAdditionAtEndOfFile(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	hasAddition := false
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition {
 			hasAddition = true
 			break
@@ -562,7 +562,7 @@ func TestDeletionAtFirstLine(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	change, exists := actual.Changes[1]
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "deletion at line 1 exists")
 	assert.Equal(t, ChangeDeletion, change.Type, "deletion type")
 }
@@ -573,7 +573,7 @@ func TestDeletionAtLastLine(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	change, exists := actual.Changes[3]
+	change, exists := actual.ChangesMap()[3]
 	assert.True(t, exists, "deletion at line 3 exists")
 	assert.Equal(t, ChangeDeletion, change.Type, "deletion type")
 }
@@ -607,13 +607,13 @@ if __name__ == "__main__":
 	actual := ComputeDiff(oldText, newText)
 
 	// Check that line 11 is NOT in changes (it's identical in both)
-	if change, exists := actual.Changes[11]; exists {
+	if change, exists := actual.ChangesMap()[11]; exists {
 		assert.False(t, change.Content == change.OldContent,
 			"line 11 should not be marked as change when content == oldContent")
 	}
 
 	// Line 12 should be an addition
-	change, exists := actual.Changes[12]
+	change, exists := actual.ChangesMap()[12]
 	assert.True(t, exists, "line 12 exists")
 	assert.Equal(t, ChangeAddition, change.Type, "line 12 is addition")
 }
@@ -645,7 +645,7 @@ if __name__ == "__main__":
 	actual := ComputeDiff(oldText, newText)
 
 	// Line 9 ("if " -> "if __name__ == "__main__":") should be append_chars, not deletion
-	change9, exists := actual.Changes[9]
+	change9, exists := actual.ChangesMap()[9]
 	assert.True(t, exists, "change at line 9 exists")
 	assert.False(t, change9.Type == ChangeDeletion, "line 9 not categorized as deletion")
 	assert.Equal(t, ChangeAppendChars, change9.Type, "line 9 is append_chars")
@@ -665,7 +665,7 @@ test()
 
 	actual := ComputeDiff(oldText, newText)
 
-	assert.True(t, len(actual.Changes) >= 2, "at least 2 changes detected")
+	assert.True(t, len(actual.ChangesMap()) >= 2, "at least 2 changes detected")
 }
 
 func TestLineMapping_EqualLineCounts(t *testing.T) {
@@ -697,7 +697,7 @@ func TestLineMapping_PureInsertion(t *testing.T) {
 	assert.Equal(t, -1, actual.LineMapping.NewToOld[1], "new line 2 (inserted) maps to -1")
 	assert.Equal(t, 2, actual.LineMapping.NewToOld[2], "new line 3 maps to old line 2")
 
-	change, exists := actual.Changes[2]
+	change, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2 exists")
 	assert.Equal(t, ChangeAddition, change.Type, "change type")
 	assert.Equal(t, 2, change.NewLineNum, "NewLineNum")
@@ -712,7 +712,7 @@ func TestLineMapping_PureDeletion(t *testing.T) {
 	assert.Equal(t, 3, actual.OldLineCount, "OldLineCount")
 	assert.Equal(t, 2, actual.NewLineCount, "NewLineCount")
 
-	change, exists := actual.Changes[2]
+	change, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2 (deletion) exists")
 	assert.Equal(t, ChangeDeletion, change.Type, "change type")
 	assert.Equal(t, 2, change.OldLineNum, "OldLineNum")
@@ -729,7 +729,7 @@ func TestLineMapping_MultipleInsertions(t *testing.T) {
 	assert.Equal(t, 5, actual.NewLineCount, "NewLineCount")
 
 	additionCount := 0
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition {
 			additionCount++
 			assert.True(t, change.NewLineNum > 0, "positive NewLineNum for insertion")
@@ -748,7 +748,7 @@ func TestLineMapping_MultipleDeletions(t *testing.T) {
 	assert.Equal(t, 2, actual.NewLineCount, "NewLineCount")
 
 	deletionCount := 0
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeDeletion {
 			deletionCount++
 			assert.True(t, change.OldLineNum > 0, "positive OldLineNum for deletion")
@@ -765,7 +765,7 @@ func TestLineMapping_MixedInsertionDeletion(t *testing.T) {
 
 	assert.Equal(t, 3, actual.OldLineCount, "OldLineCount")
 	assert.Equal(t, 4, actual.NewLineCount, "NewLineCount")
-	assert.True(t, len(actual.Changes) > 0, "changes detected")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes detected")
 }
 
 func TestLineMapping_NetLineIncrease(t *testing.T) {
@@ -797,7 +797,7 @@ func TestLineMapping_NetLineDecrease(t *testing.T) {
 
 	assert.Equal(t, 5, actual.OldLineCount, "OldLineCount")
 	assert.Equal(t, 3, actual.NewLineCount, "NewLineCount")
-	assert.True(t, len(actual.Changes) > 0, "changes detected")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes detected")
 }
 
 func TestLineChangeCoordinates_Modification(t *testing.T) {
@@ -806,7 +806,7 @@ func TestLineChangeCoordinates_Modification(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	change, exists := actual.Changes[1]
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "change at line 1 exists")
 	assert.Equal(t, 1, change.OldLineNum, "OldLineNum")
 	assert.Equal(t, 1, change.NewLineNum, "NewLineNum")
@@ -818,7 +818,7 @@ func TestLineChangeCoordinates_Addition(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	change, exists := actual.Changes[2]
+	change, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2 exists")
 	assert.Equal(t, ChangeAddition, change.Type, "change type")
 	assert.Equal(t, 2, change.NewLineNum, "NewLineNum")
@@ -830,7 +830,7 @@ func TestLineChangeCoordinates_Deletion(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	change, exists := actual.Changes[2]
+	change, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2 exists")
 	assert.Equal(t, ChangeDeletion, change.Type, "change type")
 	assert.Equal(t, 2, change.OldLineNum, "OldLineNum")
@@ -845,7 +845,7 @@ func TestDeletionAtLine1(t *testing.T) {
 	assert.Equal(t, 3, actual.OldLineCount, "OldLineCount")
 	assert.Equal(t, 2, actual.NewLineCount, "NewLineCount")
 
-	change, exists := actual.Changes[1]
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "deletion at line 1 exists")
 	assert.Equal(t, ChangeDeletion, change.Type, "change type")
 	assert.Equal(t, 1, change.OldLineNum, "OldLineNum")
@@ -863,7 +863,7 @@ func TestMultipleConsecutiveInsertionsThenDeletions(t *testing.T) {
 
 	assert.Equal(t, 5, actual.OldLineCount, "OldLineCount")
 	assert.Equal(t, 5, actual.NewLineCount, "NewLineCount")
-	assert.True(t, len(actual.Changes) > 0, "changes detected")
+	assert.True(t, len(actual.ChangesMap()) > 0, "changes detected")
 
 	assert.NotNil(t, actual.LineMapping, "LineMapping exists")
 	assert.Equal(t, 5, len(actual.LineMapping.NewToOld), "NewToOld length")
@@ -893,7 +893,7 @@ func TestLargeLineCountDrift(t *testing.T) {
 	assert.Equal(t, 7, actual.NewLineCount, "NewLineCount")
 
 	insertionCount := 0
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition {
 			insertionCount++
 			assert.True(t, change.NewLineNum > 0, "insertion has valid NewLineNum")
@@ -916,11 +916,11 @@ func TestEmptyLineAddition(t *testing.T) {
 	// Line 2 is empty line addition
 	// Lines 3-4 are function additions
 	// Total: 3 additions
-	assert.Equal(t, 3, len(actual.Changes), "should have 3 additions (empty line + 2 function lines)")
+	assert.Equal(t, 3, len(actual.ChangesMap()), "should have 3 additions (empty line + 2 function lines)")
 
 	// Verify empty line is included
 	hasEmptyLineAddition := false
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition && change.Content == "" {
 			hasEmptyLineAddition = true
 			break
@@ -938,7 +938,7 @@ func TestEmptyLineAdditionMiddle(t *testing.T) {
 
 	// Should detect the empty line addition
 	hasEmptyLineAddition := false
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition && change.Content == "" {
 			hasEmptyLineAddition = true
 			break
@@ -956,7 +956,7 @@ func TestMultipleEmptyLineAdditions(t *testing.T) {
 
 	// Count empty line additions
 	emptyLineCount := 0
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition && change.Content == "" {
 			emptyLineCount++
 		}
@@ -977,10 +977,10 @@ func TestTrailingEmptyLinePreserved(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should only have 2 additions (def test and pass), NOT 3 (with spurious empty line)
-	assert.Equal(t, 2, len(actual.Changes), "should only have 2 additions (trailing empty line preserved)")
+	assert.Equal(t, 2, len(actual.ChangesMap()), "should only have 2 additions (trailing empty line preserved)")
 
 	// Verify no empty line addition (the empty line already exists in original)
-	for _, change := range actual.Changes {
+	for _, change := range actual.ChangesMap() {
 		if change.Type == ChangeAddition && change.Content == "" {
 			assert.True(t, false, "should not have empty line addition - the empty line already exists in original")
 		}
@@ -994,7 +994,7 @@ func TestTrailingEmptyLineInBothTexts(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.Equal(t, 0, len(actual.Changes), "identical texts should have no changes")
+	assert.Equal(t, 0, len(actual.ChangesMap()), "identical texts should have no changes")
 }
 
 func TestJoinLinesSplitLinesRoundTrip(t *testing.T) {
@@ -1034,10 +1034,10 @@ func TestPureAdditionsAtEndOfFile(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should have 5 additions (lines 3-7)
-	assert.Equal(t, 5, len(actual.Changes), "should have 5 additions")
+	assert.Equal(t, 5, len(actual.ChangesMap()), "should have 5 additions")
 
 	// Line 5 should be an empty line addition
-	line5Change, exists := actual.Changes[5]
+	line5Change, exists := actual.ChangesMap()[5]
 	assert.True(t, exists, "should have change at line 5")
 	if exists {
 		assert.Equal(t, ChangeAddition, line5Change.Type, "line 5 should be addition")
@@ -1055,15 +1055,15 @@ func TestEmptyLineFilledWithContent(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	t.Logf("Changes: %d", len(actual.Changes))
-	for lineNum, change := range actual.Changes {
+	t.Logf("Changes: %d", len(actual.ChangesMap()))
+	for lineNum, change := range actual.ChangesMap() {
 		t.Logf("  Line %d: Type=%v, Content=%q, ColStart=%d, ColEnd=%d",
 			lineNum, change.Type, change.Content, change.ColStart, change.ColEnd)
 	}
 
-	assert.Equal(t, 1, len(actual.Changes), "should have 1 change")
+	assert.Equal(t, 1, len(actual.ChangesMap()), "should have 1 change")
 
-	change, exists := actual.Changes[1]
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "change at line 1")
 	assert.Equal(t, ChangeAppendChars, change.Type, "should be append_chars, not addition")
 	assert.Equal(t, 0, change.ColStart, "ColStart should be 0 (start of line)")
@@ -1080,7 +1080,7 @@ func TestDiffWithOnlyWhitespaceChanges(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should detect the whitespace difference
-	assert.True(t, len(actual.Changes) > 0, "should detect whitespace change")
+	assert.True(t, len(actual.ChangesMap()) > 0, "should detect whitespace change")
 }
 
 // TestDiffWithIndentationChanges tests detection of indentation changes.
@@ -1090,9 +1090,9 @@ func TestDiffWithIndentationChanges(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.True(t, len(actual.Changes) > 0, "should detect indentation change")
+	assert.True(t, len(actual.ChangesMap()) > 0, "should detect indentation change")
 
-	change, exists := actual.Changes[1]
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "change at line 1")
 	// Indentation + word change should result in modification or replace
 	assert.True(t, change.Type != ChangeAddition && change.Type != ChangeDeletion,
@@ -1106,8 +1106,8 @@ func TestDiffWithMixedLineEndings(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.Equal(t, 1, len(actual.Changes), "should have 1 change")
-	_, exists := actual.Changes[2]
+	assert.Equal(t, 1, len(actual.ChangesMap()), "should have 1 change")
+	_, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2")
 }
 
@@ -1130,7 +1130,7 @@ func TestDiffVeryLongFile(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should detect exactly 3 changes
-	assert.Equal(t, 3, len(actual.Changes), "should detect 3 changes in large file")
+	assert.Equal(t, 3, len(actual.ChangesMap()), "should detect 3 changes in large file")
 }
 
 // TestDiffWithDuplicateLines tests diff when file has duplicate lines.
@@ -1141,7 +1141,7 @@ func TestDiffWithDuplicateLines(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should detect change at line 2 even though there are duplicates
-	assert.True(t, len(actual.Changes) > 0, "should detect change among duplicates")
+	assert.True(t, len(actual.ChangesMap()) > 0, "should detect change among duplicates")
 }
 
 // TestDiffConsecutiveEmptyLines tests handling of consecutive empty lines.
@@ -1152,7 +1152,7 @@ func TestDiffConsecutiveEmptyLines(t *testing.T) {
 	actual := ComputeDiff(text1, text2)
 
 	// Should detect the differences
-	assert.True(t, len(actual.Changes) > 0, "should detect changes in empty line sequences")
+	assert.True(t, len(actual.ChangesMap()) > 0, "should detect changes in empty line sequences")
 }
 
 // TestDiffSingleCharacterChanges tests detection of single character changes.
@@ -1172,8 +1172,8 @@ func TestDiffSingleCharacterChanges(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			actual := ComputeDiff(tt.old, tt.new)
-			assert.Equal(t, 1, len(actual.Changes), "should have 1 change")
-			change, exists := actual.Changes[1]
+			assert.Equal(t, 1, len(actual.ChangesMap()), "should have 1 change")
+			change, exists := actual.ChangesMap()[1]
 			assert.True(t, exists, "change exists")
 			assert.Equal(t, tt.expected, change.Type, "change type")
 		})
@@ -1215,8 +1215,8 @@ func TestDiffUnicodeContent(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.Equal(t, 1, len(actual.Changes), "should have 1 change")
-	change, exists := actual.Changes[1]
+	assert.Equal(t, 1, len(actual.ChangesMap()), "should have 1 change")
+	change, exists := actual.ChangesMap()[1]
 	assert.True(t, exists, "change exists")
 	assert.Equal(t, ChangeAppendChars, change.Type, "should be append_chars")
 }
@@ -1238,8 +1238,8 @@ func TestIndentedLineFilledWithContent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			actual := ComputeDiff(tt.oldLine, tt.newLine)
 
-			assert.Equal(t, 1, len(actual.Changes), "should have 1 change")
-			change, exists := actual.Changes[1]
+			assert.Equal(t, 1, len(actual.ChangesMap()), "should have 1 change")
+			change, exists := actual.ChangesMap()[1]
 			assert.True(t, exists, "change at line 1")
 			assert.Equal(t, ChangeAppendChars, change.Type, "should be append_chars")
 			assert.Equal(t, len(tt.oldLine), change.ColStart, "ColStart at end of old content")
@@ -1268,12 +1268,12 @@ func TestMultiLineAppendCharsOnNonCursorLines(t *testing.T) {
 	actual := ComputeDiff(oldText, newText)
 
 	// Both line 2 and line 3 should be append_chars (adding code after indentation)
-	change2, exists := actual.Changes[2]
+	change2, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2")
 	assert.Equal(t, ChangeAppendChars, change2.Type, "line 2 should be append_chars")
 	assert.Equal(t, 4, change2.ColStart, "line 2 ColStart after indent")
 
-	change3, exists := actual.Changes[3]
+	change3, exists := actual.ChangesMap()[3]
 	assert.True(t, exists, "change at line 3")
 	assert.Equal(t, ChangeAppendChars, change3.Type, "line 3 should be append_chars")
 	assert.Equal(t, 4, change3.ColStart, "line 3 ColStart after indent")
@@ -1286,8 +1286,8 @@ func TestDiffWithTabs(t *testing.T) {
 
 	actual := ComputeDiff(text1, text2)
 
-	assert.True(t, len(actual.Changes) > 0, "should detect change")
-	_, exists := actual.Changes[2]
+	assert.True(t, len(actual.ChangesMap()) > 0, "should detect change")
+	_, exists := actual.ChangesMap()[2]
 	assert.True(t, exists, "change at line 2")
 }
 
@@ -1315,14 +1315,14 @@ func TestConsecutiveDeletionsBlankLines(t *testing.T) {
 	text2 := JoinLines(newLines)
 	actual := ComputeDiff(text1, text2)
 
-	assert.Equal(t, 2, len(actual.Changes), "should detect 2 deletions")
+	assert.Equal(t, 2, len(actual.ChangesMap()), "should detect 2 deletions")
 
-	del3, exists := actual.Changes[3]
+	del3, exists := actual.ChangesMap()[3]
 	assert.True(t, exists, "deletion at old line 3 exists")
 	assert.Equal(t, ChangeDeletion, del3.Type, "line 3 is deletion")
 	assert.Equal(t, " ", del3.Content, "line 3 content is space")
 
-	del4, exists := actual.Changes[4]
+	del4, exists := actual.ChangesMap()[4]
 	assert.True(t, exists, "deletion at old line 4 exists")
 	assert.Equal(t, ChangeDeletion, del4.Type, "line 4 is deletion")
 	assert.Equal(t, "", del4.Content, "line 4 content is empty string")

@@ -503,7 +503,7 @@ func (e *Engine) rerenderPartial() {
 		text.JoinLines(completion.Lines),
 	)
 
-	groups := text.GroupChanges(diffResult.Changes)
+	groups := text.GroupChanges(diffResult.ChangesMap())
 
 	for _, g := range groups {
 		g.BufferLine = completion.StartLine + g.StartLine - 1

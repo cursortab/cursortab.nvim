@@ -41,8 +41,8 @@ func TestIncrementalDiffBuilder_Addition(t *testing.T) {
 	assert.Equal(t, 1, len(builder.Changes), "change count")
 
 	// Verify the addition
-	change2, ok := builder.Changes[2]
-	assert.True(t, ok, "should have change at line 2")
+	assert.Equal(t, 1, len(builder.Changes), "should have 1 change")
+	change2 := builder.Changes[0]
 	assert.Equal(t, ChangeAddition, change2.Type, "expected addition during streaming")
 	assert.Equal(t, "new line", change2.Content, "added content")
 }

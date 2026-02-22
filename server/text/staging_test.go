@@ -219,7 +219,7 @@ func TestCreateStages_MultipleAdditionsWithEmptyLineSeparators(t *testing.T) {
 }
 
 func TestCreateStages_EmptyDiff(t *testing.T) {
-	diff := &DiffResult{Changes: map[int]LineChange{}}
+	diff := &DiffResult{Changes: nil}
 	stages := CreateStages(&StagingParams{
 		Diff:               diff,
 		CursorRow:          10,
@@ -240,10 +240,10 @@ func TestCreateStages_EmptyDiff(t *testing.T) {
 func TestCreateStages_SingleCluster(t *testing.T) {
 	// All changes within proximity threshold - should still return stages (always return stages now)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			10: {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
-			11: {Type: ChangeModification, OldLineNum: 11, NewLineNum: 11, Content: "new11", OldContent: "old11"},
-			12: {Type: ChangeModification, OldLineNum: 12, NewLineNum: 12, Content: "new12", OldContent: "old12"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+			{Type: ChangeModification, OldLineNum: 11, NewLineNum: 11, Content: "new11", OldContent: "old11"},
+			{Type: ChangeModification, OldLineNum: 12, NewLineNum: 12, Content: "new12", OldContent: "old12"},
 		},
 	}
 	newLines := make([]string, 20)
@@ -275,11 +275,11 @@ func TestCreateStages_SingleCluster(t *testing.T) {
 func TestCreateStages_TwoClusters(t *testing.T) {
 	// Changes at lines 10-11 and 25-26 (gap > threshold of 3)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			10: {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
-			11: {Type: ChangeModification, OldLineNum: 11, NewLineNum: 11, Content: "new11", OldContent: "old11"},
-			25: {Type: ChangeModification, OldLineNum: 25, NewLineNum: 25, Content: "new25", OldContent: "old25"},
-			26: {Type: ChangeModification, OldLineNum: 26, NewLineNum: 26, Content: "new26", OldContent: "old26"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+			{Type: ChangeModification, OldLineNum: 11, NewLineNum: 11, Content: "new11", OldContent: "old11"},
+			{Type: ChangeModification, OldLineNum: 25, NewLineNum: 25, Content: "new25", OldContent: "old25"},
+			{Type: ChangeModification, OldLineNum: 26, NewLineNum: 26, Content: "new26", OldContent: "old26"},
 		},
 	}
 	newLines := make([]string, 30)
@@ -327,13 +327,13 @@ func TestCreateStages_CursorDistanceSorting(t *testing.T) {
 	// Three clusters: 5-6, 20-21, 35-36
 	// Cursor at 22 - closest to cluster 20-21
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			5:  {Type: ChangeModification, OldLineNum: 5, NewLineNum: 5, Content: "new5", OldContent: "old5"},
-			6:  {Type: ChangeModification, OldLineNum: 6, NewLineNum: 6, Content: "new6", OldContent: "old6"},
-			20: {Type: ChangeModification, OldLineNum: 20, NewLineNum: 20, Content: "new20", OldContent: "old20"},
-			21: {Type: ChangeModification, OldLineNum: 21, NewLineNum: 21, Content: "new21", OldContent: "old21"},
-			35: {Type: ChangeModification, OldLineNum: 35, NewLineNum: 35, Content: "new35", OldContent: "old35"},
-			36: {Type: ChangeModification, OldLineNum: 36, NewLineNum: 36, Content: "new36", OldContent: "old36"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 5, NewLineNum: 5, Content: "new5", OldContent: "old5"},
+			{Type: ChangeModification, OldLineNum: 6, NewLineNum: 6, Content: "new6", OldContent: "old6"},
+			{Type: ChangeModification, OldLineNum: 20, NewLineNum: 20, Content: "new20", OldContent: "old20"},
+			{Type: ChangeModification, OldLineNum: 21, NewLineNum: 21, Content: "new21", OldContent: "old21"},
+			{Type: ChangeModification, OldLineNum: 35, NewLineNum: 35, Content: "new35", OldContent: "old35"},
+			{Type: ChangeModification, OldLineNum: 36, NewLineNum: 36, Content: "new36", OldContent: "old36"},
 		},
 	}
 	newLines := make([]string, 40)
@@ -368,9 +368,9 @@ func TestCreateStages_ViewportPartitioning(t *testing.T) {
 	// Changes at lines 10 (in viewport) and 100 (out of viewport)
 	// Viewport is 1-50
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			10:  {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
-			100: {Type: ChangeModification, OldLineNum: 100, NewLineNum: 100, Content: "new100", OldContent: "old100"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+			{Type: ChangeModification, OldLineNum: 100, NewLineNum: 100, Content: "new100", OldContent: "old100"},
 		},
 	}
 	newLines := make([]string, 110)
@@ -409,10 +409,10 @@ func TestCreateStages_ProximityGrouping(t *testing.T) {
 	// Changes at lines 10, 12, 14 (all within threshold of 3)
 	// Should form single cluster
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			10: {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
-			12: {Type: ChangeModification, OldLineNum: 12, NewLineNum: 12, Content: "new12", OldContent: "old12"},
-			14: {Type: ChangeModification, OldLineNum: 14, NewLineNum: 14, Content: "new14", OldContent: "old14"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+			{Type: ChangeModification, OldLineNum: 12, NewLineNum: 12, Content: "new12", OldContent: "old12"},
+			{Type: ChangeModification, OldLineNum: 14, NewLineNum: 14, Content: "new14", OldContent: "old14"},
 		},
 	}
 	newLines := make([]string, 20)
@@ -446,10 +446,10 @@ func TestCreateStages_ProximityGrouping_SplitByGap(t *testing.T) {
 	// Changes at lines 10, 12 (gap=2) and 20 (gap=8 from 12)
 	// With threshold=3, should split into two clusters
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			10: {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
-			12: {Type: ChangeModification, OldLineNum: 12, NewLineNum: 12, Content: "new12", OldContent: "old12"},
-			20: {Type: ChangeModification, OldLineNum: 20, NewLineNum: 20, Content: "new20", OldContent: "old20"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+			{Type: ChangeModification, OldLineNum: 12, NewLineNum: 12, Content: "new12", OldContent: "old12"},
+			{Type: ChangeModification, OldLineNum: 20, NewLineNum: 20, Content: "new20", OldContent: "old20"},
 		},
 	}
 	newLines := make([]string, 25)
@@ -488,9 +488,9 @@ func TestCreateStages_WithBaseLineOffset(t *testing.T) {
 	// Diff coordinates are relative (1-indexed from start of extraction)
 	// baseLineOffset=50 means diff line 1 = buffer line 50
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1:  {Type: ChangeModification, OldLineNum: 1, NewLineNum: 1, Content: "new1", OldContent: "old1"},
-			10: {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 1, NewLineNum: 1, Content: "new1", OldContent: "old1"},
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
 		},
 	}
 	newLines := make([]string, 15)
@@ -526,11 +526,11 @@ func TestCreateStages_WithBaseLineOffset(t *testing.T) {
 func TestCreateStages_GroupsComputed(t *testing.T) {
 	// Verify that groups are computed for stages
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1: {Type: ChangeModification, OldLineNum: 1, NewLineNum: 1, Content: "new1", OldContent: "old1"},
-			2: {Type: ChangeModification, OldLineNum: 2, NewLineNum: 2, Content: "new2", OldContent: "old2"},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 1, NewLineNum: 1, Content: "new1", OldContent: "old1"},
+			{Type: ChangeModification, OldLineNum: 2, NewLineNum: 2, Content: "new2", OldContent: "old2"},
 			// Gap
-			10: {Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
+			{Type: ChangeModification, OldLineNum: 10, NewLineNum: 10, Content: "new10", OldContent: "old10"},
 		},
 	}
 	newLines := []string{"new1", "new2", "", "", "", "", "", "", "", "new10"}
@@ -559,17 +559,23 @@ func TestCreateStages_GroupsComputed(t *testing.T) {
 
 func TestGroupChangesIntoStages(t *testing.T) {
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			5:  {Type: ChangeModification, OldLineNum: 5, NewLineNum: 5},
-			6:  {Type: ChangeModification, OldLineNum: 6, NewLineNum: 6},
-			7:  {Type: ChangeModification, OldLineNum: 7, NewLineNum: 7},
-			20: {Type: ChangeModification, OldLineNum: 20, NewLineNum: 20},
-			21: {Type: ChangeModification, OldLineNum: 21, NewLineNum: 21},
+		Changes: []LineChange{
+			{Type: ChangeModification, OldLineNum: 5, NewLineNum: 5},
+			{Type: ChangeModification, OldLineNum: 6, NewLineNum: 6},
+			{Type: ChangeModification, OldLineNum: 7, NewLineNum: 7},
+			{Type: ChangeModification, OldLineNum: 20, NewLineNum: 20},
+			{Type: ChangeModification, OldLineNum: 21, NewLineNum: 21},
 		},
 	}
 
-	lineNumbers := []int{5, 6, 7, 20, 21}
-	stages := groupChangesIntoStages(diff, lineNumbers, 3, 0, 1)
+	indexed := []indexedChange{
+		{diff.Changes[0], 5},
+		{diff.Changes[1], 6},
+		{diff.Changes[2], 7},
+		{diff.Changes[3], 20},
+		{diff.Changes[4], 21},
+	}
+	stages := groupChangesIntoStages(indexed, 3, 0, 1, diff)
 
 	assert.Len(t, 2, stages, "stages")
 
@@ -584,8 +590,7 @@ func TestGroupChangesIntoStages(t *testing.T) {
 }
 
 func TestGroupChangesIntoStages_EmptyInput(t *testing.T) {
-	diff := &DiffResult{Changes: map[int]LineChange{}}
-	stages := groupChangesIntoStages(diff, []int{}, 3, 0, 1)
+	stages := groupChangesIntoStages(nil, 3, 0, 1, &DiffResult{})
 
 	assert.Nil(t, stages, "stages for empty input")
 }
@@ -594,9 +599,9 @@ func TestCreateStages_WithInsertions(t *testing.T) {
 	// Test staging when completion adds lines (net line increase)
 	// Old: 3 lines, New: 5 lines (2 insertions at different locations)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2: {Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1, Content: "inserted1"},
-			5: {Type: ChangeAddition, NewLineNum: 5, OldLineNum: -1, Content: "inserted2"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1, Content: "inserted1"},
+			{Type: ChangeAddition, NewLineNum: 5, OldLineNum: -1, Content: "inserted2"},
 		},
 		OldLineCount: 3,
 		NewLineCount: 5,
@@ -608,7 +613,8 @@ func TestCreateStages_WithInsertions(t *testing.T) {
 	newLines := []string{"line1", "inserted1", "line2", "line3", "inserted2"}
 	oldLines := []string{"line1", "line2", "line3"}
 
-	// Gap between line 2 and line 5 is 3, with threshold 2 they should be separate
+	// Buffer-line gap between the two insertions is 2 (bufferLine 2 and 4).
+	// With threshold 1 they should be separate stages.
 	result := CreateStages(&StagingParams{
 		Diff:               diff,
 		CursorRow:          1,
@@ -616,7 +622,7 @@ func TestCreateStages_WithInsertions(t *testing.T) {
 		ViewportTop:        1,
 		ViewportBottom:     50,
 		BaseLineOffset:     1,
-		ProximityThreshold: 2,
+		ProximityThreshold: 1,
 		MaxLines:           0,
 		FilePath:           "test.go",
 		NewLines:           newLines,
@@ -635,9 +641,9 @@ func TestCreateStages_WithInsertions(t *testing.T) {
 func TestCreateStages_WithDeletions(t *testing.T) {
 	// Test staging when completion removes lines (net line decrease)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2:  {Type: ChangeDeletion, OldLineNum: 2, NewLineNum: -1, Content: "deleted1"},
-			10: {Type: ChangeDeletion, OldLineNum: 10, NewLineNum: -1, Content: "deleted2"},
+		Changes: []LineChange{
+			{Type: ChangeDeletion, OldLineNum: 2, NewLineNum: -1, Content: "deleted1"},
+			{Type: ChangeDeletion, OldLineNum: 10, NewLineNum: -1, Content: "deleted2"},
 		},
 		OldLineCount: 12,
 		NewLineCount: 10,
@@ -677,9 +683,9 @@ func TestCreateStages_WithDeletions(t *testing.T) {
 func TestCreateStages_MixedInsertionDeletion(t *testing.T) {
 	// Test with both insertions and deletions in different regions
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2:  {Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "inserted"},
-			15: {Type: ChangeDeletion, OldLineNum: 15, NewLineNum: 14, Content: "deleted"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "inserted"},
+			{Type: ChangeDeletion, OldLineNum: 15, NewLineNum: 14, Content: "deleted"},
 		},
 		OldLineCount: 20,
 		NewLineCount: 20, // net zero change
@@ -737,7 +743,7 @@ func TestGetBufferLine_Insertion(t *testing.T) {
 		OldLineNum: -1, // pure insertion
 	}
 
-	bufferLine := mapping.GetBufferLine(change, 2, 1)
+	bufferLine := mapping.GetBufferLine(change, 1)
 
 	// Forward walk finds old line 2 at NewToOld[3], returns 2 (insert before old line 2)
 	assert.Equal(t, 2, bufferLine, "buffer line for insertion (before next mapped old line)")
@@ -756,7 +762,7 @@ func TestGetBufferLine_Modification(t *testing.T) {
 		OldLineNum: 2,
 	}
 
-	bufferLine := mapping.GetBufferLine(change, 2, 10)
+	bufferLine := mapping.GetBufferLine(change, 10)
 
 	// baseLineOffset=10, oldLineNum=2: 2 + 10 - 1 = 11
 	assert.Equal(t, 11, bufferLine, "buffer line for modification")
@@ -765,9 +771,9 @@ func TestGetBufferLine_Modification(t *testing.T) {
 func TestGetStageBufferRange_WithInsertions(t *testing.T) {
 	// Stage containing insertions should still compute valid buffer range
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2: {Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1},
-			3: {Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1},
+			{Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1},
 		},
 		LineMapping: &LineMapping{
 			NewToOld: []int{1, -1, -1, 2}, // insertions at lines 2,3
@@ -800,7 +806,7 @@ func TestGetBufferLine_DeletionAtLine1(t *testing.T) {
 		NewLineNum: -1, // no new line for deletions
 	}
 
-	bufferLine := mapping.GetBufferLine(change, 1, 1)
+	bufferLine := mapping.GetBufferLine(change, 1)
 
 	// Should use OldLineNum directly: 1 + 1 - 1 = 1
 	assert.Equal(t, 1, bufferLine, "buffer line for deletion at line 1")
@@ -819,7 +825,7 @@ func TestGetBufferLine_InsertionWithNoAnchor(t *testing.T) {
 		OldLineNum: -1, // pure insertion
 	}
 
-	bufferLine := mapping.GetBufferLine(change, 1, 1)
+	bufferLine := mapping.GetBufferLine(change, 1)
 
 	// No anchor found, should fallback to mapKey: 1 + 1 - 1 = 1
 	assert.Equal(t, 1, bufferLine, "buffer line for insertion at line 1 with no anchor")
@@ -828,10 +834,10 @@ func TestGetBufferLine_InsertionWithNoAnchor(t *testing.T) {
 func TestCreateStages_CumulativeOffsetScenario(t *testing.T) {
 	// Scenario: first stage increases line count, affecting second stage coordinates
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2:  {Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "insert1"},
-			3:  {Type: ChangeAddition, NewLineNum: 3, OldLineNum: 1, Content: "insert2"},
-			20: {Type: ChangeModification, NewLineNum: 22, OldLineNum: 20, Content: "modified"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "insert1"},
+			{Type: ChangeAddition, NewLineNum: 3, OldLineNum: 1, Content: "insert2"},
+			{Type: ChangeModification, NewLineNum: 22, OldLineNum: 20, Content: "modified"},
 		},
 		OldLineCount: 25,
 		NewLineCount: 27, // +2 from insertions
@@ -892,9 +898,9 @@ func TestCreateStages_CumulativeOffsetScenario(t *testing.T) {
 func TestCreateStages_AllDeletions(t *testing.T) {
 	// Edge case: completion that only contains deletions
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2: {Type: ChangeDeletion, OldLineNum: 2, NewLineNum: -1, Content: "deleted1"},
-			3: {Type: ChangeDeletion, OldLineNum: 3, NewLineNum: -1, Content: "deleted2"},
+		Changes: []LineChange{
+			{Type: ChangeDeletion, OldLineNum: 2, NewLineNum: -1, Content: "deleted1"},
+			{Type: ChangeDeletion, OldLineNum: 3, NewLineNum: -1, Content: "deleted2"},
 		},
 		OldLineCount: 5,
 		NewLineCount: 3,
@@ -929,10 +935,10 @@ func TestCreateStages_AllDeletions(t *testing.T) {
 func TestGetStageBufferRange_AllInsertions(t *testing.T) {
 	// Stage containing only insertions (all OldLineNum = -1 but have mapping)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2: {Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1},
-			3: {Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1},
-			4: {Type: ChangeAddition, NewLineNum: 4, OldLineNum: -1},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1},
+			{Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1},
+			{Type: ChangeAddition, NewLineNum: 4, OldLineNum: -1},
 		},
 		LineMapping: &LineMapping{
 			NewToOld: []int{1, -1, -1, -1, 2}, // lines 2,3,4 are insertions
@@ -956,26 +962,26 @@ func TestGetStageBufferRange_AllInsertions(t *testing.T) {
 
 func TestStageGroups_ShouldNotExceedStageContent(t *testing.T) {
 	// Stage's groups should only reference lines within the stage's content.
-	changes := make(map[int]LineChange)
+	var changes []LineChange
 
 	// Add changes at low line numbers (will be in first cluster)
 	for i := 1; i <= 17; i++ {
-		changes[i] = LineChange{
+		changes = append(changes, LineChange{
 			Type:       ChangeAddition,
 			NewLineNum: i,
 			OldLineNum: -1,
 			Content:    fmt.Sprintf("line%d", i),
-		}
+		})
 	}
 
 	// Add changes at high line numbers (should be in separate cluster)
 	for i := 41; i <= 54; i++ {
-		changes[i] = LineChange{
+		changes = append(changes, LineChange{
 			Type:       ChangeAddition,
 			NewLineNum: i,
 			OldLineNum: -1,
 			Content:    fmt.Sprintf("line%d", i),
-		}
+		})
 	}
 
 	diff := &DiffResult{
@@ -1036,12 +1042,12 @@ func TestGetStageBufferRange_AdditionsAtEndOfFile(t *testing.T) {
 
 	// Scenario: 10-line file, modification at line 8, additions at lines 9-12
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			8:  {Type: ChangeModification, NewLineNum: 8, OldLineNum: 8, Content: "modified", OldContent: "original"},
-			9:  {Type: ChangeAddition, NewLineNum: 9, OldLineNum: 8, Content: "added1"},
-			10: {Type: ChangeAddition, NewLineNum: 10, OldLineNum: 8, Content: "added2"},
-			11: {Type: ChangeAddition, NewLineNum: 11, OldLineNum: 8, Content: "added3"},
-			12: {Type: ChangeAddition, NewLineNum: 12, OldLineNum: 8, Content: "added4"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 8, OldLineNum: 8, Content: "modified", OldContent: "original"},
+			{Type: ChangeAddition, NewLineNum: 9, OldLineNum: 8, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 10, OldLineNum: 8, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 11, OldLineNum: 8, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 12, OldLineNum: 8, Content: "added4"},
 		},
 		OldLineCount: 10,
 		NewLineCount: 14,
@@ -1065,10 +1071,10 @@ func TestGetStageBufferRange_AdditionsWithinBuffer(t *testing.T) {
 
 	// Scenario: 20-line file, additions at lines 5-7 (well within buffer)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			5: {Type: ChangeAddition, NewLineNum: 5, OldLineNum: 4, Content: "added1"},
-			6: {Type: ChangeAddition, NewLineNum: 6, OldLineNum: 4, Content: "added2"},
-			7: {Type: ChangeAddition, NewLineNum: 7, OldLineNum: 4, Content: "added3"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 5, OldLineNum: 4, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 6, OldLineNum: 4, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 7, OldLineNum: 4, Content: "added3"},
 		},
 		OldLineCount: 20,
 		NewLineCount: 23,
@@ -1097,14 +1103,14 @@ func TestCreateStages_AdditionsAtEndOfFile(t *testing.T) {
 
 	// Scenario: 15-line file with changes at lines 12-18 (modification + 6 additions)
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			12: {Type: ChangeModification, NewLineNum: 12, OldLineNum: 12, Content: "modified", OldContent: "original"},
-			13: {Type: ChangeAddition, NewLineNum: 13, OldLineNum: 12, Content: "added1"},
-			14: {Type: ChangeAddition, NewLineNum: 14, OldLineNum: 12, Content: "added2"},
-			15: {Type: ChangeAddition, NewLineNum: 15, OldLineNum: 12, Content: "added3"},
-			16: {Type: ChangeAddition, NewLineNum: 16, OldLineNum: 12, Content: "added4"},
-			17: {Type: ChangeAddition, NewLineNum: 17, OldLineNum: 12, Content: "added5"},
-			18: {Type: ChangeAddition, NewLineNum: 18, OldLineNum: 12, Content: "added6"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 12, OldLineNum: 12, Content: "modified", OldContent: "original"},
+			{Type: ChangeAddition, NewLineNum: 13, OldLineNum: 12, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 14, OldLineNum: 12, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 15, OldLineNum: 12, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 16, OldLineNum: 12, Content: "added4"},
+			{Type: ChangeAddition, NewLineNum: 17, OldLineNum: 12, Content: "added5"},
+			{Type: ChangeAddition, NewLineNum: 18, OldLineNum: 12, Content: "added6"},
 		},
 		OldLineCount: 15,
 		NewLineCount: 21,
@@ -1166,17 +1172,17 @@ func TestGetStageBufferRange_AdditionsAnchoredBeforeModifications(t *testing.T) 
 	// the buffer range should start at the first modification, not the anchor.
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// Modifications at lines 43-44 (have OldLineNum)
-			43: {Type: ChangeModification, NewLineNum: 43, OldLineNum: 43, Content: "mod1", OldContent: "old1"},
-			44: {Type: ChangeModification, NewLineNum: 44, OldLineNum: 44, Content: "mod2", OldContent: "old2"},
+			{Type: ChangeModification, NewLineNum: 43, OldLineNum: 43, Content: "mod1", OldContent: "old1"},
+			{Type: ChangeModification, NewLineNum: 44, OldLineNum: 44, Content: "mod2", OldContent: "old2"},
 			// Additions at lines 45-50, anchored to line 42 (line before modification region)
-			45: {Type: ChangeAddition, NewLineNum: 45, OldLineNum: 42, Content: "added1"},
-			46: {Type: ChangeAddition, NewLineNum: 46, OldLineNum: 42, Content: "added2"},
-			47: {Type: ChangeAddition, NewLineNum: 47, OldLineNum: 42, Content: "added3"},
-			48: {Type: ChangeAddition, NewLineNum: 48, OldLineNum: 42, Content: "added4"},
-			49: {Type: ChangeAddition, NewLineNum: 49, OldLineNum: 42, Content: "added5"},
-			50: {Type: ChangeAddition, NewLineNum: 50, OldLineNum: 42, Content: "added6"},
+			{Type: ChangeAddition, NewLineNum: 45, OldLineNum: 42, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 46, OldLineNum: 42, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 47, OldLineNum: 42, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 48, OldLineNum: 42, Content: "added4"},
+			{Type: ChangeAddition, NewLineNum: 49, OldLineNum: 42, Content: "added5"},
+			{Type: ChangeAddition, NewLineNum: 50, OldLineNum: 42, Content: "added6"},
 		},
 		OldLineCount: 44,
 		NewLineCount: 50,
@@ -1203,11 +1209,11 @@ func TestGetStageBufferRange_OnlyAdditionsWithAnchor(t *testing.T) {
 	// (anchor + 1) determines the buffer range.
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// Only additions, all anchored to line 10
-			11: {Type: ChangeAddition, NewLineNum: 11, OldLineNum: 10, Content: "added1"},
-			12: {Type: ChangeAddition, NewLineNum: 12, OldLineNum: 10, Content: "added2"},
-			13: {Type: ChangeAddition, NewLineNum: 13, OldLineNum: 10, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 11, OldLineNum: 10, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 12, OldLineNum: 10, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 13, OldLineNum: 10, Content: "added3"},
 		},
 		OldLineCount: 15,
 		NewLineCount: 18,
@@ -1230,13 +1236,13 @@ func TestGetStageBufferRange_OnlyAdditionsBeyondBuffer(t *testing.T) {
 	// When additions extend beyond the original buffer, the insertion point is still anchor + 1
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// Additions beyond original buffer (OldLineCount=10, additions at new lines 11-15)
-			11: {Type: ChangeAddition, NewLineNum: 11, OldLineNum: 10, Content: "added1"},
-			12: {Type: ChangeAddition, NewLineNum: 12, OldLineNum: 10, Content: "added2"},
-			13: {Type: ChangeAddition, NewLineNum: 13, OldLineNum: 10, Content: "added3"},
-			14: {Type: ChangeAddition, NewLineNum: 14, OldLineNum: 10, Content: "added4"},
-			15: {Type: ChangeAddition, NewLineNum: 15, OldLineNum: 10, Content: "added5"},
+			{Type: ChangeAddition, NewLineNum: 11, OldLineNum: 10, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 12, OldLineNum: 10, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 13, OldLineNum: 10, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 14, OldLineNum: 10, Content: "added4"},
+			{Type: ChangeAddition, NewLineNum: 15, OldLineNum: 10, Content: "added5"},
 		},
 		OldLineCount: 10,
 		NewLineCount: 15,
@@ -1259,9 +1265,9 @@ func TestCreateStages_EmptyNewLines(t *testing.T) {
 	// Edge case: newLines slice is empty but diff has changes
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1: {Type: ChangeModification, NewLineNum: 1, OldLineNum: 1, Content: "mod", OldContent: "old"},
-			5: {Type: ChangeModification, NewLineNum: 5, OldLineNum: 5, Content: "mod2", OldContent: "old2"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 1, OldLineNum: 1, Content: "mod", OldContent: "old"},
+			{Type: ChangeModification, NewLineNum: 5, OldLineNum: 5, Content: "mod2", OldContent: "old2"},
 		},
 		OldLineCount: 10,
 		NewLineCount: 10,
@@ -1316,11 +1322,11 @@ func TestGetStageBufferRange_AllAdditionsNoValidAnchor(t *testing.T) {
 	// Edge case: all additions with OldLineNum=0 and no LineMapping
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// All additions with no valid anchor (OldLineNum=0, no mapping)
-			5: {Type: ChangeAddition, NewLineNum: 5, OldLineNum: 0, Content: "added1"},
-			6: {Type: ChangeAddition, NewLineNum: 6, OldLineNum: 0, Content: "added2"},
-			7: {Type: ChangeAddition, NewLineNum: 7, OldLineNum: 0, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 5, OldLineNum: 0, Content: "added1"},
+			{Type: ChangeAddition, NewLineNum: 6, OldLineNum: 0, Content: "added2"},
+			{Type: ChangeAddition, NewLineNum: 7, OldLineNum: 0, Content: "added3"},
 		},
 		OldLineCount: 10,
 		NewLineCount: 13,
@@ -1344,8 +1350,8 @@ func TestGetStageBufferRange_BaseLineOffsetZero(t *testing.T) {
 	// Edge case: baseLineOffset = 0
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			5: {Type: ChangeModification, NewLineNum: 5, OldLineNum: 5, Content: "mod", OldContent: "old"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 5, OldLineNum: 5, Content: "mod", OldContent: "old"},
 		},
 		OldLineCount: 10,
 		NewLineCount: 10,
@@ -1368,11 +1374,11 @@ func TestCreateStages_PartiallyVisibleSingleCluster_FarFromCursor(t *testing.T) 
 	// Edge case: single cluster that is partially visible but far from cursor
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// Cluster spans lines 45-55, viewport is 1-50, so partially visible
-			45: {Type: ChangeModification, NewLineNum: 45, OldLineNum: 45, Content: "mod1", OldContent: "old1"},
-			50: {Type: ChangeModification, NewLineNum: 50, OldLineNum: 50, Content: "mod2", OldContent: "old2"},
-			55: {Type: ChangeModification, NewLineNum: 55, OldLineNum: 55, Content: "mod3", OldContent: "old3"},
+			{Type: ChangeModification, NewLineNum: 45, OldLineNum: 45, Content: "mod1", OldContent: "old1"},
+			{Type: ChangeModification, NewLineNum: 50, OldLineNum: 50, Content: "mod2", OldContent: "old2"},
+			{Type: ChangeModification, NewLineNum: 55, OldLineNum: 55, Content: "mod3", OldContent: "old3"},
 		},
 		OldLineCount: 60,
 		NewLineCount: 60,
@@ -1413,11 +1419,11 @@ func TestCreateStages_PartiallyVisibleSingleCluster_CloseToCursor(t *testing.T) 
 	// Edge case: single cluster that is partially visible but close to cursor
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// Cluster spans lines 48-55, viewport is 1-50
 			// Cursor at 47 is within threshold of 48
-			48: {Type: ChangeModification, NewLineNum: 48, OldLineNum: 48, Content: "mod1", OldContent: "old1"},
-			55: {Type: ChangeModification, NewLineNum: 55, OldLineNum: 55, Content: "mod2", OldContent: "old2"},
+			{Type: ChangeModification, NewLineNum: 48, OldLineNum: 48, Content: "mod1", OldContent: "old1"},
+			{Type: ChangeModification, NewLineNum: 55, OldLineNum: 55, Content: "mod2", OldContent: "old2"},
 		},
 		OldLineCount: 60,
 		NewLineCount: 60,
@@ -1452,8 +1458,8 @@ func TestCreateStages_SingleClusterEntirelyOutsideViewport(t *testing.T) {
 	// Edge case: single cluster entirely outside viewport
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			100: {Type: ChangeModification, NewLineNum: 100, OldLineNum: 100, Content: "mod", OldContent: "old"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 100, OldLineNum: 100, Content: "mod", OldContent: "old"},
 		},
 		OldLineCount: 150,
 		NewLineCount: 150,
@@ -1538,9 +1544,9 @@ func TestCreateStages_NoViewportInfo(t *testing.T) {
 	// Edge case: viewportTop=0 and viewportBottom=0 (no viewport info)
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			10:  {Type: ChangeModification, NewLineNum: 10, OldLineNum: 10, Content: "mod1", OldContent: "old1"},
-			100: {Type: ChangeModification, NewLineNum: 100, OldLineNum: 100, Content: "mod2", OldContent: "old2"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 10, OldLineNum: 10, Content: "mod1", OldContent: "old1"},
+			{Type: ChangeModification, NewLineNum: 100, OldLineNum: 100, Content: "mod2", OldContent: "old2"},
 		},
 		OldLineCount: 150,
 		NewLineCount: 150,
@@ -1588,10 +1594,10 @@ func TestGetStageNewLineRangeFromChanges_DerivedFromChanges(t *testing.T) {
 	stage := &Stage{
 		BufferStart: 5,
 		BufferEnd:   7,
-		rawChanges: map[int]LineChange{
-			5: {Type: ChangeModification, OldLineNum: 5, NewLineNum: 5},
-			6: {Type: ChangeDeletion, OldLineNum: 6, NewLineNum: -1},
-			7: {Type: ChangeModification, OldLineNum: 7, NewLineNum: 6},
+		rawChanges: []LineChange{
+			{Type: ChangeModification, OldLineNum: 5, NewLineNum: 5},
+			{Type: ChangeDeletion, OldLineNum: 6, NewLineNum: -1},
+			{Type: ChangeModification, OldLineNum: 7, NewLineNum: 6},
 		},
 	}
 	// Changes have NewLineNum 5 and 6 (ignoring deletion).
@@ -1607,8 +1613,8 @@ func TestFinalizeStages_SingleDeletion(t *testing.T) {
 	// Edge case: stage with only deletions (no new content)
 
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			5: {Type: ChangeDeletion, NewLineNum: 0, OldLineNum: 5, OldContent: "deleted"},
+		Changes: []LineChange{
+			{Type: ChangeDeletion, NewLineNum: 0, OldLineNum: 5, OldContent: "deleted"},
 		},
 		OldLineCount: 10,
 		NewLineCount: 9,
@@ -1637,8 +1643,8 @@ func TestFinalizeStages_SingleDeletion(t *testing.T) {
 func TestStageCoordinates_ModificationHasCorrectMapping(t *testing.T) {
 	// Create a diff with a modification
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2: {Type: ChangeModification, NewLineNum: 2, OldLineNum: 2, Content: "new line 2", OldContent: "old line 2"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 2, OldLineNum: 2, Content: "new line 2", OldContent: "old line 2"},
 		},
 		OldLineCount: 5,
 		NewLineCount: 5,
@@ -1678,8 +1684,8 @@ func TestStageCoordinates_ModificationHasCorrectMapping(t *testing.T) {
 // TestStageCoordinates_AdditionMapping verifies that additions have correct coordinate mapping.
 func TestStageCoordinates_AdditionMapping(t *testing.T) {
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			2: {Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "added line"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "added line"},
 		},
 		OldLineCount: 3,
 		NewLineCount: 4,
@@ -1795,12 +1801,12 @@ func TestStageIncludesAllLinesFromDeleteInsertBlock(t *testing.T) {
 func TestMixedChangesCoordinates(t *testing.T) {
 	// Simulate: 5 old lines replaced by 8 new lines
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			4: {Type: ChangeModification, NewLineNum: 4, OldLineNum: 4, Content: "MODIFIED line 4", OldContent: "line 4"},
-			5: {Type: ChangeAddition, NewLineNum: 5, OldLineNum: 4, Content: "ADDED line 5"},
-			6: {Type: ChangeAddition, NewLineNum: 6, OldLineNum: 4, Content: "ADDED line 6"},
-			7: {Type: ChangeAddition, NewLineNum: 7, OldLineNum: 4, Content: "ADDED line 7"},
-			8: {Type: ChangeAddition, NewLineNum: 8, OldLineNum: 4, Content: "ADDED line 8"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 4, OldLineNum: 4, Content: "MODIFIED line 4", OldContent: "line 4"},
+			{Type: ChangeAddition, NewLineNum: 5, OldLineNum: 4, Content: "ADDED line 5"},
+			{Type: ChangeAddition, NewLineNum: 6, OldLineNum: 4, Content: "ADDED line 6"},
+			{Type: ChangeAddition, NewLineNum: 7, OldLineNum: 4, Content: "ADDED line 7"},
+			{Type: ChangeAddition, NewLineNum: 8, OldLineNum: 4, Content: "ADDED line 8"},
 		},
 		OldLineCount: 5,
 		NewLineCount: 8,
@@ -1859,15 +1865,15 @@ func TestMixedChangesCoordinates(t *testing.T) {
 // they don't overlap.
 func TestGroupsDoNotOverlapWithModifications(t *testing.T) {
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
+		Changes: []LineChange{
 			// Modification at new line 1
-			1: {Type: ChangeModification, NewLineNum: 1, OldLineNum: 3, Content: "new1", OldContent: "old3"},
+			{Type: ChangeModification, NewLineNum: 1, OldLineNum: 3, Content: "new1", OldContent: "old3"},
 			// Character-level change at new line 2
-			2: {Type: ChangeDeleteChars, NewLineNum: 2, OldLineNum: 1, Content: "new2", OldContent: "old1", ColStart: 0, ColEnd: 4},
+			{Type: ChangeDeleteChars, NewLineNum: 2, OldLineNum: 1, Content: "new2", OldContent: "old1", ColStart: 0, ColEnd: 4},
 			// Addition at new line 3
-			3: {Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1, Content: "added3"},
+			{Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1, Content: "added3"},
 			// Addition at new line 4
-			4: {Type: ChangeAddition, NewLineNum: 4, OldLineNum: -1, Content: "added4"},
+			{Type: ChangeAddition, NewLineNum: 4, OldLineNum: -1, Content: "added4"},
 		},
 		OldLineCount: 5,
 		NewLineCount: 8,
@@ -1909,12 +1915,12 @@ func TestBufferLineCalculation(t *testing.T) {
 	// Simulate a stage that covers buffer lines 28-32 (baseLineOffset=28)
 	// with 8 new lines replacing 5 old lines
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			4: {Type: ChangeModification, NewLineNum: 4, OldLineNum: 4, Content: "MODIFIED line 4", OldContent: "old 4"},
-			5: {Type: ChangeAddition, NewLineNum: 5, OldLineNum: 4, Content: "ADDED 5"},
-			6: {Type: ChangeAddition, NewLineNum: 6, OldLineNum: 4, Content: "ADDED 6"},
-			7: {Type: ChangeAddition, NewLineNum: 7, OldLineNum: 4, Content: "ADDED 7"},
-			8: {Type: ChangeAddition, NewLineNum: 8, OldLineNum: 4, Content: "ADDED 8"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 4, OldLineNum: 4, Content: "MODIFIED line 4", OldContent: "old 4"},
+			{Type: ChangeAddition, NewLineNum: 5, OldLineNum: 4, Content: "ADDED 5"},
+			{Type: ChangeAddition, NewLineNum: 6, OldLineNum: 4, Content: "ADDED 6"},
+			{Type: ChangeAddition, NewLineNum: 7, OldLineNum: 4, Content: "ADDED 7"},
+			{Type: ChangeAddition, NewLineNum: 8, OldLineNum: 4, Content: "ADDED 8"},
 		},
 		OldLineCount: 5,
 		NewLineCount: 8,
@@ -2039,17 +2045,16 @@ func TestMixedDeletionAndAdditions(t *testing.T) {
 	})
 
 	assert.NotNil(t, result, "result should not be nil")
-	assert.True(t, len(result.Stages) >= 1, "should have at least 1 stage")
+	// Deletion at buffer line 1 and additions at buffer line 5 are separated
+	// by a gap of 4 (> proximity threshold 3), producing 2 stages.
+	assert.Len(t, 2, result.Stages, "stages")
 
-	stage := result.Stages[0]
+	// First stage (closest to cursor at row 1) is the deletion
+	assert.Equal(t, 1, result.Stages[0].BufferStart, "deletion stage BufferStart")
 
-	// The stage should include ALL changed lines, not just 1
-	assert.True(t, len(stage.Lines) >= 3,
-		fmt.Sprintf("Stage should have at least 3 lines for meaningful changes, got %d", len(stage.Lines)))
-
-	// BufferStart should be 1 (where the deletion is, with baseLineOffset=1)
-	assert.Equal(t, 1, stage.BufferStart,
-		fmt.Sprintf("BufferStart should be 1, got %d", stage.BufferStart))
+	// Second stage has the additions
+	assert.True(t, len(result.Stages[1].Lines) >= 3,
+		fmt.Sprintf("Addition stage should have at least 3 lines, got %d", len(result.Stages[1].Lines)))
 }
 
 // TestShortBufferDiffComputation tests what happens when the buffer has fewer
@@ -2220,13 +2225,13 @@ func TestLeadingEmptyLineDeletion(t *testing.T) {
 func TestStageGroupBounds(t *testing.T) {
 	// Create changes at different line numbers with a gap
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1: {Type: ChangeAddition, NewLineNum: 1, OldLineNum: -1, Content: "line1"},
-			2: {Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1, Content: "line2"},
-			3: {Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1, Content: "line3"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 1, OldLineNum: -1, Content: "line1"},
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: -1, Content: "line2"},
+			{Type: ChangeAddition, NewLineNum: 3, OldLineNum: -1, Content: "line3"},
 			// Gap
-			20: {Type: ChangeAddition, NewLineNum: 20, OldLineNum: -1, Content: "line20"},
-			21: {Type: ChangeAddition, NewLineNum: 21, OldLineNum: -1, Content: "line21"},
+			{Type: ChangeAddition, NewLineNum: 20, OldLineNum: -1, Content: "line20"},
+			{Type: ChangeAddition, NewLineNum: 21, OldLineNum: -1, Content: "line21"},
 		},
 		OldLineCount: 3,
 		NewLineCount: 21,
@@ -2276,8 +2281,8 @@ func TestCreateStages_PureAdditionsGroupBufferLineConsistency(t *testing.T) {
 	// When a completion contains only additions, groups should have buffer_line
 	// that matches the stage's BufferStart (the insertion point).
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1: {Type: ChangeAddition, NewLineNum: 1, OldLineNum: 3, Content: "added line"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 1, OldLineNum: 3, Content: "added line"},
 		},
 		OldLineCount: 3,
 		NewLineCount: 4,
@@ -2322,8 +2327,8 @@ func TestGetStageBufferRange_PureAdditionsBufferLineMapping(t *testing.T) {
 	// For pure additions with valid anchors, the bufferLines map should contain
 	// insertion points (anchor + 1), not anchor positions.
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1: {Type: ChangeAddition, NewLineNum: 1, OldLineNum: 3, Content: "added"},
+		Changes: []LineChange{
+			{Type: ChangeAddition, NewLineNum: 1, OldLineNum: 3, Content: "added"},
 		},
 		OldLineCount: 3,
 		NewLineCount: 4,
@@ -2369,8 +2374,8 @@ func TestCreateStages_PureAdditionsMultipleBaseOffsets(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			diff := &DiffResult{
-				Changes: map[int]LineChange{
-					1: {Type: ChangeAddition, NewLineNum: 1, OldLineNum: 0, Content: "new line"},
+				Changes: []LineChange{
+					{Type: ChangeAddition, NewLineNum: 1, OldLineNum: 0, Content: "new line"},
 				},
 				OldLineCount: 1,
 				NewLineCount: 1,
@@ -2417,9 +2422,9 @@ func TestCreateStages_PureAdditionsMultipleBaseOffsets(t *testing.T) {
 // correctly.
 func TestCreateStages_MixedAdditionsAndModifications(t *testing.T) {
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			1: {Type: ChangeModification, NewLineNum: 1, OldLineNum: 1, Content: "modified", OldContent: "old"},
-			2: {Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "added after"},
+		Changes: []LineChange{
+			{Type: ChangeModification, NewLineNum: 1, OldLineNum: 1, Content: "modified", OldContent: "old"},
+			{Type: ChangeAddition, NewLineNum: 2, OldLineNum: 1, Content: "added after"},
 		},
 		OldLineCount: 1,
 		NewLineCount: 2,
@@ -2469,15 +2474,15 @@ func TestCreateStages_CursorTargetPointsToEndOfNewContent(t *testing.T) {
 	// Original buffer has 3 lines, new content has 10 lines
 	// Modification on line 3, additions on lines 4-10
 	diff := &DiffResult{
-		Changes: map[int]LineChange{
-			3:  {Type: ChangeAppendChars, NewLineNum: 3, OldLineNum: 3, Content: "line3 extended", OldContent: "line3", ColStart: 5, ColEnd: 14},
-			4:  {Type: ChangeAddition, NewLineNum: 4, OldLineNum: 3, Content: "added line 4"},
-			5:  {Type: ChangeAddition, NewLineNum: 5, OldLineNum: 3, Content: "added line 5"},
-			6:  {Type: ChangeAddition, NewLineNum: 6, OldLineNum: 3, Content: "added line 6"},
-			7:  {Type: ChangeAddition, NewLineNum: 7, OldLineNum: 3, Content: "added line 7"},
-			8:  {Type: ChangeAddition, NewLineNum: 8, OldLineNum: 3, Content: "added line 8"},
-			9:  {Type: ChangeAddition, NewLineNum: 9, OldLineNum: 3, Content: "added line 9"},
-			10: {Type: ChangeAddition, NewLineNum: 10, OldLineNum: 3, Content: "added line 10"},
+		Changes: []LineChange{
+			{Type: ChangeAppendChars, NewLineNum: 3, OldLineNum: 3, Content: "line3 extended", OldContent: "line3", ColStart: 5, ColEnd: 14},
+			{Type: ChangeAddition, NewLineNum: 4, OldLineNum: 3, Content: "added line 4"},
+			{Type: ChangeAddition, NewLineNum: 5, OldLineNum: 3, Content: "added line 5"},
+			{Type: ChangeAddition, NewLineNum: 6, OldLineNum: 3, Content: "added line 6"},
+			{Type: ChangeAddition, NewLineNum: 7, OldLineNum: 3, Content: "added line 7"},
+			{Type: ChangeAddition, NewLineNum: 8, OldLineNum: 3, Content: "added line 8"},
+			{Type: ChangeAddition, NewLineNum: 9, OldLineNum: 3, Content: "added line 9"},
+			{Type: ChangeAddition, NewLineNum: 10, OldLineNum: 3, Content: "added line 10"},
 		},
 		OldLineCount: 3,
 		NewLineCount: 10,

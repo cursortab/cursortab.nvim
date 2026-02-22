@@ -19,9 +19,9 @@ type Stage struct {
 	IsLastStage  bool
 
 	// Unexported fields for construction (not serialized)
-	rawChanges map[int]LineChange // Original changes with absolute line nums
-	startLine  int                // First change line (absolute, 1-indexed)
-	endLine    int                // Last change line (absolute, 1-indexed)
+	rawChanges []LineChange // Original changes with absolute line nums
+	startLine  int          // First change line (absolute, 1-indexed)
+	endLine    int          // Last change line (absolute, 1-indexed)
 }
 
 // StagingResult contains the result of CreateStages
@@ -61,27 +61,34 @@ func CreateStages(p *StagingParams) *StagingResult {
 		return nil
 	}
 
-	// Step 1: Partition changes by viewport visibility
-	var inViewChanges, outViewChanges []int
-	for lineNum, change := range diff.Changes {
-		bufferLine := diff.LineMapping.GetBufferLine(change, lineNum, p.BaseLineOffset)
-
+	// Step 1: Compute buffer line for each change and partition by viewport
+	var inView, outView []indexedChange
+	for _, change := range diff.Changes {
+		bufferLine := diff.LineMapping.GetBufferLine(change, p.BaseLineOffset)
 		isVisible := p.ViewportTop == 0 && p.ViewportBottom == 0 ||
 			(bufferLine >= p.ViewportTop && bufferLine <= p.ViewportBottom)
-
+		ic := indexedChange{change, bufferLine}
 		if isVisible {
-			inViewChanges = append(inViewChanges, lineNum)
+			inView = append(inView, ic)
 		} else {
-			outViewChanges = append(outViewChanges, lineNum)
+			outView = append(outView, ic)
 		}
 	}
 
-	sort.Ints(inViewChanges)
-	sort.Ints(outViewChanges)
+	sortByBufferLine := func(s []indexedChange) {
+		sort.SliceStable(s, func(i, j int) bool {
+			if s[i].bufferLine != s[j].bufferLine {
+				return s[i].bufferLine < s[j].bufferLine
+			}
+			return s[i].change.MapKey() < s[j].change.MapKey()
+		})
+	}
+	sortByBufferLine(inView)
+	sortByBufferLine(outView)
 
 	// Step 2: Group changes into partial stages
-	inViewStages := groupChangesIntoStages(diff, inViewChanges, p.ProximityThreshold, p.MaxLines, p.BaseLineOffset)
-	outViewStages := groupChangesIntoStages(diff, outViewChanges, p.ProximityThreshold, p.MaxLines, p.BaseLineOffset)
+	inViewStages := groupChangesIntoStages(inView, p.ProximityThreshold, p.MaxLines, p.BaseLineOffset, diff)
+	outViewStages := groupChangesIntoStages(outView, p.ProximityThreshold, p.MaxLines, p.BaseLineOffset, diff)
 	allStages := append(inViewStages, outViewStages...)
 
 	if len(allStages) == 0 {
@@ -112,48 +119,55 @@ func CreateStages(p *StagingParams) *StagingResult {
 	}
 }
 
-// groupChangesIntoStages groups sorted line numbers into partial Stage structs based on proximity
-// and stage line limits. The returned stages have rawChanges, startLine, endLine, BufferStart, and BufferEnd
-// populated. Other fields are left as zero values to be filled by finalizeStages.
-func groupChangesIntoStages(diff *DiffResult, lineNumbers []int, proximityThreshold int, maxLines int, baseLineOffset int) []*Stage {
-	if len(lineNumbers) == 0 {
+// indexedChange pairs a change with its pre-computed buffer line.
+type indexedChange struct {
+	change     LineChange
+	bufferLine int
+}
+
+// groupChangesIntoStages groups sorted changes into partial Stage structs based on
+// buffer-line proximity and stage line limits.
+func groupChangesIntoStages(changes []indexedChange, proximityThreshold int, maxLines int, baseLineOffset int, diff *DiffResult) []*Stage {
+	if len(changes) == 0 {
 		return nil
 	}
 
 	var stages []*Stage
 	var currentStage *Stage
+	lastBufferLine := 0
 
-	for _, lineNum := range lineNumbers {
-		change := diff.Changes[lineNum]
-		endLine := lineNum
+	for _, ic := range changes {
+		mapKey := ic.change.MapKey()
 
 		if currentStage == nil {
 			currentStage = &Stage{
-				startLine:  lineNum,
-				endLine:    endLine,
-				rawChanges: make(map[int]LineChange),
+				startLine:  mapKey,
+				endLine:    mapKey,
+				rawChanges: []LineChange{ic.change},
 			}
-			currentStage.rawChanges[lineNum] = change
+			lastBufferLine = ic.bufferLine
 		} else {
-			gap := lineNum - currentStage.endLine
-			// Check both proximity threshold and stage line limit
+			gap := ic.bufferLine - lastBufferLine
+			if gap < 0 {
+				gap = -gap
+			}
 			stageLineCount := currentStage.endLine - currentStage.startLine + 1
 			exceedsMaxLines := maxLines > 0 && stageLineCount >= maxLines
 			if gap <= proximityThreshold && !exceedsMaxLines {
-				currentStage.rawChanges[lineNum] = change
-				if endLine > currentStage.endLine {
-					currentStage.endLine = endLine
+				currentStage.rawChanges = append(currentStage.rawChanges, ic.change)
+				if mapKey > currentStage.endLine {
+					currentStage.endLine = mapKey
 				}
+				lastBufferLine = ic.bufferLine
 			} else {
-				// Compute buffer range before appending
 				currentStage.BufferStart, currentStage.BufferEnd = getStageBufferRange(currentStage, baseLineOffset, diff, nil)
 				stages = append(stages, currentStage)
 				currentStage = &Stage{
-					startLine:  lineNum,
-					endLine:    endLine,
-					rawChanges: make(map[int]LineChange),
+					startLine:  mapKey,
+					endLine:    mapKey,
+					rawChanges: []LineChange{ic.change},
 				}
-				currentStage.rawChanges[lineNum] = change
+				lastBufferLine = ic.bufferLine
 			}
 		}
 	}
@@ -213,8 +227,8 @@ func stageDistanceFromCursor(stage *Stage, cursorRow int) int {
 func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, bufferLines map[int]int) (int, int) {
 	// Populate buffer line mappings for UI group positioning
 	if bufferLines != nil {
-		for lineNum, change := range stage.rawChanges {
-			bufferLines[lineNum] = diff.LineMapping.GetBufferLine(change, lineNum, baseLineOffset)
+		for _, change := range stage.rawChanges {
+			bufferLines[change.MapKey()] = diff.LineMapping.GetBufferLine(change, baseLineOffset)
 		}
 	}
 
@@ -384,7 +398,7 @@ func getStageNewLineRangeFromChanges(stage *Stage, baseLineOffset int, mapping *
 // isSameAnchorAdditions returns true if all changes are additions anchored
 // at the same old line (or all anchorless). This is the condition for a pure
 // insertion where SetBufferLines inserts without replacing any existing lines.
-func isSameAnchorAdditions(changes map[int]LineChange) bool {
+func isSameAnchorAdditions(changes []LineChange) bool {
 	anchor := 0 // 0 = unset
 	for _, c := range changes {
 		if c.Type != ChangeAddition {
@@ -415,34 +429,27 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 		// pure addition (because the old content matched elsewhere as equal), we
 		// want inline ghost text rather than a virtual line.
 		if len(stage.rawChanges) == 1 {
-			for lineNum, change := range stage.rawChanges {
-				if change.Type != ChangeAddition {
-					break
-				}
-				bufLine := lineNumToBufferLine[lineNum]
-				if bufLine != cursorRow {
-					break
-				}
+			change := stage.rawChanges[0]
+			mapKey := change.MapKey()
+			if change.Type == ChangeAddition {
+				bufLine := lineNumToBufferLine[mapKey]
 				oldIdx := bufLine - baseLineOffset // 0-indexed into oldLines
-				if oldIdx < 0 || oldIdx >= len(oldLines) {
-					break
+				if bufLine == cursorRow && oldIdx >= 0 && oldIdx < len(oldLines) {
+					oldContent := oldLines[oldIdx]
+					if oldContent != "" && strings.TrimSpace(oldContent) == "" {
+						changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, change.Content)
+						stage.rawChanges[0] = LineChange{
+							Type:       changeType,
+							OldLineNum: oldIdx + 1,
+							NewLineNum: change.NewLineNum,
+							Content:    change.Content,
+							OldContent: oldContent,
+							ColStart:   colStart,
+							ColEnd:     colEnd,
+						}
+						stage.BufferStart, stage.BufferEnd = getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
+					}
 				}
-				oldContent := oldLines[oldIdx]
-				if oldContent == "" || strings.TrimSpace(oldContent) != "" {
-					break
-				}
-				changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, change.Content)
-				stage.rawChanges[lineNum] = LineChange{
-					Type:       changeType,
-					OldLineNum: oldIdx + 1, // 1-indexed in old coordinates
-					NewLineNum: change.NewLineNum,
-					Content:    change.Content,
-					OldContent: oldContent,
-					ColStart:   colStart,
-					ColEnd:     colEnd,
-				}
-				// Recompute buffer range since stage changed from insertion to replacement
-				stage.BufferStart, stage.BufferEnd = getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
 			}
 		}
 
@@ -481,21 +488,19 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 			nCount = len(stageLines)
 		}
 
-		for lineNum, change := range stage.rawChanges {
+		for _, change := range stage.rawChanges {
+			mapKey := change.MapKey()
 			var relativeLine int
 			if change.Type == ChangeDeletion {
-				// Position relative to stage.startLine to preserve gaps between
-				// adjacent and non-adjacent deletions (affects grouping). When
-				// non-deletions are present, shift beyond the non-deletion range.
-				rel := lineNum - stage.startLine + 1
+				rel := mapKey - stage.startLine + 1
 				if nCount > 0 {
 					rel = nCount + rel
 				}
 				relativeLine = rel
 			} else {
-				newLineNum := lineNum
-				if change.NewLineNum > 0 {
-					newLineNum = change.NewLineNum
+				newLineNum := change.NewLineNum
+				if newLineNum <= 0 {
+					newLineNum = mapKey
 				}
 				relativeLine = newLineNum - newStartLine + 1
 			}
@@ -506,8 +511,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 			}
 
 			if relativeLine > 0 && (relativeLine <= len(stageLines) || change.Type == ChangeDeletion) {
-				// Use pre-computed buffer line from getStageBufferRange
-				relativeToBufferLine[relativeLine] = lineNumToBufferLine[lineNum]
+				relativeToBufferLine[relativeLine] = lineNumToBufferLine[mapKey]
 
 				remappedChange := change
 				remappedChange.NewLineNum = relativeLine

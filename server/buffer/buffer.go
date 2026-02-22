@@ -313,7 +313,7 @@ func (b *NvimBuffer) PrepareCompletion(startLine, endLineInc int, lines []string
 
 	// Convert to Lua format
 	luaDiffResult := text.ToLuaFormat(&text.Stage{
-		Changes: diffResult.Changes,
+		Changes: diffResult.ChangesMap(),
 		Groups:  groups,
 		Lines:   lines,
 	}, startLine)
@@ -813,7 +813,7 @@ func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, di
 	}
 
 	// Apply cursor positioning from diff changes
-	cursorLine, cursorCol := text.CalculateCursorPosition(diffResult.Changes, lines)
+	cursorLine, cursorCol := text.CalculateCursorPosition(diffResult.ChangesMap(), lines)
 	if cursorLine >= 0 && cursorCol >= 0 {
 		bufferLine := startLine + cursorLine - 1
 		applyCursorMove(applyBatch, bufferLine, cursorCol, false, true)

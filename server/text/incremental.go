@@ -8,10 +8,10 @@ import (
 // It uses exact matching only during streaming for stage boundary detection.
 // Accurate change classification is deferred to ComputeDiff at stage finalization.
 type IncrementalDiffBuilder struct {
-	OldLines    []string           // Original content lines
-	NewLines    []string           // Accumulated new content lines
-	Changes     map[int]LineChange // Changes keyed by new line number (1-indexed)
-	LineMapping *LineMapping       // Coordinate mapping between old and new
+	OldLines    []string     // Original content lines
+	NewLines    []string     // Accumulated new content lines
+	Changes     []LineChange // Accumulated changes
+	LineMapping *LineMapping // Coordinate mapping between old and new
 
 	// Tracking state
 	oldLineIdx   int          // Current position in old lines (0-indexed)
@@ -23,7 +23,6 @@ func NewIncrementalDiffBuilder(oldLines []string) *IncrementalDiffBuilder {
 	return &IncrementalDiffBuilder{
 		OldLines:     oldLines,
 		NewLines:     []string{},
-		Changes:      make(map[int]LineChange),
 		LineMapping:  &LineMapping{NewToOld: []int{}, OldToNew: make([]int, len(oldLines))},
 		oldLineIdx:   0,
 		usedOldLines: make(map[int]bool),
@@ -54,7 +53,7 @@ func (b *IncrementalDiffBuilder) AddLine(line string) *LineChange {
 			NewLineNum: newLineNum,
 			Content:    line,
 		}
-		b.Changes[newLineNum] = change
+		b.Changes = append(b.Changes, change)
 		return &change
 	}
 
@@ -165,7 +164,7 @@ func (b *IncrementalStageBuilder) AddLine(line string) *Stage {
 	}
 
 	// We have a change - compute its buffer line
-	bufferLine := b.diffBuilder.LineMapping.GetBufferLine(*change, lineNum, b.BaseLineOffset)
+	bufferLine := b.diffBuilder.LineMapping.GetBufferLine(*change, b.BaseLineOffset)
 
 	// Determine if this change is in viewport
 	isInViewport := b.ViewportTop == 0 && b.ViewportBottom == 0 ||
@@ -227,9 +226,8 @@ func (b *IncrementalStageBuilder) startNewStage(lineNum int, bufferLine int, cha
 	b.currentStage = &Stage{
 		startLine:  lineNum,
 		endLine:    lineNum,
-		rawChanges: make(map[int]LineChange),
+		rawChanges: []LineChange{change},
 	}
-	b.currentStage.rawChanges[lineNum] = change
 	b.currentStageInViewport = isInViewport
 	b.lastChangeBufferLine = bufferLine
 
@@ -238,7 +236,7 @@ func (b *IncrementalStageBuilder) startNewStage(lineNum int, bufferLine int, cha
 
 // extendCurrentStage adds a change to the current stage
 func (b *IncrementalStageBuilder) extendCurrentStage(lineNum int, bufferLine int, change LineChange) {
-	b.currentStage.rawChanges[lineNum] = change
+	b.currentStage.rawChanges = append(b.currentStage.rawChanges, change)
 	if lineNum > b.currentStage.endLine {
 		b.currentStage.endLine = lineNum
 	}
@@ -349,7 +347,8 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 
 		// Build buffer line mappings using diff
 		lineNumToBufferLine := make(map[int]int)
-		getStageBufferRange(&Stage{rawChanges: diff.Changes}, b.BaseLineOffset+minOld-1, diff, lineNumToBufferLine)
+		diffStage := &Stage{rawChanges: diff.Changes}
+		getStageBufferRange(diffStage, b.BaseLineOffset+minOld-1, diff, lineNumToBufferLine)
 
 		// Remap changes to relative line numbers
 		remappedChanges := make(map[int]LineChange)
@@ -358,15 +357,16 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 		tempStage := &Stage{rawChanges: diff.Changes, BufferStart: bufferStart, BufferEnd: bufferEnd}
 		newStart, _ := getStageNewLineRangeFromChanges(tempStage, b.BaseLineOffset+minOld-1, diff.LineMapping)
 
-		for lineNum, change := range diff.Changes {
-			newLineNum := lineNum
-			if change.NewLineNum > 0 {
-				newLineNum = change.NewLineNum
+		for _, change := range diff.Changes {
+			mapKey := change.MapKey()
+			newLineNum := change.NewLineNum
+			if newLineNum <= 0 {
+				newLineNum = mapKey
 			}
 			relativeLine := newLineNum - newStart + 1
 
 			if relativeLine > 0 && (relativeLine <= len(stageNewLines) || change.Type == ChangeDeletion) {
-				relativeToBufferLine[relativeLine] = lineNumToBufferLine[lineNum]
+				relativeToBufferLine[relativeLine] = lineNumToBufferLine[mapKey]
 				remapped := change
 				remapped.NewLineNum = relativeLine
 				remappedChanges[relativeLine] = remapped
@@ -394,14 +394,21 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 		bufferStart := b.BaseLineOffset + len(b.OldLines)
 
 		// Find the anchor from the streaming changes
-		for lineNum, change := range stage.rawChanges {
-			bufLine := b.diffBuilder.LineMapping.GetBufferLine(change, lineNum, b.BaseLineOffset)
+		for _, change := range stage.rawChanges {
+			bufLine := b.diffBuilder.LineMapping.GetBufferLine(change, b.BaseLineOffset)
 			if bufferStart == b.BaseLineOffset+len(b.OldLines) || bufLine < bufferStart {
 				bufferStart = bufLine
 			}
 		}
 
 		// Build addition changes with relative line numbers
+		// Index streaming changes by NewLineNum for lookup
+		streamChangesByNewLine := make(map[int]LineChange)
+		for _, c := range b.diffBuilder.Changes {
+			if c.NewLineNum > 0 {
+				streamChangesByNewLine[c.NewLineNum] = c
+			}
+		}
 		remappedChanges := make(map[int]LineChange)
 		relativeToBufferLine := make(map[int]int)
 		for i, line := range stageNewLines {
@@ -413,9 +420,9 @@ func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 				NewLineNum: relativeLine,
 				Content:    line,
 			}
-			if origChange, ok := b.diffBuilder.Changes[absoluteNewLine]; ok {
+			if origChange, ok := streamChangesByNewLine[absoluteNewLine]; ok {
 				relativeToBufferLine[relativeLine] = b.diffBuilder.LineMapping.GetBufferLine(
-					origChange, absoluteNewLine, b.BaseLineOffset)
+					origChange, b.BaseLineOffset)
 			}
 		}
 

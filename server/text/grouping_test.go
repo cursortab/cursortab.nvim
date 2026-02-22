@@ -461,9 +461,9 @@ func TestGroupsMustReflectActualBufferState(t *testing.T) {
 	firstDiff := ComputeDiff(JoinLines([]string{oldLine}), JoinLines(newLines))
 
 	assert.Equal(t, 1, len(firstDiff.Changes), "first diff: 1 change")
-	assert.Equal(t, ChangeAddition, firstDiff.Changes[2].Type, "first diff: addition at line 2")
+	assert.Equal(t, ChangeAddition, firstDiff.Changes[0].Type, "first diff: addition at line 2")
 
-	firstGroups := GroupChanges(firstDiff.Changes)
+	firstGroups := GroupChanges(firstDiff.ChangesMap())
 	assert.Equal(t, 1, len(firstGroups), "first diff: 1 group")
 	assert.Equal(t, "addition", firstGroups[0].Type, "first diff group: addition")
 	assert.Nil(t, firstGroups[0].OldLines, "addition has no old_lines")
@@ -476,12 +476,12 @@ func TestGroupsMustReflectActualBufferState(t *testing.T) {
 	secondDiff := ComputeDiff(JoinLines([]string{actualBufferLine}), JoinLines([]string{newContent}))
 
 	assert.Equal(t, 1, len(secondDiff.Changes), "second diff: 1 change")
-	change := secondDiff.Changes[1]
+	change := secondDiff.Changes[0]
 	isModification := change.Type == ChangeModification || change.Type == ChangeReplaceChars
 	assert.True(t, isModification, "second diff: modification type")
 	assert.True(t, change.OldContent != "", "modification has old content")
 
-	secondGroups := GroupChanges(secondDiff.Changes)
+	secondGroups := GroupChanges(secondDiff.ChangesMap())
 	assert.Equal(t, 1, len(secondGroups), "second diff: 1 group")
 	assert.Equal(t, "modification", secondGroups[0].Type, "second diff group: modification")
 	assert.NotNil(t, secondGroups[0].OldLines, "modification has old_lines")

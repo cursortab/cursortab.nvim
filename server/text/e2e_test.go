@@ -196,7 +196,7 @@ func (b *testBuffer) partialAcceptStage(stage *Stage) {
 		}
 
 		diffResult := ComputeDiff(JoinLines(originalLines), JoinLines(completionLines))
-		groups = GroupChanges(diffResult.Changes)
+		groups = GroupChanges(diffResult.ChangesMap())
 		for _, g := range groups {
 			g.BufferLine = startLine + g.StartLine - 1
 		}

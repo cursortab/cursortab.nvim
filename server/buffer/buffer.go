@@ -158,9 +158,12 @@ func (b *NvimBuffer) Sync(workspacePath string) (*SyncResult, error) {
 		return view.leftcol or 0
 	`, &scrollOffset, nil)
 
-	// Get vertical viewport bounds (first and last visible line numbers, 1-indexed)
+	// Get vertical viewport bounds (first and last potentially visible line, 1-indexed).
+	// Use window height instead of w$ so that short files still report the full
+	// visible area (w$ only returns the last line with content).
 	batch.ExecLua(`
-		return {vim.fn.line("w0"), vim.fn.line("w$")}
+		local top = vim.fn.line("w0")
+		return {top, top + vim.api.nvim_win_get_height(0) - 1}
 	`, &viewportBounds, nil)
 
 	if err := batch.Execute(); err != nil {

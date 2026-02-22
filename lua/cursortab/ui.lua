@@ -248,6 +248,7 @@ end
 ---@param syntax_ft string|nil
 ---@param bg_highlight string|nil
 ---@param min_width integer|nil
+---@param cursorline_buffer_line integer|nil 0-indexed buffer line for cursorline matching, nil to skip
 ---@return integer, integer, integer # overlay_win, overlay_buf, bytes_trimmed_first_line
 local function create_overlay_window(
 	parent_win,
@@ -257,7 +258,7 @@ local function create_overlay_window(
 	syntax_ft,
 	bg_highlight,
 	min_width,
-	match_cursorline
+	cursorline_buffer_line
 )
 	-- Create buffer for overlay content
 	---@type integer
@@ -348,9 +349,16 @@ local function create_overlay_window(
 
 	-- Set background highlighting to match main window
 	if bg_highlight and bg_highlight ~= "" then
-		if bg_highlight == "CursorTabAddition" and config.get().ui.completions.addition_style == "dimmed" then
+		local has_content = false
+		for _, line in ipairs(content_lines) do
+			if line:match("%S") then
+				has_content = true
+				break
+			end
+		end
+		if bg_highlight == "CursorTabAddition" and config.get().ui.completions.addition_style == "dimmed" and has_content then
 			vim.api.nvim_win_set_hl_ns(overlay_win, get_dimmed_ns(1 - config.get().ui.completions.fg_opacity))
-			if match_cursorline then
+			if cursorline_buffer_line then
 				local cursorline_enabled = vim.api.nvim_win_call(parent_win, function()
 					return vim.wo.cursorline
 				end)
@@ -358,7 +366,7 @@ local function create_overlay_window(
 					local current_line = vim.api.nvim_win_call(parent_win, function()
 						return vim.fn.line(".")
 					end)
-					local cursor_offset = (current_line - 1) - buffer_line
+					local cursor_offset = (current_line - 1) - cursorline_buffer_line
 					if cursor_offset >= 0 and cursor_offset < #content_lines then
 						local line_text = content_lines[cursor_offset + 1] or ""
 						vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), cursor_offset, 0, {
@@ -412,8 +420,9 @@ end
 ---@param nvim_line integer 0-indexed line number
 ---@param current_buf integer
 ---@param is_first_append boolean
+---@param virt_line_offset integer Number of virtual lines added above this point
 ---@return boolean was_first_append True if this was stored as the first append_chars
-local function render_append_chars(group, nvim_line, current_buf, is_first_append)
+local function render_append_chars(group, nvim_line, current_buf, is_first_append, virt_line_offset)
 	local content = group.lines[1] or ""
 	local col_start = group.col_start or 0
 	local appended_text = string.sub(content, col_start + 1)
@@ -445,13 +454,13 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 			local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
 			local overlay_win, overlay_buf, _ = create_overlay_window(
 				current_win,
-				nvim_line,
+				nvim_line + virt_line_offset,
 				col_start,
 				{ appended_text },
 				syntax_ft,
 				"CursorTabAddition",
 				nil,
-				true
+				nvim_line
 			)
 			table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 
@@ -761,7 +770,7 @@ local function show_completion(diff_result)
 		if is_single_line and group.render_hint and group.render_hint ~= "" then
 			if group.render_hint == "append_chars" then
 				local is_first = not found_first_append
-				render_append_chars(group, nvim_line, current_buf, is_first)
+				render_append_chars(group, nvim_line, current_buf, is_first, virt_line_offset)
 				if is_first then
 					found_first_append = true
 				end

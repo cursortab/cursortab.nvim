@@ -168,14 +168,12 @@ local function setup_autocommands()
 			elseif ui.has_completion() then
 				-- For completions, check if typing matches the prediction
 				-- If it matches, update ghost text locally to avoid visual glitch
-				-- If it doesn't match, clear immediately to avoid showing stale ghost text
+				-- If it doesn't match, let the Go daemon handle clearing/re-rendering
+				-- atomically via on_completion_ready to avoid flash
 				local current_line = vim.api.nvim_get_current_line()
 				local cursor_line = vim.fn.line(".")
 				if ui.typing_matches_completion(cursor_line, current_line) then
-					-- Update extmark position/content locally for smooth visual
 					ui.update_ghost_text_for_typing(cursor_line, current_line)
-				else
-					ui.ensure_close_all()
 				end
 			end
 

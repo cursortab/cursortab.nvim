@@ -1,0 +1,4 @@
+- don't reset upon writing into completion
+- fix partial accept addition/deletion
+-
+

@@ -56,10 +56,10 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
-<h1>E2E Pipeline Report <span class="stats"><span class="meta">64 fixtures</span><span class="pass">64 pass</span></span></h1>
+<h1>E2E Pipeline Report <span class="stats"><span class="meta">65 fixtures</span><span class="pass">65 pass</span></span></h1>
 <div class="filters">
-<button class="filter-btn active" data-filter="all">All (64)</button>
-<button class="filter-btn" data-filter="passed">Passed (64)</button>
+<button class="filter-btn active" data-filter="all">All (65)</button>
+<button class="filter-btn" data-filter="passed">Passed (65)</button>
 <button class="filter-btn" data-filter="failed">Failed (0)</button>
 <button class="filter-btn" data-filter="unverified">Unverified (0)</button>
 </div>
@@ -2592,7 +2592,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line del"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span><span class="cursor">c</span>onst x = 1;</span><span class="line"><span class="ln">4</span></span><span class="line add"><span class="ln">5</span>// New section</span><span class="line add"><span class="ln">6</span>const y = 2;</span><span class="line add"><span class="ln">7</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span><span class="cursor"> </span></span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span><span class="cursor"> </span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span></span></pre></div>
 </div>
 <div class="pipeline-col">
 <div class="pipeline-label">Incremental</div>
@@ -2601,7 +2601,7 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="pane">
 <h3>Preview</h3><pre><span class="line del"><span class="ln">1</span></span><span class="line"><span class="ln">2</span>// Comment</span><span class="line"><span class="ln">3</span><span class="cursor">c</span>onst x = 1;</span><span class="line"><span class="ln">4</span></span><span class="line add"><span class="ln">5</span>// New section</span><span class="line add"><span class="ln">6</span>const y = 2;</span><span class="line add"><span class="ln">7</span></span></pre></div>
 <div class="pane">
-<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span><span class="cursor"> </span></span></pre></div>
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>// Comment</span><span class="line"><span class="ln">2</span>const x = 1;</span><span class="line"><span class="ln">3</span><span class="cursor"> </span></span><span class="line"><span class="ln">4</span>// New section</span><span class="line"><span class="ln">5</span>const y = 2;</span><span class="line"><span class="ln">6</span></span></pre></div>
 </div>
 </div>
 <div class="json-section"><details class="json-details"><summary>JSON</summary>
@@ -2609,29 +2609,29 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="json-col"><code class="shiki-json">[
   {
     &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 6,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
-        &#34;buffer_line&#34;: 1,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;deletion&#34;
-      },
-      {
         &#34;buffer_line&#34;: 5,
-        &#34;end_line&#34;: 6,
+        &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;// New section&#34;,
           &#34;const y = 2;&#34;,
           &#34;&#34;
         ],
         &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 4,
+        &#34;start_line&#34;: 1,
         &#34;type&#34;: &#34;addition&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 4,
+        &#34;lines&#34;: [
+          &#34;&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 4,
+        &#34;type&#34;: &#34;deletion&#34;
       }
     ],
     &#34;startLine&#34;: 1
@@ -2640,29 +2640,29 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 <div class="json-col"><code class="shiki-json">[
   {
     &#34;cursor_col&#34;: 0,
-    &#34;cursor_line&#34;: 6,
+    &#34;cursor_line&#34;: 3,
     &#34;groups&#34;: [
       {
-        &#34;buffer_line&#34;: 1,
-        &#34;end_line&#34;: 1,
-        &#34;lines&#34;: [
-          &#34;&#34;
-        ],
-        &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 1,
-        &#34;type&#34;: &#34;deletion&#34;
-      },
-      {
         &#34;buffer_line&#34;: 5,
-        &#34;end_line&#34;: 6,
+        &#34;end_line&#34;: 3,
         &#34;lines&#34;: [
           &#34;// New section&#34;,
           &#34;const y = 2;&#34;,
           &#34;&#34;
         ],
         &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 4,
+        &#34;start_line&#34;: 1,
         &#34;type&#34;: &#34;addition&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 4,
+        &#34;lines&#34;: [
+          &#34;&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 4,
+        &#34;type&#34;: &#34;deletion&#34;
       }
     ],
     &#34;startLine&#34;: 1
@@ -2859,12 +2859,12 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       },
       {
         &#34;buffer_line&#34;: 4,
-        &#34;end_line&#34;: 3,
+        &#34;end_line&#34;: 5,
         &#34;lines&#34;: [
           &#34;line D&#34;
         ],
         &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 3,
+        &#34;start_line&#34;: 5,
         &#34;type&#34;: &#34;deletion&#34;
       }
     ],
@@ -2900,12 +2900,12 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       },
       {
         &#34;buffer_line&#34;: 4,
-        &#34;end_line&#34;: 3,
+        &#34;end_line&#34;: 5,
         &#34;lines&#34;: [
           &#34;line D&#34;
         ],
         &#34;old_lines&#34;: null,
-        &#34;start_line&#34;: 3,
+        &#34;start_line&#34;: 5,
         &#34;type&#34;: &#34;deletion&#34;
       }
     ],
@@ -3074,6 +3074,101 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       }
     ],
     &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed" open>
+<summary class="hdr"><h2>modification-followed-by-deletion</h2><button class="copy-btn" data-name="modification-followed-by-deletion" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button> <span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="meta">cursor=(3,1) vp=[1,50]</span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>- don&#39;t reset upon writing into completion</span><span class="line"><span class="ln">2</span>- fix partial accept addition/deletion</span><span class="line"><span class="ln">3</span>-<span class="cursor"> </span></span><span class="line"><span class="ln">4</span></span><span class="line"><span class="ln">5</span></span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>- don&#39;t reset upon writing into completion</span><span class="line"><span class="ln">2</span>- fix partial accept addition/deletion</span><span class="line"><span class="ln">3</span>-<span class="ghost"><span class="cursor"> </span>fix dimmed style to work with the new empty lines</span></span><span class="line del"><span class="ln">4</span></span><span class="line"><span class="ln">5</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>- don&#39;t reset upon writing into completion</span><span class="line"><span class="ln">2</span>- fix partial accept addition/deletion</span><span class="line"><span class="ln">3</span>- fix dimmed style to work with the new empty lines<span class="cursor"> </span></span><span class="line"><span class="ln">4</span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>- don&#39;t reset upon writing into completion</span><span class="line"><span class="ln">2</span>- fix partial accept addition/deletion</span><span class="line"><span class="ln">3</span>-<span class="cursor"> </span></span><span class="line"><span class="ln">4</span></span><span class="line"><span class="ln">5</span></span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>- don&#39;t reset upon writing into completion</span><span class="line"><span class="ln">2</span>- fix partial accept addition/deletion</span><span class="line"><span class="ln">3</span>-<span class="ghost"><span class="cursor"> </span>fix dimmed style to work with the new empty lines</span></span><span class="line del"><span class="ln">4</span></span><span class="line"><span class="ln">5</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>- don&#39;t reset upon writing into completion</span><span class="line"><span class="ln">2</span>- fix partial accept addition/deletion</span><span class="line"><span class="ln">3</span>- fix dimmed style to work with the new empty lines<span class="cursor"> </span></span><span class="line"><span class="ln">4</span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 51,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 3,
+        &#34;col_end&#34;: 51,
+        &#34;col_start&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;- fix dimmed style to work with the new empty lines&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;-&#34;
+        ],
+        &#34;render_hint&#34;: &#34;append_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 4,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 3,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
+    &#34;startLine&#34;: 3
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 51,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 3,
+        &#34;col_end&#34;: 51,
+        &#34;col_start&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;- fix dimmed style to work with the new empty lines&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;-&#34;
+        ],
+        &#34;render_hint&#34;: &#34;append_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 4,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 3,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
+    &#34;startLine&#34;: 3
   }
 ]</code></div>
 </div>

@@ -294,16 +294,21 @@ func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursor
 					}
 				case "modification":
 					oldBufLine := g.BufferLine + relLine - g.StartLine
+					lineIdx := relLine - g.StartLine
+					lineContent := newContent
+					if lineIdx >= 0 && lineIdx < len(g.Lines) {
+						lineContent = g.Lines[lineIdx]
+					}
 					if isSingle && g.RenderHint == "append_chars" {
 						actions[oldBufLine] = lineAction{
 							kind:       "append_chars",
-							newContent: newContent,
+							newContent: lineContent,
 							hl:         lineHighlight{RenderHint: "append_chars", ColStart: g.ColStart},
 						}
 					} else if isSingle && g.RenderHint == "replace_chars" {
 						actions[oldBufLine] = lineAction{
 							kind:       "replace_chars",
-							newContent: newContent,
+							newContent: lineContent,
 							hl:         lineHighlight{RenderHint: "replace_chars", ColStart: g.ColStart, ColEnd: g.ColEnd},
 						}
 					} else if isSingle && g.RenderHint == "delete_chars" {
@@ -315,7 +320,7 @@ func buildPreview(oldText, newText string, stages []stageInfo, cursorRow, cursor
 						// Single-line side-by-side: old (del bg) with new content to the right
 						actions[oldBufLine] = lineAction{
 							kind:     "mod",
-							sideText: newContent,
+							sideText: lineContent,
 							sideHL:   lineHighlight{Class: "mod"},
 						}
 					} else {

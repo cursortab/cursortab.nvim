@@ -269,11 +269,16 @@ func getStageBufferRange(stage *Stage, baseLineOffset int, diff *DiffResult, buf
 }
 
 // getStageNewLineRange determines the new line range for content extraction.
+// Deletions are excluded because their NewLineNum is only an anchor point,
+// not a position in the new content.
 func getStageNewLineRange(stage *Stage) (int, int) {
 	minNewLine := -1
 	maxNewLine := -1
 
 	for _, change := range stage.rawChanges {
+		if change.Type == ChangeDeletion {
+			continue
+		}
 		if change.NewLineNum > 0 {
 			if minNewLine == -1 || change.NewLineNum < minNewLine {
 				minNewLine = change.NewLineNum
@@ -320,15 +325,34 @@ func finalizeStages(stages []*Stage, newLines []string, filePath string, baseLin
 		stageOldLines := make([]string, len(stageLines))
 		remappedChanges := make(map[int]LineChange)
 		relativeToBufferLine := make(map[int]int)
+
+		// Deletions use old-coordinate space; non-deletions use new-coordinate space.
+		// When both are present, shift all deletions beyond the non-deletion range so
+		// their relative lines never overlap. Non-deletions occupy [1..nCount] and
+		// deletions occupy [nCount+1..], preserving inter-deletion gaps for grouping.
+		hasNonDeletions := false
+		for _, change := range stage.rawChanges {
+			if change.Type != ChangeDeletion {
+				hasNonDeletions = true
+				break
+			}
+		}
+		nCount := 0
+		if hasNonDeletions {
+			nCount = len(stageLines)
+		}
+
 		for lineNum, change := range stage.rawChanges {
 			var relativeLine int
 			if change.Type == ChangeDeletion {
-				// For deletions, lineNum IS oldLineNum. Using the anchor (NewLineNum)
-				// collapses consecutive deletions sharing the same anchor to the same
-				// relativeLine. Instead, position relative to stage.startLine so that
-				// adjacent deletions get consecutive relative lines and non-adjacent
-				// deletions get non-consecutive relative lines (separate groups).
-				relativeLine = lineNum - stage.startLine + 1
+				// Position relative to stage.startLine to preserve gaps between
+				// adjacent and non-adjacent deletions (affects grouping). When
+				// non-deletions are present, shift beyond the non-deletion range.
+				rel := lineNum - stage.startLine + 1
+				if nCount > 0 {
+					rel = nCount + rel
+				}
+				relativeLine = rel
 			} else {
 				newLineNum := lineNum
 				if change.NewLineNum > 0 {

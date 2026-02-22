@@ -1,29 +1,29 @@
 [
   {
     "cursor_col": 0,
-    "cursor_line": 6,
+    "cursor_line": 3,
     "groups": [
       {
-        "buffer_line": 1,
-        "end_line": 1,
-        "lines": [
-          ""
-        ],
-        "old_lines": null,
-        "start_line": 1,
-        "type": "deletion"
-      },
-      {
         "buffer_line": 5,
-        "end_line": 6,
+        "end_line": 3,
         "lines": [
           "// New section",
           "const y = 2;",
           ""
         ],
         "old_lines": null,
-        "start_line": 4,
+        "start_line": 1,
         "type": "addition"
+      },
+      {
+        "buffer_line": 1,
+        "end_line": 4,
+        "lines": [
+          ""
+        ],
+        "old_lines": null,
+        "start_line": 4,
+        "type": "deletion"
       }
     ],
     "startLine": 1

@@ -672,43 +672,45 @@ func TestFinalizeStageGroups_AppendCharsOnNonCursorLine(t *testing.T) {
 }
 
 func TestFinalizeStageGroups_CursorLineDowngradedNonCursorLineKept(t *testing.T) {
-	// Scenario: cursor is at column 8 on line 10, but append_chars starts at column 4.
-	// The cursor line hint should be downgraded (ColStart < cursorCol).
-	// A different line with the same hint should be kept.
+	// Scenario: cursor is at column 8 on line 10, within existing content that
+	// has an append starting at column 12. The cursor is before the append start
+	// but within old content, so the hint should be kept. A separate case tests
+	// downgrading when the append would overlay the cursor.
 	changes := map[int]LineChange{
 		1: {
 			Type:       ChangeAppendChars,
-			Content:    "    fmt.Println(\"hello\")",
-			OldContent: "    ",
-			ColStart:   4,
-			ColEnd:     23,
+			Content:    "    result := compute(x, y)",
+			OldContent: "    result :=",
+			ColStart:   13,
+			ColEnd:     27,
 		},
 		2: {
 			Type:       ChangeAppendChars,
 			Content:    "    return nil",
-			OldContent: "    ",
-			ColStart:   4,
+			OldContent: "    return",
+			ColStart:   10,
 			ColEnd:     14,
 		},
 	}
 	newLines := []string{
-		"    fmt.Println(\"hello\")",
+		"    result := compute(x, y)",
 		"    return nil",
 	}
 
 	ctx := &StageContext{
 		BufferStart:         10,
 		CursorRow:           10,
-		CursorCol:           8, // past ColStart=4, so cursor line gets downgraded
+		CursorCol:           8, // within old content but before ColStart=13
 		LineNumToBufferLine: map[int]int{1: 10, 2: 11},
 	}
 	groups, _, _ := FinalizeStageGroups(changes, newLines, ctx)
 
 	assert.Equal(t, 2, len(groups), "should have 2 groups")
 
-	// Line 10 (cursor line): ColStart(4) < cursorCol(8), downgraded to plain modification
+	// Line 10 (cursor line): cursor at 8 is within old content (len 13),
+	// so validation applies. ColStart(13) < cursorCol(8) is false, hint kept.
 	assert.Equal(t, 10, groups[0].BufferLine, "first group on cursor line")
-	assert.Equal(t, "", groups[0].RenderHint, "cursor line hint downgraded")
+	assert.Equal(t, "append_chars", groups[0].RenderHint, "cursor line hint kept")
 
 	// Line 11 (non-cursor line): keeps append_chars
 	assert.Equal(t, 11, groups[1].BufferLine, "second group on non-cursor line")

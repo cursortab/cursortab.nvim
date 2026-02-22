@@ -1624,7 +1624,7 @@ func TestFinalizeStages_SingleDeletion(t *testing.T) {
 	newLines := []string{"1", "2", "3", "4", "6", "7", "8", "9", "10"} // Line 5 deleted
 
 	stages := []*Stage{stage}
-	finalizeStages(stages, newLines, "test.go", 1, diff, 1, 0)
+	finalizeStages(stages, newLines, nil, "test.go", 1, diff, 1, 0)
 
 	assert.Equal(t, 1, len(stages), "should have 1 stage")
 	// For deletions, lines might be empty or contain surrounding context

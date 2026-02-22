@@ -99,7 +99,7 @@ func CreateStages(p *StagingParams) *StagingResult {
 	})
 
 	// Step 4: Finalize stages (content, cursor targets)
-	finalizeStages(allStages, p.NewLines, p.FilePath, p.BaseLineOffset, diff, p.CursorRow, p.CursorCol)
+	finalizeStages(allStages, p.NewLines, p.OldLines, p.FilePath, p.BaseLineOffset, diff, p.CursorRow, p.CursorCol)
 
 	// Step 5: Check if first stage needs navigation UI
 	firstNeedsNav := StageNeedsNavigation(
@@ -402,13 +402,49 @@ func isSameAnchorAdditions(changes map[int]LineChange) bool {
 // finalizeStages populates the remaining fields of partial stages.
 // It extracts content, remaps changes to relative line numbers, computes groups,
 // and sets cursor targets based on sort order.
-func finalizeStages(stages []*Stage, newLines []string, filePath string, baseLineOffset int, diff *DiffResult, cursorRow, cursorCol int) {
+func finalizeStages(stages []*Stage, newLines []string, oldLines []string, filePath string, baseLineOffset int, diff *DiffResult, cursorRow, cursorCol int) {
 	for i, stage := range stages {
 		isLastStage := i == len(stages)-1
 
 		// Get buffer line mappings for this stage
 		lineNumToBufferLine := make(map[int]int)
 		getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
+
+		// Convert a single addition on the cursor line to a modification (append_chars).
+		// When the cursor sits on a whitespace-only line and the diff produces a
+		// pure addition (because the old content matched elsewhere as equal), we
+		// want inline ghost text rather than a virtual line.
+		if len(stage.rawChanges) == 1 {
+			for lineNum, change := range stage.rawChanges {
+				if change.Type != ChangeAddition {
+					break
+				}
+				bufLine := lineNumToBufferLine[lineNum]
+				if bufLine != cursorRow {
+					break
+				}
+				oldIdx := bufLine - baseLineOffset // 0-indexed into oldLines
+				if oldIdx < 0 || oldIdx >= len(oldLines) {
+					break
+				}
+				oldContent := oldLines[oldIdx]
+				if oldContent == "" || strings.TrimSpace(oldContent) != "" {
+					break
+				}
+				changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, change.Content)
+				stage.rawChanges[lineNum] = LineChange{
+					Type:       changeType,
+					OldLineNum: oldIdx + 1, // 1-indexed in old coordinates
+					NewLineNum: change.NewLineNum,
+					Content:    change.Content,
+					OldContent: oldContent,
+					ColStart:   colStart,
+					ColEnd:     colEnd,
+				}
+				// Recompute buffer range since stage changed from insertion to replacement
+				stage.BufferStart, stage.BufferEnd = getStageBufferRange(stage, baseLineOffset, diff, lineNumToBufferLine)
+			}
+		}
 
 		// Compute new line range directly from the stage's changes.
 		// Each non-deletion change has a NewLineNum that maps it to a specific

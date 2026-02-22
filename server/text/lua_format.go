@@ -1,9 +1,28 @@
 package text
 
+// calculateCursorFromGroups computes cursor position from pre-computed groups.
+// Uses the last non-deletion group's end line, positioned at end of that line.
+// Returns (-1, -1) if no suitable group is found.
+func calculateCursorFromGroups(groups []*Group, lines []string) (int, int) {
+	targetLine := -1
+	for _, g := range groups {
+		if g.Type != "deletion" && g.EndLine > targetLine {
+			targetLine = g.EndLine
+		}
+	}
+	if targetLine <= 0 || targetLine > len(lines) {
+		return -1, -1
+	}
+	return targetLine, len(lines[targetLine-1])
+}
+
 // ToLuaFormat converts a Stage to the map format consumed by the Lua plugin.
 // This is the single source of truth for the Lua rendering contract.
 func ToLuaFormat(stage *Stage, startLine int) map[string]any {
-	cursorLine, cursorCol := CalculateCursorPosition(stage.Changes, stage.Lines)
+	cursorLine, cursorCol := stage.CursorLine, stage.CursorCol
+	if cursorLine <= 0 {
+		cursorLine, cursorCol = calculateCursorFromGroups(stage.Groups, stage.Lines)
+	}
 
 	var luaGroups []map[string]any
 	for _, g := range stage.Groups {

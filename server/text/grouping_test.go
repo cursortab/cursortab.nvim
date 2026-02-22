@@ -714,3 +714,38 @@ func TestFinalizeStageGroups_CursorLineDowngradedNonCursorLineKept(t *testing.T)
 	assert.Equal(t, 11, groups[1].BufferLine, "second group on non-cursor line")
 	assert.Equal(t, "append_chars", groups[1].RenderHint, "non-cursor line keeps hint")
 }
+
+func TestToLuaFormat_PureInsertionCursorFromGroups(t *testing.T) {
+	// When ToLuaFormat is called without stage.CursorLine set (e.g. from
+	// PrepareCompletion), cursor should be derived from groups, not from
+	// Changes which may contain a spurious deletion from the local diff.
+	stage := &Stage{
+		Changes: map[int]LineChange{
+			1: {Type: ChangeDeletion, Content: "existing line content"},
+		},
+		Groups: []*Group{
+			{Type: "addition", StartLine: 1, EndLine: 1, BufferLine: 7, Lines: []string{""}},
+		},
+		Lines: []string{""},
+	}
+
+	result := ToLuaFormat(stage, 7)
+
+	assert.Equal(t, 1, result["cursor_line"], "cursor_line should be 1 from addition group")
+	assert.Equal(t, 0, result["cursor_col"], "cursor_col should be 0 for empty line")
+}
+
+func TestToLuaFormat_UsesPrecomputedCursor(t *testing.T) {
+	// When stage has CursorLine set (from staging pipeline), use it directly.
+	stage := &Stage{
+		CursorLine: 3,
+		CursorCol:  5,
+		Groups:     []*Group{{Type: "addition", StartLine: 1, EndLine: 3, BufferLine: 10, Lines: []string{"a", "b", "c"}}},
+		Lines:      []string{"a", "b", "c"},
+	}
+
+	result := ToLuaFormat(stage, 10)
+
+	assert.Equal(t, 3, result["cursor_line"], "should use precomputed cursor_line")
+	assert.Equal(t, 5, result["cursor_col"], "should use precomputed cursor_col")
+}

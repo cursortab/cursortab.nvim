@@ -419,6 +419,9 @@ func renderTextPane(b *strings.Builder, label string, lines []string, cursorRow,
 	b.WriteString("<div class=\"pane\">\n")
 	fmt.Fprintf(b, "<h3>%s</h3><pre>", html.EscapeString(label))
 	for i, line := range lines {
+		if i == len(lines)-1 && line == "" {
+			break
+		}
 		col := -1
 		if i+1 == cursorRow {
 			col = cursorCol

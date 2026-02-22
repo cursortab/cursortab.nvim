@@ -2142,3 +2142,118 @@ func TestIncrementalStageBuilder_FewModificationsInLargeFile(t *testing.T) {
 			fmt.Sprintf("should not have deletion groups for unchanged content, got deletion at buffer line %d", g.BufferLine))
 	}
 }
+
+// TestIncrementalStageBuilder_MaxVisibleLinesSplitNoSpuriousDeletions tests that when
+// MaxVisibleLines splits a stage mid-stream and the lines immediately following the
+// split boundary are also changes (no exact matches), the finalized stage does not
+// produce spurious deletions of the unchanged trailing content.
+//
+// This reproduces the sweepapi provider bug where a model changes N lines and
+// MaxVisibleLines=4 splits after 4 changes, but the next changed lines have no
+// forward anchor yet in the streaming mapping, causing findOldLineRange to fall back
+// to len(OldLines) and include the entire remaining file as "deleted" content.
+func TestIncrementalStageBuilder_MaxVisibleLinesSplitNoSpuriousDeletions(t *testing.T) {
+	// Simulate a file with:
+	// - Lines 1-5: unchanged prefix (e.g., imports, middleware)
+	// - Lines 6-13: 8 changed routes (old: app.route, new: app.api.route)
+	// - Lines 14-20: unchanged suffix (other routes, exports)
+	oldLines := []string{
+		"const app = new App();",       // 1 - unchanged
+		"app.use(middleware);",         // 2 - unchanged
+		"",                             // 3 - unchanged
+		"// Mount routes",              // 4 - unchanged
+		"app.use(authMiddleware);",     // 5 - unchanged
+		`app.route("/health", health)`, // 6 - will be changed
+		`app.route("/auth", auth)`,     // 7 - will be changed
+		`app.route("/admin", admin)`,   // 8 - will be changed
+		`app.route("/oauth", oauth)`,   // 9 - will be changed
+		`app.route("/users", users)`,   // 10 - will be changed
+		`app.route("/posts", posts)`,   // 11 - will be changed
+		`app.route("/files", files)`,   // 12 - will be changed
+		`app.route("/data", data)`,     // 13 - will be changed
+		"",                             // 14 - unchanged
+		"// Exports",                   // 15 - unchanged
+		"export { app };",              // 16 - unchanged
+		"export { db };",               // 17 - unchanged
+		"export { session };",          // 18 - unchanged
+		"export { cache };",            // 19 - unchanged
+		"export { queue };",            // 20 - unchanged
+	}
+
+	builder := NewIncrementalStageBuilder(
+		oldLines,
+		1, // baseLineOffset
+		5, // proximityThreshold
+		4, // maxVisibleLines = 4 (triggers mid-stream split after 4 changes)
+		0, // viewportTop (disabled)
+		0, // viewportBottom (disabled)
+		3, // cursorRow
+		0, // cursorCol
+		"test.ts",
+	)
+
+	// Stream emits the full modified file: first 5 lines unchanged, then 8 changed routes
+	var firstStage *Stage
+	for _, line := range []string{
+		"const app = new App();",           // 1 - match
+		"app.use(middleware);",             // 2 - match
+		"",                                 // 3 - match
+		"// Mount routes",                  // 4 - match
+		"app.use(authMiddleware);",         // 5 - match
+		`app.api.route("/health", health)`, // 6 - changed
+		`app.api.route("/auth", auth)`,     // 7 - changed
+		`app.api.route("/admin", admin)`,   // 8 - changed
+		`app.api.route("/oauth", oauth)`,   // 9 - changed (MaxVisibleLines fires here)
+		`app.api.route("/users", users)`,   // 10 - changed (no forward anchor yet)
+		`app.api.route("/posts", posts)`,   // 11 - changed
+		`app.api.route("/files", files)`,   // 12 - changed
+		`app.api.route("/data", data)`,     // 13 - changed
+		"",                                 // 14 - match (forward anchor)
+		"// Exports",                       // 15 - match
+		"export { app };",                  // 16 - match
+		"export { db };",                   // 17 - match
+		"export { session };",              // 18 - match
+		"export { cache };",                // 19 - match
+		"export { queue };",                // 20 - match
+	} {
+		if s := builder.AddLine(line); s != nil && firstStage == nil {
+			firstStage = s
+		}
+	}
+
+	// The first mid-stream stage (health-oauth, 4 changes) should have been finalized
+	// when processing the 5th change (users). Verify it has no spurious deletions.
+	if firstStage != nil {
+		for _, g := range firstStage.Groups {
+			assert.True(t, g.Type != "deletion",
+				fmt.Sprintf("first mid-stream stage should not have deletion groups, got %q at buffer line %d", g.Type, g.BufferLine))
+		}
+		// Should cover exactly 4 lines (health-oauth), not the whole remaining file
+		stageLineSpan := firstStage.BufferEnd - firstStage.BufferStart + 1
+		assert.True(t, stageLineSpan <= 4,
+			fmt.Sprintf("first stage should span at most 4 lines, spans %d (BufferStart=%d, BufferEnd=%d)",
+				stageLineSpan, firstStage.BufferStart, firstStage.BufferEnd))
+	}
+
+	// Finalize and check overall result has no spurious deletions
+	result := builder.Finalize()
+	assert.NotNil(t, result, "expected staging result")
+
+	for _, stage := range result.Stages {
+		for _, g := range stage.Groups {
+			assert.True(t, g.Type != "deletion",
+				fmt.Sprintf("stage should not have deletion groups for lines that exist in new content, got %q at buffer line %d", g.Type, g.BufferLine))
+		}
+	}
+
+	// All 8 changes should be modifications, not deletions
+	totalModifications := 0
+	for _, stage := range result.Stages {
+		for _, g := range stage.Groups {
+			if g.Type == "modification" {
+				totalModifications += g.EndLine - g.StartLine + 1
+			}
+		}
+	}
+	assert.Equal(t, 8, totalModifications, "all 8 changed routes should appear as modifications")
+}

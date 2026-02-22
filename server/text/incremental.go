@@ -285,7 +285,10 @@ func (b *IncrementalStageBuilder) findOldLineRange(startNewLine, endNewLine int)
 			}
 		}
 		if maxOld == -1 {
-			maxOld = len(b.OldLines)
+			// No matched lines within stage range and no forward anchor.
+			// Estimate the old range size from the stage's new line count to
+			// avoid capturing the entire remaining file as deletions.
+			maxOld = minOld + (endNewLine - startNewLine)
 		}
 	}
 

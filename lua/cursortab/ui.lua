@@ -6,6 +6,75 @@ local daemon = require("cursortab.daemon")
 ---@class UIModule
 local ui = {}
 
+-- Dimmed highlight namespaces for overlay windows
+---@type table<string, integer>
+local dimmed_ns_cache = {}
+
+--- Blend a color toward the background by a factor (0=original, 1=fully bg)
+---@param fg integer
+---@param bg integer
+---@param factor number
+---@return string
+local function blend_color(fg, bg, factor)
+	local fr, fg_g, fb = math.floor(fg / 65536), math.floor(fg / 256) % 256, fg % 256
+	local br, bg_g, bb = math.floor(bg / 65536), math.floor(bg / 256) % 256, bg % 256
+	local r = math.floor(fr + (br - fr) * factor)
+	local g = math.floor(fg_g + (bg_g - fg_g) * factor)
+	local b = math.floor(fb + (bb - fb) * factor)
+	return string.format("#%02x%02x%02x", r, g, b)
+end
+
+--- Build a namespace with all highlight groups dimmed toward Normal bg
+---@param factor number blend factor (0=original, 1=fully bg)
+---@return integer namespace id
+local function get_dimmed_ns(factor)
+	if dimmed_ns_cache["default"] then
+		return dimmed_ns_cache["default"]
+	end
+
+	local ns = vim.api.nvim_create_namespace("cursortab_dimmed")
+	local normal_hl = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+	local bg = normal_hl.bg or 0x1e1e2e
+
+	-- Get all highlight group names and dim fg colors
+	local all_hls = vim.api.nvim_get_hl(0, {})
+	for name, def in pairs(all_hls) do
+		if def.link then
+			local resolved = vim.api.nvim_get_hl(0, { name = name, link = false })
+			if resolved.fg then
+				vim.api.nvim_set_hl(ns, name, {
+					fg = blend_color(resolved.fg, bg, factor),
+					bg = resolved.bg and blend_color(resolved.bg, bg, factor) or nil,
+					bold = resolved.bold,
+					italic = resolved.italic,
+					underline = resolved.underline,
+				})
+			end
+		elseif def.fg then
+			vim.api.nvim_set_hl(ns, name, {
+				fg = blend_color(def.fg, bg, factor),
+				bg = def.bg and blend_color(def.bg, bg, factor) or nil,
+				bold = def.bold,
+				italic = def.italic,
+				underline = def.underline,
+			})
+		end
+	end
+
+	local normal_bg_str = normal_hl.bg and string.format("#%06x", normal_hl.bg) or "NONE"
+	vim.api.nvim_set_hl(ns, "Normal", {
+		fg = normal_hl.fg and blend_color(normal_hl.fg, bg, factor) or nil,
+		bg = normal_bg_str,
+	})
+	vim.api.nvim_set_hl(ns, "NormalFloat", {
+		fg = normal_hl.fg and blend_color(normal_hl.fg, bg, factor) or nil,
+		bg = normal_bg_str,
+	})
+
+	dimmed_ns_cache["default"] = ns
+	return ns
+end
+
 -- UI state
 ---@type boolean
 local has_completion = false
@@ -173,7 +242,16 @@ end
 ---@param bg_highlight string|nil
 ---@param min_width integer|nil
 ---@return integer, integer, integer # overlay_win, overlay_buf, bytes_trimmed_first_line
-local function create_overlay_window(parent_win, buffer_line, col, content, syntax_ft, bg_highlight, min_width)
+local function create_overlay_window(
+	parent_win,
+	buffer_line,
+	col,
+	content,
+	syntax_ft,
+	bg_highlight,
+	min_width,
+	match_cursorline
+)
 	-- Create buffer for overlay content
 	---@type integer
 	local overlay_buf = vim.api.nvim_create_buf(false, true)
@@ -263,7 +341,30 @@ local function create_overlay_window(parent_win, buffer_line, col, content, synt
 
 	-- Set background highlighting to match main window
 	if bg_highlight and bg_highlight ~= "" then
-		vim.api.nvim_set_option_value("winhighlight", "Normal:" .. bg_highlight, { win = overlay_win })
+		if bg_highlight == "CursorTabAddition" and config.get().ui.additions.style == "dimmed" then
+			vim.api.nvim_win_set_hl_ns(overlay_win, get_dimmed_ns(0.5))
+			if match_cursorline then
+				local cursorline_enabled = vim.api.nvim_win_call(parent_win, function()
+					return vim.wo.cursorline
+				end)
+				if cursorline_enabled then
+					local current_line = vim.api.nvim_win_call(parent_win, function()
+						return vim.fn.line(".")
+					end)
+					local cursor_offset = (current_line - 1) - buffer_line
+					if cursor_offset >= 0 and cursor_offset < #content_lines then
+						local line_text = content_lines[cursor_offset + 1] or ""
+						vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), cursor_offset, 0, {
+							end_col = #line_text,
+							hl_group = "CursorLine",
+							hl_eol = true,
+						})
+					end
+				end
+			end
+		else
+			vim.api.nvim_set_option_value("winhighlight", "Normal:" .. bg_highlight, { win = overlay_win })
+		end
 	else
 		-- Check if overlay is on cursor line and cursorline is enabled
 		---@type integer
@@ -332,20 +433,42 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 	end
 
 	if appended_text and appended_text ~= "" then
-		local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
-		local line_length = #line_content
-		local virt_col = math.min(col_start, line_length)
+		if config.get().ui.additions.style == "dimmed" then
+			local current_win = vim.api.nvim_get_current_win()
+			local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+			local overlay_win, overlay_buf, _ = create_overlay_window(
+				current_win,
+				nvim_line,
+				col_start,
+				{ appended_text },
+				syntax_ft,
+				"CursorTabAddition",
+				nil,
+				true
+			)
+			table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, virt_col, {
-			virt_text = { { appended_text, "CursorTabCompletion" } },
-			virt_text_pos = "overlay",
-			hl_mode = "combine",
-		})
-		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
+			if is_first_append then
+				append_chars_extmark_id = nil
+				append_chars_buf = current_buf
+			end
+		else
+			local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
+			local line_length = #line_content
+			local virt_col = math.min(col_start, line_length)
 
-		if is_first_append then
-			append_chars_extmark_id = extmark_id
-			append_chars_buf = current_buf
+			local extmark_id =
+				vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, virt_col, {
+					virt_text = { { appended_text, "CursorTabCompletion" } },
+					virt_text_pos = "overlay",
+					hl_mode = "combine",
+				})
+			table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
+
+			if is_first_append then
+				append_chars_extmark_id = extmark_id
+				append_chars_buf = current_buf
+			end
 		end
 	end
 
@@ -397,7 +520,7 @@ local function render_replace_chars(group, nvim_line, current_win, current_buf)
 		if end_col > start_col then
 			vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), 0, start_col, {
 				end_col = end_col,
-				hl_group = "CursorTabAddition",
+				hl_group = "CursorTabAdditionInline",
 			})
 		end
 	end
@@ -427,8 +550,15 @@ local function render_single_modification(group, nvim_line, virt_line_offset, cu
 	-- Create side-by-side overlay window to the right (offset by virtual lines)
 	if content ~= "" then
 		local line_width = vim.fn.strdisplaywidth(line_content)
-		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, nvim_line + virt_line_offset, line_width + 2, content, syntax_ft, "CursorTabModification", nil)
+		local overlay_win, overlay_buf, _ = create_overlay_window(
+			current_win,
+			nvim_line + virt_line_offset,
+			line_width + 2,
+			content,
+			syntax_ft,
+			"CursorTabModification",
+			nil
+		)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end
 end
@@ -501,10 +631,11 @@ local function render_single_addition(group, nvim_line, virt_line_offset, curren
 	local overlay_line
 	if nvim_line >= buf_line_count then
 		local last_existing_line = buf_line_count - 1
-		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_existing_line, 0, {
-			virt_lines = { { { "", "Normal" } } },
-			virt_lines_above = false,
-		})
+		virtual_extmark_id =
+			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_existing_line, 0, {
+				virt_lines = { { { "", "Normal" } } },
+				virt_lines_above = false,
+			})
 		overlay_line = buf_line_count + virt_line_offset
 	else
 		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
@@ -545,17 +676,17 @@ local function render_addition_group(group, virt_line_offset, current_win, curre
 	local overlay_line
 	if nvim_line >= buf_line_count then
 		local last_existing_line = buf_line_count - 1
-		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_existing_line, 0, {
-			virt_lines = virt_lines_array,
-			virt_lines_above = false,
-		})
+		virtual_extmark_id =
+			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_existing_line, 0, {
+				virt_lines = virt_lines_array,
+				virt_lines_above = false,
+			})
 		overlay_line = buf_line_count + virt_line_offset
 	else
-		virtual_extmark_id =
-			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-				virt_lines = virt_lines_array,
-				virt_lines_above = true,
-			})
+		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
+			virt_lines = virt_lines_array,
+			virt_lines_above = true,
+		})
 		overlay_line = nvim_line + virt_line_offset
 	end
 	table.insert(completion_extmarks, { buf = current_buf, extmark_id = virtual_extmark_id })

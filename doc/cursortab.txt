@@ -56,6 +56,9 @@ Full configuration with defaults: >lua
     },
 
     ui = {
+      additions = {
+        style = "dimmed",       -- "dimmed" or "highlight"
+      },
       jump = {
         symbol = "",
         text = " TAB ",
@@ -151,6 +154,12 @@ keymaps.trigger                              *cursortab-config-keymaps-trigger*
 
 ------------------------------------------------------------------------------
 UI OPTIONS                                                *cursortab-config-ui*
+
+ui.additions                                *cursortab-config-ui-additions*
+
+  `style`         Rendering style for addition groups (default: "dimmed").
+                  "dimmed"    - Dimmed treesitter-highlighted overlay.
+                  "highlight" - Classic green background highlight.
 
 ui.jump                                              *cursortab-config-ui-jump*
 

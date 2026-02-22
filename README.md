@@ -88,6 +88,9 @@ require("cursortab").setup({
   },
 
   ui = {
+    additions = {
+      style = "dimmed",          -- "dimmed" or "highlight"
+    },
     jump = {
       symbol = "",              -- Symbol shown for jump points
       text = " TAB ",            -- Text displayed after jump symbol

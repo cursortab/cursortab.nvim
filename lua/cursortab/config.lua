@@ -5,7 +5,11 @@
 ---@field text string
 ---@field show_distance boolean
 
+---@class CursortabUIAdditionsConfig
+---@field style string "dimmed" or "highlight"
+
 ---@class CursortabUIConfig
+---@field additions CursortabUIAdditionsConfig
 ---@field jump CursortabUIJumpConfig
 
 ---@class CursortabCursorPredictionConfig
@@ -78,6 +82,9 @@ local default_config = {
 	},
 
 	ui = {
+		additions = {
+			style = "dimmed", -- "dimmed" or "highlight"
+		},
 		jump = {
 			symbol = "",
 			text = " TAB ",
@@ -250,6 +257,7 @@ end
 -- Valid values for enum-like config options
 local valid_provider_types = { inline = true, fim = true, sweep = true, sweepapi = true, zeta = true, copilot = true, mercuryapi = true }
 local valid_log_levels = { trace = true, debug = true, info = true, warn = true, error = true }
+local valid_addition_styles = { dimmed = true, highlight = true }
 
 -- Validate that all keys in user config exist in default config
 ---@param user_cfg table User configuration
@@ -299,6 +307,16 @@ local function validate_config(cfg)
 			"[cursortab.nvim] Invalid log_level '%s'. Must be one of: trace, debug, info, warn, error",
 			cfg.log_level
 		))
+	end
+
+	-- Validate addition style
+	if cfg.ui and cfg.ui.additions and cfg.ui.additions.style then
+		if not valid_addition_styles[cfg.ui.additions.style] then
+			error(string.format(
+				"[cursortab.nvim] Invalid ui.additions.style '%s'. Must be one of: dimmed, highlight",
+				cfg.ui.additions.style
+			))
+		end
 	end
 
 	-- Validate numeric ranges
@@ -403,7 +421,22 @@ function config.setup_highlights()
 		bold = false,
 	})
 
-	vim.api.nvim_set_hl(0, "CursorTabAddition", {
+	if config.get().ui.additions.style == "dimmed" then
+		vim.api.nvim_set_hl(0, "CursorTabAddition", {
+			default = true,
+			bg = "NONE",
+			bold = false,
+		})
+	else
+		vim.api.nvim_set_hl(0, "CursorTabAddition", {
+			default = true,
+			ctermbg = "DarkGreen",
+			bg = "#394f2f",
+			bold = false,
+		})
+	end
+
+	vim.api.nvim_set_hl(0, "CursorTabAdditionInline", {
 		default = true,
 		ctermbg = "DarkGreen",
 		bg = "#394f2f",

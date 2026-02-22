@@ -182,7 +182,7 @@ Zeta, Copilot, and Mercury API.
 
 | Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                  |
 | ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ---------------------- |
-| `inline`     |        |            |            |                   |     ✓     | Any base model         |
+| `inline`     |        |            |            |                   |           | Any base model         |
 | `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable        |
 | `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-1.5b` |
 | `sweepapi`   |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`   |

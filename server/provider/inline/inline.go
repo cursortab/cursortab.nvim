@@ -8,7 +8,6 @@
 // The model completes from the cursor position to end of line.
 // Stop token: \n (single-line completions only).
 // Lines are trimmed to a window around the cursor via the TrimContent preprocessor.
-// Token-by-token streaming is used for ghost text display.
 package inline
 
 import (
@@ -25,7 +24,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Name:          "inline",
 		Config:        config,
 		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingTokens, // Token-by-token streaming for ghost text
+		StreamingType: provider.StreamingNone,
 		Preprocessors: []provider.Preprocessor{
 			provider.SkipIfTextAfterCursor(),
 			provider.TrimContent(),

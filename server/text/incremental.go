@@ -111,7 +111,6 @@ type IncrementalStageBuilder struct {
 	diffBuilder            *IncrementalDiffBuilder
 	currentStage           *Stage
 	currentStageInViewport bool
-	finalizedStages        []*Stage
 	lastChangeBufferLine   int // Track last BUFFER line with a change (not new line number)
 }
 
@@ -136,7 +135,6 @@ func NewIncrementalStageBuilder(
 		CursorCol:            cursorCol,
 		FilePath:             filePath,
 		diffBuilder:          NewIncrementalDiffBuilder(oldLines),
-		finalizedStages:      []*Stage{},
 		lastChangeBufferLine: 0,
 	}
 }
@@ -230,8 +228,6 @@ func (b *IncrementalStageBuilder) startNewStage(lineNum int, bufferLine int, cha
 	}
 	b.currentStageInViewport = isInViewport
 	b.lastChangeBufferLine = bufferLine
-
-	b.currentStage.BufferStart, b.currentStage.BufferEnd = b.computeStageBufferRange(b.currentStage)
 }
 
 // extendCurrentStage adds a change to the current stage
@@ -241,8 +237,6 @@ func (b *IncrementalStageBuilder) extendCurrentStage(lineNum int, bufferLine int
 		b.currentStage.endLine = lineNum
 	}
 	b.lastChangeBufferLine = bufferLine
-
-	b.currentStage.BufferStart, b.currentStage.BufferEnd = b.computeStageBufferRange(b.currentStage)
 }
 
 // findOldLineRange finds the old line range for a stage by using exact-match
@@ -311,154 +305,66 @@ func (b *IncrementalStageBuilder) findOldLineRange(startNewLine, endNewLine int)
 	return minOld, maxOld
 }
 
-// finalizeCurrentStage finalizes the current stage using ComputeDiff for
-// accurate change classification.
+// finalizeCurrentStage finalizes the current stage by running ComputeDiff on
+// the stage's sub-range and delegating to CreateStages for all finalization.
 func (b *IncrementalStageBuilder) finalizeCurrentStage() *Stage {
 	if b.currentStage == nil || len(b.currentStage.rawChanges) == 0 {
 		return nil
 	}
 
 	stage := b.currentStage
+	b.currentStage = nil
 
-	// Get new line range from stage
 	newStartLine := stage.startLine
 	newEndLine := stage.endLine
 
 	// Extract new lines for this stage
 	var stageNewLines []string
 	for j := newStartLine; j <= newEndLine && j-1 < len(b.diffBuilder.NewLines); j++ {
-		if j > 0 {
-			stageNewLines = append(stageNewLines, b.diffBuilder.NewLines[j-1])
-		}
+		stageNewLines = append(stageNewLines, b.diffBuilder.NewLines[j-1])
 	}
 
-	// Find old line range using anchors
+	// Find old line range using exact-match anchors from streaming
 	minOld, maxOld := b.findOldLineRange(newStartLine, newEndLine)
 
+	var stageOldLines []string
+	var baseOffset int
+
 	if minOld > 0 && maxOld > 0 {
-		// We have old lines to diff against
-		stageOldLines := b.OldLines[minOld-1 : maxOld]
-
-		// Run ComputeDiff for accurate change classification
-		diff := ComputeDiff(JoinLines(stageOldLines), JoinLines(stageNewLines))
-
-		bufferStart := minOld + b.BaseLineOffset - 1
-		bufferEnd := maxOld + b.BaseLineOffset - 1
-
-		// Build buffer line mappings and compute new-line range via diff
-		lineNumToBufferLine := make(map[int]int)
-		diffStage := &Stage{rawChanges: diff.Changes}
-		computeStageRanges(diffStage, b.BaseLineOffset+minOld-1, diff, lineNumToBufferLine)
-
-		// Remap changes to relative line numbers
-		remappedChanges := make(map[int]LineChange)
-		relativeToBufferLine := make(map[int]int)
-
-		newStart := diffStage.newLineStart
-
-		for _, change := range diff.Changes {
-			mapKey := change.MapKey()
-			newLineNum := change.NewLineNum
-			if newLineNum <= 0 {
-				newLineNum = mapKey
-			}
-			relativeLine := newLineNum - newStart + 1
-
-			if relativeLine > 0 && (relativeLine <= len(stageNewLines) || change.Type == ChangeDeletion) {
-				relativeToBufferLine[relativeLine] = lineNumToBufferLine[mapKey]
-				remapped := change
-				remapped.NewLineNum = relativeLine
-				remappedChanges[relativeLine] = remapped
-			}
-		}
-
-		ctx := &StageContext{
-			BufferStart:         bufferStart,
-			CursorRow:           b.CursorRow,
-			CursorCol:           b.CursorCol,
-			LineNumToBufferLine: relativeToBufferLine,
-		}
-		groups, cursorLine, cursorCol := FinalizeStageGroups(remappedChanges, stageNewLines, ctx)
-
-		stage.BufferStart = bufferStart
-		stage.BufferEnd = bufferEnd
-		stage.Lines = stageNewLines
-		stage.Changes = remappedChanges
-		stage.Groups = groups
-		stage.CursorLine = cursorLine
-		stage.CursorCol = cursorCol
+		stageOldLines = b.OldLines[minOld-1 : maxOld]
+		baseOffset = minOld + b.BaseLineOffset - 1
 	} else {
-		// Pure addition — no old lines to diff against
-		// Compute buffer start from the anchor (line before insertion)
-		bufferStart := b.BaseLineOffset + len(b.OldLines)
-
-		// Find the anchor from the streaming changes
+		// Pure addition — compute buffer insertion point from streaming anchors
+		baseOffset = b.BaseLineOffset + len(b.OldLines)
 		for _, change := range stage.rawChanges {
 			bufLine := b.diffBuilder.LineMapping.GetBufferLine(change, b.BaseLineOffset)
-			if bufferStart == b.BaseLineOffset+len(b.OldLines) || bufLine < bufferStart {
-				bufferStart = bufLine
+			if bufLine > 0 && bufLine < baseOffset {
+				baseOffset = bufLine
 			}
 		}
-
-		// Build addition changes with relative line numbers
-		// Index streaming changes by NewLineNum for lookup
-		streamChangesByNewLine := make(map[int]LineChange)
-		for _, c := range b.diffBuilder.Changes {
-			if c.NewLineNum > 0 {
-				streamChangesByNewLine[c.NewLineNum] = c
-			}
-		}
-		remappedChanges := make(map[int]LineChange)
-		relativeToBufferLine := make(map[int]int)
-		for i, line := range stageNewLines {
-			relativeLine := i + 1
-			absoluteNewLine := newStartLine + i
-			remappedChanges[relativeLine] = LineChange{
-				Type:       ChangeAddition,
-				OldLineNum: -1,
-				NewLineNum: relativeLine,
-				Content:    line,
-			}
-			if origChange, ok := streamChangesByNewLine[absoluteNewLine]; ok {
-				relativeToBufferLine[relativeLine] = b.diffBuilder.LineMapping.GetBufferLine(
-					origChange, b.BaseLineOffset)
-			}
-		}
-
-		ctx := &StageContext{
-			BufferStart:         bufferStart,
-			CursorRow:           b.CursorRow,
-			CursorCol:           b.CursorCol,
-			LineNumToBufferLine: relativeToBufferLine,
-		}
-		groups, cursorLine, cursorCol := FinalizeStageGroups(remappedChanges, stageNewLines, ctx)
-
-		stage.BufferStart = bufferStart
-		stage.BufferEnd = bufferStart
-		stage.Lines = stageNewLines
-		stage.Changes = remappedChanges
-		stage.Groups = groups
-		stage.CursorLine = cursorLine
-		stage.CursorCol = cursorCol
 	}
 
-	b.finalizedStages = append(b.finalizedStages, stage)
-	b.currentStage = nil
+	diff := ComputeDiff(JoinLines(stageOldLines), JoinLines(stageNewLines))
 
-	return stage
-}
+	result := CreateStages(&StagingParams{
+		Diff:               diff,
+		CursorRow:          b.CursorRow,
+		CursorCol:          b.CursorCol,
+		ViewportTop:        0, // disable viewport partitioning within a sub-stage
+		ViewportBottom:     0,
+		BaseLineOffset:     baseOffset,
+		ProximityThreshold: len(stageNewLines) + len(stageOldLines) + 1, // keep all in one stage
+		MaxLines:           0,
+		NewLines:           stageNewLines,
+		OldLines:           stageOldLines,
+		FilePath:           b.FilePath,
+	})
 
-// computeStageBufferRange computes the buffer range for a stage
-func (b *IncrementalStageBuilder) computeStageBufferRange(stage *Stage) (int, int) {
-	diffResult := &DiffResult{
-		Changes:      b.diffBuilder.Changes,
-		LineMapping:  b.diffBuilder.LineMapping,
-		OldLineCount: len(b.OldLines),
-		NewLineCount: len(b.diffBuilder.NewLines),
+	if result == nil || len(result.Stages) == 0 {
+		return nil
 	}
 
-	computeStageRanges(stage, b.BaseLineOffset, diffResult, nil)
-	return stage.BufferStart, stage.BufferEnd
+	return result.Stages[0]
 }
 
 // computeCurrentBufferLine computes the buffer line for the current position

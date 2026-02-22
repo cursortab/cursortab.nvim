@@ -119,6 +119,12 @@ func ValidateRenderHintsForCursor(groups []*Group, cursorRow, cursorCol int) {
 		if g.BufferLine != cursorRow {
 			continue
 		}
+		// Skip validation when old line is empty — the entire line is new content,
+		// so there's nothing for the overlay to hide.
+		oldLineEmpty := len(g.OldLines) == 1 && g.OldLines[0] == ""
+		if oldLineEmpty {
+			continue
+		}
 		switch g.RenderHint {
 		case "append_chars":
 			if g.ColStart < cursorCol {

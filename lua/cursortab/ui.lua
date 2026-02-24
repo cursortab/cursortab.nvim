@@ -200,18 +200,6 @@ local function ensure_close_completion()
 	completion_windows = {}
 end
 
--- Get the editor column offset (signs, number col, etc.)
----@param win integer
----@return integer
-local function get_editor_col_offset(win)
-	---@type table[]
-	local wininfo = vim.fn.getwininfo(win)
-	if #wininfo > 0 then
-		return wininfo[1].textoff or 0
-	end
-	return 0
-end
-
 -- Trim a string by a given number of display columns from the left
 ---@param text string
 ---@param display_cols integer
@@ -249,6 +237,7 @@ end
 ---@param bg_highlight string|nil
 ---@param min_width integer|nil
 ---@param cursorline_buffer_line integer|nil 0-indexed buffer line for cursorline matching, nil to skip
+---@param ns_id integer|nil namespace id for extmarks
 ---@return integer, integer, integer # overlay_win, overlay_buf, bytes_trimmed_first_line
 local function create_overlay_window(
 	parent_win,
@@ -258,29 +247,29 @@ local function create_overlay_window(
 	syntax_ft,
 	bg_highlight,
 	min_width,
-	cursorline_buffer_line
+	cursorline_buffer_line,
+	ns_id
 )
 	-- Create buffer for overlay content
-	---@type integer
 	local overlay_buf = vim.api.nvim_create_buf(false, true)
 
 	-- Set buffer content
 	---@type string[]
 	local content_lines = type(content) == "table" and content or { content }
 
-	-- Determine horizontal scroll (leftmost visible text column) for the parent window
-	---@type integer
-	local leftcol = vim.api.nvim_win_call(parent_win, function()
-		local view = vim.fn.winsaveview()
-		return view.leftcol or 0
-	end)
+	-- Query parent window state once: topline, leftcol, textoff, cursor, cursorline
+	---@type {topline: integer, leftcol: integer, textoff: integer}
+	local wininfo = vim.fn.getwininfo(parent_win)[1]
+	local leftcol = wininfo.leftcol
+	local first_visible_line = wininfo.topline
+	local textoff = wininfo.textoff or 0
+	local cursor_line = vim.api.nvim_win_get_cursor(parent_win)[1] - 1
+	local cursorline_enabled = vim.api.nvim_get_option_value("cursorline", { win = parent_win })
 
 	-- Compute how many display columns of the overlay content are scrolled off to the left
-	---@type integer
 	local trim_cols = math.max(0, leftcol - col)
 
 	-- If needed, trim the left side of each line by trim_cols display columns
-	---@type integer
 	local bytes_trimmed_first_line = 0
 	if trim_cols > 0 then
 		for i, line_content in ipairs(content_lines) do
@@ -303,7 +292,6 @@ local function create_overlay_window(
 	vim.api.nvim_set_option_value("modifiable", false, { buf = overlay_buf })
 
 	-- Calculate window dimensions
-	---@type integer
 	local max_width = 0
 	for _, line_content in ipairs(content_lines) do
 		max_width = math.max(max_width, vim.fn.strdisplaywidth(line_content))
@@ -316,27 +304,16 @@ local function create_overlay_window(
 		max_width = math.max(max_width, adjusted_min_width)
 	end
 
-	-- Get editor offsets
-	---@type integer
-	local left_offset = get_editor_col_offset(parent_win)
-
-	-- Convert absolute buffer line to window-relative line
-	-- buffer_line is 0-based, but we need window-relative positioning
-	---@type integer
-	local first_visible_line = vim.api.nvim_win_call(parent_win, function()
-		return vim.fn.line("w0")
-	end)
-	---@type integer
+	-- Convert absolute buffer line to window-relative line (buffer_line is 0-based)
 	local window_relative_line = buffer_line - (first_visible_line - 1)
 
 	-- Create floating window
-	---@type integer
 	local overlay_win = vim.api.nvim_open_win(overlay_buf, false, {
 		relative = "win",
 		win = parent_win,
 		row = window_relative_line,
 		-- Position horizontally relative to the visible text start (leftcol)
-		col = left_offset + math.max(0, col - leftcol),
+		col = textoff + math.max(0, col - leftcol),
 		width = max_width,
 		height = #content_lines,
 		style = "minimal",
@@ -347,6 +324,8 @@ local function create_overlay_window(
 		fixed = true,
 	})
 
+	local overlay_has_cursor_line = cursor_line >= buffer_line and cursor_line < buffer_line + #content_lines
+
 	-- Inherit conceal settings from parent window so overlay text renders identically.
 	-- On the cursor line, Neovim reveals concealed text (unless the mode is in 'concealcursor'),
 	-- but the overlay has no cursor so it always conceals. When the overlay covers the cursor line
@@ -356,14 +335,16 @@ local function create_overlay_window(
 	if parent_conceallevel > 0 then
 		local parent_concealcursor = vim.api.nvim_get_option_value("concealcursor", { win = parent_win })
 		vim.api.nvim_set_option_value("concealcursor", parent_concealcursor, { win = overlay_win })
-		local cursor_line = vim.api.nvim_win_get_cursor(parent_win)[1] - 1
-		if cursor_line >= buffer_line and cursor_line < buffer_line + #content_lines then
+		if overlay_has_cursor_line then
 			local mode = vim.api.nvim_get_mode().mode:sub(1, 1)
 			if not parent_concealcursor:find(mode, 1, true) then
 				vim.api.nvim_set_option_value("conceallevel", 0, { win = overlay_win })
 			end
 		end
 	end
+
+	-- Resolve namespace id for extmarks
+	ns_id = ns_id or daemon.get_namespace_id()
 
 	-- Set background highlighting to match main window
 	if bg_highlight and bg_highlight ~= "" then
@@ -381,17 +362,11 @@ local function create_overlay_window(
 		then
 			vim.api.nvim_win_set_hl_ns(overlay_win, get_dimmed_ns(1 - config.get().ui.completions.fg_opacity))
 			if cursorline_buffer_line then
-				local cursorline_enabled = vim.api.nvim_win_call(parent_win, function()
-					return vim.wo.cursorline
-				end)
 				if cursorline_enabled then
-					local current_line = vim.api.nvim_win_call(parent_win, function()
-						return vim.fn.line(".")
-					end)
-					local cursor_offset = (current_line - 1) - cursorline_buffer_line
+					local cursor_offset = cursor_line - cursorline_buffer_line
 					if cursor_offset >= 0 and cursor_offset < #content_lines then
 						local line_text = content_lines[cursor_offset + 1] or ""
-						vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), cursor_offset, 0, {
+						vim.api.nvim_buf_set_extmark(overlay_buf, ns_id, cursor_offset, 0, {
 							end_col = #line_text,
 							hl_group = "CursorLine",
 							hl_eol = true,
@@ -403,21 +378,11 @@ local function create_overlay_window(
 			vim.api.nvim_set_option_value("winhighlight", "Normal:" .. bg_highlight, { win = overlay_win })
 		end
 	else
-		-- Check if overlay is on cursor line and cursorline is enabled
-		---@type integer
-		local current_line = vim.api.nvim_win_call(parent_win, function()
-			return vim.fn.line(".")
-		end)
-		---@type boolean
-		local cursorline_enabled = vim.api.nvim_win_call(parent_win, function()
-			return vim.wo.cursorline
-		end)
-
 		-- Always ensure no transparency
 		vim.api.nvim_set_option_value("winblend", 0, { win = overlay_win })
 
 		-- Use CursorLine highlight if overlay is on cursor line and cursorline is active
-		if cursorline_enabled and (buffer_line + 1) == current_line then
+		if cursorline_enabled and buffer_line == cursor_line then
 			vim.api.nvim_set_option_value("winhighlight", "Normal:CursorLine", { win = overlay_win })
 		else
 			vim.api.nvim_set_option_value("winhighlight", "Normal:Normal", { win = overlay_win })
@@ -437,14 +402,48 @@ local function clear_expected_line_state()
 	append_chars_state = nil
 end
 
+-- Highlight a line with deletion background
+---@param nvim_line integer 0-indexed line number
+---@param current_buf integer
+---@param ns_id integer
+local function highlight_deletion(nvim_line, current_buf, ns_id)
+	local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
+
+	if line_content ~= "" then
+		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
+			end_col = #line_content,
+			hl_group = "CursorTabDeletion",
+			hl_mode = "combine",
+		})
+		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
+	else
+		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
+			line_hl_group = "CursorTabDeletion",
+		})
+		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
+	end
+end
+
 -- Render append_chars: show only the appended part as ghost text
 ---@param group Group
 ---@param nvim_line integer 0-indexed line number
+---@param current_win integer
 ---@param current_buf integer
+---@param syntax_ft string
+---@param ns_id integer
 ---@param is_first_append boolean
 ---@param virt_line_offset integer Number of virtual lines added above this point
 ---@return boolean was_first_append True if this was stored as the first append_chars
-local function render_append_chars(group, nvim_line, current_buf, is_first_append, virt_line_offset)
+local function render_append_chars(
+	group,
+	nvim_line,
+	current_win,
+	current_buf,
+	syntax_ft,
+	ns_id,
+	is_first_append,
+	virt_line_offset
+)
 	local content = group.lines[1] or ""
 	local col_start = group.col_start or 0
 	local appended_text = string.sub(content, col_start + 1)
@@ -472,8 +471,6 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 
 	if appended_text and appended_text ~= "" then
 		if config.get().ui.completions.addition_style == "dimmed" then
-			local current_win = vim.api.nvim_get_current_win()
-			local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
 			local overlay_win, overlay_buf, _ = create_overlay_window(
 				current_win,
 				nvim_line + virt_line_offset,
@@ -482,7 +479,8 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 				syntax_ft,
 				"CursorTabAddition",
 				nil,
-				nvim_line
+				nvim_line,
+				ns_id
 			)
 			table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 
@@ -495,12 +493,11 @@ local function render_append_chars(group, nvim_line, current_buf, is_first_appen
 			local line_length = #line_content
 			local virt_col = math.min(col_start, line_length)
 
-			local extmark_id =
-				vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, virt_col, {
-					virt_text = { { appended_text, "CursorTabCompletion" } },
-					virt_text_pos = "overlay",
-					hl_mode = "combine",
-				})
+			local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, virt_col, {
+				virt_text = { { appended_text, "CursorTabCompletion" } },
+				virt_text_pos = "overlay",
+				hl_mode = "combine",
+			})
 			table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
 
 			if is_first_append then
@@ -517,7 +514,8 @@ end
 ---@param group Group
 ---@param nvim_line integer 0-indexed line number
 ---@param current_buf integer
-local function render_delete_chars(group, nvim_line, current_buf)
+---@param ns_id integer
+local function render_delete_chars(group, nvim_line, current_buf, ns_id)
 	local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
 	local line_length = #line_content
 
@@ -525,7 +523,7 @@ local function render_delete_chars(group, nvim_line, current_buf)
 	local col_end = math.max(col_start, math.min(group.col_end or 0, line_length))
 
 	if col_end > col_start then
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, col_start, {
+		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, col_start, {
 			end_col = col_end,
 			hl_group = "CursorTabDeletion",
 			hl_mode = "combine",
@@ -538,16 +536,16 @@ end
 ---@param group Group
 ---@param nvim_line integer 0-indexed line number
 ---@param current_win integer
----@param current_buf integer
-local function render_replace_chars(group, nvim_line, current_win, current_buf)
-	local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+---@param syntax_ft string
+---@param ns_id integer
+local function render_replace_chars(group, nvim_line, current_win, syntax_ft, ns_id)
 	local content = group.lines[1] or ""
 	local old_content = (group.old_lines and group.old_lines[1]) or ""
 	local original_line_width = vim.fn.strdisplaywidth(old_content)
 
 	if content ~= "" then
 		local overlay_win, overlay_buf, bytes_trimmed =
-			create_overlay_window(current_win, nvim_line, 0, content, syntax_ft, nil, original_line_width)
+			create_overlay_window(current_win, nvim_line, 0, content, syntax_ft, nil, original_line_width, nil, ns_id)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 
 		-- Highlight the changed portion
@@ -556,7 +554,7 @@ local function render_replace_chars(group, nvim_line, current_win, current_buf)
 		local start_col = math.max(0, (group.col_start or 0) - (bytes_trimmed or 0))
 		local end_col = math.max(start_col, math.min(ov_len, (group.col_end or start_col) - (bytes_trimmed or 0)))
 		if end_col > start_col then
-			vim.api.nvim_buf_set_extmark(overlay_buf, daemon.get_namespace_id(), 0, start_col, {
+			vim.api.nvim_buf_set_extmark(overlay_buf, ns_id, 0, start_col, {
 				end_col = end_col,
 				hl_group = "CursorTabAddition",
 			})
@@ -564,104 +562,33 @@ local function render_replace_chars(group, nvim_line, current_win, current_buf)
 	end
 end
 
--- Check if content at a given column would overflow the window's text area
----@param win integer
----@param col integer Display column where content starts
----@param content string Content to display
----@return boolean
-local function would_overflow_window(win, col, content)
-	local available = vim.api.nvim_win_get_width(win) - get_editor_col_offset(win)
-	return col + vim.fn.strdisplaywidth(content) > available
-end
-
--- Render single-line modification: highlight old line, show new content to the right
+-- Render modification group: highlight old lines as deletion, show new content side-by-side or stacked
 ---@param group Group
----@param nvim_line integer 0-indexed line number
+---@param nvim_line integer 0-indexed line number of the first line in the group
 ---@param virt_line_offset integer Number of virtual lines added above this point
 ---@param current_win integer
 ---@param current_buf integer
+---@param syntax_ft string
+---@param ns_id integer
 ---@return integer virt_lines_added Number of virtual lines added by stacked fallback
-local function render_single_modification(group, nvim_line, virt_line_offset, current_win, current_buf)
-	local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
-	local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
-	local content = group.lines[1] or ""
-
-	-- Highlight existing line with deletion background
-	if line_content ~= "" then
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-			end_col = #line_content,
-			hl_group = "CursorTabDeletion",
-			hl_mode = "combine",
-		})
-		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
-	end
-
-	if content ~= "" then
-		local line_width = vim.fn.strdisplaywidth(line_content)
-		local overlay_col = line_width + 2
-
-		if would_overflow_window(current_win, overlay_col, content) then
-			-- Stacked fallback: render new content as virtual line below
-			local virtual_extmark_id =
-				vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-					virt_lines = { { { "", "Normal" } } },
-					virt_lines_above = false,
-				})
-			table.insert(completion_extmarks, { buf = current_buf, extmark_id = virtual_extmark_id })
-
-			local win_width = vim.api.nvim_win_get_width(current_win)
-			local overlay_win, overlay_buf, _ = create_overlay_window(
-				current_win,
-				nvim_line + virt_line_offset + 1,
-				0,
-				content,
-				syntax_ft,
-				"CursorTabModification",
-				win_width
-			)
-			table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
-			return 1
-		else
-			-- Side-by-side overlay
-			local overlay_win, overlay_buf, _ = create_overlay_window(
-				current_win,
-				nvim_line + virt_line_offset,
-				overlay_col,
-				content,
-				syntax_ft,
-				"CursorTabModification",
-				nil
-			)
-			table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
-		end
-	end
-	return 0
-end
-
--- Render multi-line modification group: each old line highlighted as deletion,
--- each new line shown side-by-side to the right (same style as single-line modifications).
----@param group Group
----@param virt_line_offset integer Number of virtual lines added above this point
----@param current_win integer
----@param current_buf integer
----@return integer virt_lines_added Number of virtual lines added by stacked fallback
-local function render_modification_group(group, virt_line_offset, current_win, current_buf)
-	local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+local function render_modification(group, nvim_line, virt_line_offset, current_win, current_buf, syntax_ft, ns_id)
 	local line_count = group.end_line - group.start_line + 1
+	local win_width = vim.api.nvim_win_get_width(current_win)
+	local textoff = vim.fn.getwininfo(current_win)[1].textoff or 0
+	local available = win_width - textoff
 
 	-- Compute max display width across all old lines so overlays align
-	local max_width = 0
+	local max_old_width = 0
 	for i = 1, line_count do
-		local line_nvim = group.buffer_line + i - 2
-		local line_content = vim.api.nvim_buf_get_lines(current_buf, line_nvim, line_nvim + 1, false)[1] or ""
+		local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line + i - 1, nvim_line + i, false)[1] or ""
 		local w = vim.fn.strdisplaywidth(line_content)
-		if w > max_width then
-			max_width = w
+		if w > max_old_width then
+			max_old_width = w
 		end
 	end
-	local overlay_col = max_width + 2
+	local overlay_col = max_old_width + 2
 
-	-- Check if any new line would overflow
+	-- Compute max display width of new lines
 	local max_new_width = 0
 	for i = 1, line_count do
 		local new_line = group.lines[i]
@@ -673,50 +600,40 @@ local function render_modification_group(group, virt_line_offset, current_win, c
 		end
 	end
 
-	local use_stacked = would_overflow_window(current_win, overlay_col, string.rep("x", max_new_width))
+	local use_stacked = overlay_col + max_new_width > available
 
 	-- Highlight all old lines with deletion background
 	for i = 1, line_count do
-		local line_nvim = group.buffer_line + i - 2
-		local line_content = vim.api.nvim_buf_get_lines(current_buf, line_nvim, line_nvim + 1, false)[1] or ""
-
-		if line_content ~= "" then
-			local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), line_nvim, 0, {
-				end_col = #line_content,
-				hl_group = "CursorTabDeletion",
-				hl_mode = "combine",
-			})
-			table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
-		end
+		highlight_deletion(nvim_line + i - 1, current_buf, ns_id)
 	end
 
 	if use_stacked then
 		-- Stacked fallback: insert virtual lines below the last old line
-		local last_nvim_line = group.buffer_line + line_count - 2
+		local last_nvim_line = nvim_line + line_count - 1
 		local virt_lines_array = {}
 		for _ = 1, line_count do
 			table.insert(virt_lines_array, { { "", "Normal" } })
 		end
-		local virtual_extmark_id =
-			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_nvim_line, 0, {
-				virt_lines = virt_lines_array,
-				virt_lines_above = false,
-			})
+		local virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, last_nvim_line, 0, {
+			virt_lines = virt_lines_array,
+			virt_lines_above = false,
+		})
 		table.insert(completion_extmarks, { buf = current_buf, extmark_id = virtual_extmark_id })
 
-		local win_width = vim.api.nvim_win_get_width(current_win)
 		for i = 1, line_count do
 			local new_line = group.lines[i]
 			if new_line and new_line ~= "" then
-				local overlay_line = last_nvim_line + virt_line_offset + i
+				local overlay_target = last_nvim_line + virt_line_offset + i
 				local overlay_win, overlay_buf, _ = create_overlay_window(
 					current_win,
-					overlay_line,
+					overlay_target,
 					0,
 					new_line,
 					syntax_ft,
 					"CursorTabModification",
-					win_width
+					win_width,
+					nil,
+					ns_id
 				)
 				table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 			end
@@ -725,17 +642,18 @@ local function render_modification_group(group, virt_line_offset, current_win, c
 	else
 		-- Side-by-side overlays
 		for i = 1, line_count do
-			local line_nvim = group.buffer_line + i - 2
 			local new_line = group.lines[i]
 			if new_line and new_line ~= "" then
 				local overlay_win, overlay_buf, _ = create_overlay_window(
 					current_win,
-					line_nvim + virt_line_offset,
+					nvim_line + i - 1 + virt_line_offset,
 					overlay_col,
 					new_line,
 					syntax_ft,
 					"CursorTabModification",
-					nil
+					nil,
+					nil,
+					ns_id
 				)
 				table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 			end
@@ -744,55 +662,17 @@ local function render_modification_group(group, virt_line_offset, current_win, c
 	end
 end
 
--- Render single-line addition: virtual line + overlay window
+-- Render addition group: virtual lines + overlay window
 ---@param group Group
 ---@param nvim_line integer 0-indexed line number
 ---@param virt_line_offset integer Number of virtual lines added above this point
 ---@param current_win integer
 ---@param current_buf integer
-local function render_single_addition(group, nvim_line, virt_line_offset, current_win, current_buf)
-	local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
-	local buf_line_count = vim.api.nvim_buf_line_count(current_buf)
-	local content = group.lines[1] or ""
-
-	local virtual_extmark_id
-	local overlay_line
-	if nvim_line >= buf_line_count then
-		local last_existing_line = buf_line_count - 1
-		virtual_extmark_id =
-			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_existing_line, 0, {
-				virt_lines = { { { "", "Normal" } } },
-				virt_lines_above = false,
-			})
-		overlay_line = buf_line_count + virt_line_offset
-	else
-		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-			virt_lines = { { { "", "Normal" } } },
-			virt_lines_above = true,
-		})
-		overlay_line = nvim_line + virt_line_offset
-	end
-	table.insert(completion_extmarks, { buf = current_buf, extmark_id = virtual_extmark_id })
-
-	local win_width = vim.api.nvim_win_get_width(current_win)
-	local display_content = content ~= "" and content or " "
-	local overlay_win, overlay_buf, _ =
-		create_overlay_window(current_win, overlay_line, 0, display_content, syntax_ft, "CursorTabAddition", win_width)
-	table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
-end
-
--- Render multi-line addition group: virtual lines + overlay window
----@param group Group
----@param virt_line_offset integer Number of virtual lines added above this point
----@param current_win integer
----@param current_buf integer
-local function render_addition_group(group, virt_line_offset, current_win, current_buf)
-	local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+---@param syntax_ft string
+---@param ns_id integer
+local function render_addition(group, nvim_line, virt_line_offset, current_win, current_buf, syntax_ft, ns_id)
 	local buf_line_count = vim.api.nvim_buf_line_count(current_buf)
 	local line_count = group.end_line - group.start_line + 1
-
-	-- buffer_line is 1-indexed; convert to 0-indexed for nvim API
-	local nvim_line = group.buffer_line - 1
 
 	-- Create empty virtual lines as placeholders
 	local virt_lines_array = {}
@@ -804,14 +684,13 @@ local function render_addition_group(group, virt_line_offset, current_win, curre
 	local overlay_line
 	if nvim_line >= buf_line_count then
 		local last_existing_line = buf_line_count - 1
-		virtual_extmark_id =
-			vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), last_existing_line, 0, {
-				virt_lines = virt_lines_array,
-				virt_lines_above = false,
-			})
+		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, last_existing_line, 0, {
+			virt_lines = virt_lines_array,
+			virt_lines_above = false,
+		})
 		overlay_line = buf_line_count + virt_line_offset
 	else
-		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
+		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
 			virt_lines = virt_lines_array,
 			virt_lines_above = true,
 		})
@@ -834,30 +713,11 @@ local function render_addition_group(group, virt_line_offset, current_win, curre
 			display_lines,
 			syntax_ft,
 			"CursorTabAddition",
-			win_width
+			win_width,
+			nil,
+			ns_id
 		)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
-	end
-end
-
--- Render line deletion: highlight the entire line
----@param nvim_line integer 0-indexed line number
----@param current_buf integer
-local function render_deletion(nvim_line, current_buf)
-	local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
-
-	if line_content ~= "" then
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-			end_col = #line_content,
-			hl_group = "CursorTabDeletion",
-			hl_mode = "combine",
-		})
-		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
-	else
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, daemon.get_namespace_id(), nvim_line, 0, {
-			line_hl_group = "CursorTabDeletion",
-		})
-		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
 	end
 end
 
@@ -875,6 +735,10 @@ local function show_completion(diff_result)
 		return
 	end
 
+	-- Cache values used across all groups
+	local syntax_ft = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+	local ns_id = daemon.get_namespace_id()
+
 	local found_first_append = false
 	local virt_line_offset = 0 -- Track cumulative virtual lines for overlay positioning
 
@@ -889,37 +753,36 @@ local function show_completion(diff_result)
 		if is_single_line and group.render_hint and group.render_hint ~= "" then
 			if group.render_hint == "append_chars" then
 				local is_first = not found_first_append
-				render_append_chars(group, nvim_line, current_buf, is_first, virt_line_offset)
+				render_append_chars(
+					group,
+					nvim_line,
+					current_win,
+					current_buf,
+					syntax_ft,
+					ns_id,
+					is_first,
+					virt_line_offset
+				)
 				if is_first then
 					found_first_append = true
 				end
 			elseif group.render_hint == "replace_chars" then
-				render_replace_chars(group, nvim_line, current_win, current_buf)
+				render_replace_chars(group, nvim_line, current_win, syntax_ft, ns_id)
 			elseif group.render_hint == "delete_chars" then
-				render_delete_chars(group, nvim_line, current_buf)
+				render_delete_chars(group, nvim_line, current_buf, ns_id)
 			end
 		elseif group.type == "modification" then
-			if is_single_line then
-				virt_line_offset = virt_line_offset
-					+ render_single_modification(group, nvim_line, virt_line_offset, current_win, current_buf)
-			else
-				virt_line_offset = virt_line_offset
-					+ render_modification_group(group, virt_line_offset, current_win, current_buf)
-			end
+			virt_line_offset = virt_line_offset
+				+ render_modification(group, nvim_line, virt_line_offset, current_win, current_buf, syntax_ft, ns_id)
 		elseif group.type == "addition" then
 			local line_count = group.end_line - group.start_line + 1
-			if is_single_line then
-				render_single_addition(group, nvim_line, virt_line_offset, current_win, current_buf)
-			else
-				render_addition_group(group, virt_line_offset, current_win, current_buf)
-			end
+			render_addition(group, nvim_line, virt_line_offset, current_win, current_buf, syntax_ft, ns_id)
 			-- Update offset for subsequent overlays
 			virt_line_offset = virt_line_offset + line_count
 		elseif group.type == "deletion" then
 			-- Deletions are always rendered per-line within the group
 			for i = 1, (group.end_line - group.start_line + 1) do
-				local del_nvim_line = nvim_line + i - 1
-				render_deletion(del_nvim_line, current_buf)
+				highlight_deletion(nvim_line + i - 1, current_buf, ns_id)
 			end
 		end
 	end

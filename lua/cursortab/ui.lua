@@ -347,6 +347,24 @@ local function create_overlay_window(
 		fixed = true,
 	})
 
+	-- Inherit conceal settings from parent window so overlay text renders identically.
+	-- On the cursor line, Neovim reveals concealed text (unless the mode is in 'concealcursor'),
+	-- but the overlay has no cursor so it always conceals. When the overlay covers the cursor line
+	-- and concealed text would be revealed, disable concealment to match.
+	local parent_conceallevel = vim.api.nvim_get_option_value("conceallevel", { win = parent_win })
+	vim.api.nvim_set_option_value("conceallevel", parent_conceallevel, { win = overlay_win })
+	if parent_conceallevel > 0 then
+		local parent_concealcursor = vim.api.nvim_get_option_value("concealcursor", { win = parent_win })
+		vim.api.nvim_set_option_value("concealcursor", parent_concealcursor, { win = overlay_win })
+		local cursor_line = vim.api.nvim_win_get_cursor(parent_win)[1] - 1
+		if cursor_line >= buffer_line and cursor_line < buffer_line + #content_lines then
+			local mode = vim.api.nvim_get_mode().mode:sub(1, 1)
+			if not parent_concealcursor:find(mode, 1, true) then
+				vim.api.nvim_set_option_value("conceallevel", 0, { win = overlay_win })
+			end
+		end
+	end
+
 	-- Set background highlighting to match main window
 	if bg_highlight and bg_highlight ~= "" then
 		local has_content = false
@@ -356,7 +374,11 @@ local function create_overlay_window(
 				break
 			end
 		end
-		if bg_highlight == "CursorTabAddition" and config.get().ui.completions.addition_style == "dimmed" and has_content then
+		if
+			bg_highlight == "CursorTabAddition"
+			and config.get().ui.completions.addition_style == "dimmed"
+			and has_content
+		then
 			vim.api.nvim_win_set_hl_ns(overlay_win, get_dimmed_ns(1 - config.get().ui.completions.fg_opacity))
 			if cursorline_buffer_line then
 				local cursorline_enabled = vim.api.nvim_win_call(parent_win, function()
@@ -805,8 +827,15 @@ local function render_addition_group(group, virt_line_offset, current_win, curre
 		for _, line in ipairs(group.lines) do
 			table.insert(display_lines, line ~= "" and line or " ")
 		end
-		local overlay_win, overlay_buf, _ =
-			create_overlay_window(current_win, overlay_line, 0, display_lines, syntax_ft, "CursorTabAddition", win_width)
+		local overlay_win, overlay_buf, _ = create_overlay_window(
+			current_win,
+			overlay_line,
+			0,
+			display_lines,
+			syntax_ft,
+			"CursorTabAddition",
+			win_width
+		)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end
 end

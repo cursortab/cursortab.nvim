@@ -280,7 +280,20 @@ func (e *Engine) processCompletion(completion *types.Completion) bool {
 
 	bufferLines := e.buffer.Lines()
 	var originalLines []string
-	endLine := max(completion.EndLineInc, completion.StartLine+len(completion.Lines)-1)
+	endLine := completion.EndLineInc
+	// Extend the old range only when buffer lines beyond EndLineInc match the
+	// corresponding completion lines. This handles the case where a streaming
+	// stage accept already applied part of the completion to the buffer, making
+	// EndLineInc stale. Without matching, unrelated buffer lines get pulled in
+	// and appear as spurious deletions.
+	for i := endLine + 1; i < completion.StartLine+len(completion.Lines) && i-1 < len(bufferLines); i++ {
+		compIdx := i - completion.StartLine
+		if compIdx < len(completion.Lines) && bufferLines[i-1] == completion.Lines[compIdx] {
+			endLine = i
+		} else {
+			break
+		}
+	}
 	for i := completion.StartLine; i <= endLine && i-1 < len(bufferLines); i++ {
 		originalLines = append(originalLines, bufferLines[i-1])
 	}

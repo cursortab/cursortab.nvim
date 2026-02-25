@@ -55,7 +55,15 @@ type scenarioResult struct {
 
 func extractOldLines(bufferLines []string, comp *completionData) (oldLines []string, origEnd, actualEnd int) {
 	origEnd = comp.EndLineInc
-	actualEnd = max(comp.EndLineInc, comp.StartLine+len(comp.Lines)-1)
+	actualEnd = comp.EndLineInc
+	for i := actualEnd + 1; i < comp.StartLine+len(comp.Lines) && i-1 < len(bufferLines); i++ {
+		compIdx := i - comp.StartLine
+		if compIdx < len(comp.Lines) && bufferLines[i-1] == comp.Lines[compIdx] {
+			actualEnd = i
+		} else {
+			break
+		}
+	}
 	for i := comp.StartLine; i <= actualEnd && i-1 < len(bufferLines); i++ {
 		oldLines = append(oldLines, bufferLines[i-1])
 	}
@@ -143,15 +151,8 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 
 		case "prefetch":
 			if step.Completion != nil {
-				// Prefetch extends EndLineInc before calling processCompletion
-				effectiveComp := *step.Completion
-				completionEnd := effectiveComp.StartLine + len(effectiveComp.Lines) - 1
-				if completionEnd > effectiveComp.EndLineInc && completionEnd <= len(buf.lines) {
-					effectiveComp.EndLineInc = completionEnd
-				}
-				sr.OldLines, _, sr.OldEndActual = extractOldLines(buf.lines, &effectiveComp)
+				sr.OldLines, sr.OldEndOrig, sr.OldEndActual = extractOldLines(buf.lines, step.Completion)
 				sr.OldStart = step.Completion.StartLine
-				sr.OldEndOrig = step.Completion.EndLineInc
 				sr.NewLines = step.Completion.Lines
 
 				eng.prefetchedCompletions = []*types.Completion{{

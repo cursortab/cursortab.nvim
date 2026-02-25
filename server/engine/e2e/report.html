@@ -68,16 +68,16 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
-<h1>Engine E2E Report <span class="stats"><span class="meta">2 fixtures</span><span class="pass">1 pass</span><span class="fail">1 fail</span></span></h1>
+<h1>Engine E2E Report <span class="stats"><span class="meta">2 fixtures</span><span class="pass">2 pass</span></span></h1>
 <div class="filters">
 <button class="filter-btn active" data-filter="all">All (2)</button>
-<button class="filter-btn" data-filter="passed">Passed (1)</button>
-<button class="filter-btn" data-filter="failed">Failed (1)</button>
+<button class="filter-btn" data-filter="passed">Passed (2)</button>
+<button class="filter-btn" data-filter="failed">Failed (0)</button>
 </div>
 <details class="fixture" data-status="passed" open>
 <summary class="hdr"><h2>insertion-no-spurious-groups</h2><span class="pass">PASS</span><span class="meta">After accepting a streaming stage that inserts lines below cursor, a follow-up FIM completion with stale EndLineInc should not treat already-accepted buffer lines as changes</span></summary>
 <div class="step-label">Step 0: completion <span class="pass">PASS</span></div>
-<div class="step-label"><span class="meta">startLine=3 endLineInc=3 lines=7 → extractedEnd=9</span></div>
+<div class="step-label"><span class="meta">startLine=3 endLineInc=3 lines=7 → extractedEnd=6</span></div>
 <div class="cols-3">
 <div class="pane">
 <h3>Buffer</h3><pre><span class="line"><span class="ln">1</span>import numpy as np</span><span class="line"><span class="ln">2</span></span><span class="line mod"><span class="ln">3</span>def bubble_sort(arr):</span><span class="line wrong-line"><span class="ln">4</span>    n = len(arr)</span><span class="line wrong-line"><span class="ln">5</span>    for i in range(n):<span class="cursor"> </span></span><span class="line wrong-line"><span class="ln">6</span>        for j in range(0, n - i - 1):</span></pre></div>
@@ -135,22 +135,21 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 }</code>
 </details></div>
 </details>
-<details class="fixture" data-status="failed" open>
-<summary class="hdr"><h2>prefetch-insertion-no-spurious-deletion</h2><span class="fail">FAIL</span><span class="meta">Prefetch completion inserting for-loop body (1 old line -&gt; 3 new lines) should not delete unrelated lines below. Reproduces issue #51.</span></summary>
-<div class="step-label">Step 0: prefetch <span class="fail">FAIL</span></div>
-<div class="step-label"><span class="meta">startLine=5 endLineInc=5 lines=3 → extractedEnd=7</span></div>
+<details class="fixture" data-status="passed" open>
+<summary class="hdr"><h2>prefetch-insertion-no-spurious-deletion</h2><span class="pass">PASS</span><span class="meta">Prefetch completion inserting for-loop body (1 old line -&gt; 3 new lines) should not delete unrelated lines below.</span></summary>
+<div class="step-label">Step 0: prefetch <span class="pass">PASS</span></div>
+<div class="step-label"><span class="meta">startLine=5 endLineInc=5 lines=3 → extractedEnd=5</span></div>
 <div class="cols-3">
 <div class="pane">
-<h3>Buffer</h3><pre><span class="line"><span class="ln">1</span>var arra = [1, 2, 3];</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span>function test() {</span><span class="line"><span class="ln">4</span>  for (var i = 0; i &lt; arra.length; i++) {<span class="cursor"> </span></span><span class="line mod"><span class="ln">5</span>}</span><span class="line wrong-line"><span class="ln">6</span></span><span class="line wrong-line"><span class="ln">7</span>function test2() {</span><span class="line"><span class="ln">8</span>  console.log(arra);</span><span class="line"><span class="ln">9</span>}</span><span class="line"><span class="ln">10</span>  </span></pre></div>
+<h3>Buffer</h3><pre><span class="line"><span class="ln">1</span>var arra = [1, 2, 3];</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span>function test() {</span><span class="line"><span class="ln">4</span>  for (var i = 0; i &lt; arra.length; i++) {<span class="cursor"> </span></span><span class="line mod"><span class="ln">5</span>}</span><span class="line"><span class="ln">6</span></span><span class="line"><span class="ln">7</span>function test2() {</span><span class="line"><span class="ln">8</span>  console.log(arra);</span><span class="line"><span class="ln">9</span>}</span><span class="line"><span class="ln">10</span>  </span></pre></div>
 <div class="pane">
-<h3>Old (extracted)</h3><pre><span class="line"><span class="ln">5</span>}</span><span class="line wrong-line"><span class="ln">6</span></span><span class="line wrong-line"><span class="ln">7</span>function test2() {</span></pre>
+<h3>Old (extracted)</h3><pre><span class="line"><span class="ln">5</span>}</span></pre>
 <h3>New (completion)</h3><pre><span class="line add"><span class="ln">1</span>    console.log(arra[i]);</span><span class="line add"><span class="ln">2</span>  }</span><span class="line add"><span class="ln">3</span>}</span></pre></div>
 <div class="pane">
-<h3>After Accept</h3><pre><span class="line"><span class="ln">1</span>var arra = [1, 2, 3];</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span>function test() {</span><span class="line"><span class="ln">4</span>  for (var i = 0; i &lt; arra.length; i++) {</span><span class="line wrong-line"><span class="ln">5</span>}</span><span class="line wrong-line"><span class="ln">6</span>    console.log(arra[i]);</span><span class="line wrong-line"><span class="ln">7</span>  }</span><span class="line wrong-line"><span class="ln">8</span>  console.log(arra);</span><span class="line wrong-line"><span class="ln">9</span>}</span><span class="line wrong-line"><span class="ln">10</span>  </span><span class="line wrong-line"><span class="ln">11</span>(missing)</span><span class="line wrong-line"><span class="ln">12</span>(missing)</span></pre></div>
+<h3>After Accept</h3><pre><span class="line"><span class="ln">1</span>var arra = [1, 2, 3];</span><span class="line"><span class="ln">2</span></span><span class="line"><span class="ln">3</span>function test() {</span><span class="line"><span class="ln">4</span>  for (var i = 0; i &lt; arra.length; i++) {</span><span class="line"><span class="ln">5</span>    console.log(arra[i]);</span><span class="line"><span class="ln">6</span>  }</span><span class="line"><span class="ln">7</span>}</span><span class="line"><span class="ln">8</span></span><span class="line"><span class="ln">9</span>function test2() {</span><span class="line"><span class="ln">10</span>  console.log(arra);</span><span class="line"><span class="ln">11</span>}</span><span class="line"><span class="ln">12</span>  </span></pre></div>
 </div>
-<div class="step-label">Groups: <span class="group-tag addition">addition @5</span> <span class="group-tag deletion">deletion @6</span> </div>
-<div class="step-label"><span class="fail">Failures:</span> <span class="meta">unexpected deletion at buffer_line 6</span> <span class="meta">bufferAfterAccept: 10 lines, want 12</span> </div>
-<div class="json-section"><details class="json-details" open><summary>JSON</summary>
+<div class="step-label">Groups: <span class="group-tag addition">addition @5</span> </div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
 <code class="shiki-json">{
   &#34;completion&#34;: {
     &#34;startLine&#34;: 5,
@@ -162,13 +161,11 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
     ]
   },
   &#34;oldLines&#34;: [
-    &#34;}&#34;,
-    &#34;&#34;,
-    &#34;function test2() {&#34;
+    &#34;}&#34;
   ],
   &#34;stages&#34;: [
     {
-      &#34;StartLine&#34;: 6,
+      &#34;StartLine&#34;: 5,
       &#34;Groups&#34;: [
         {
           &#34;Type&#34;: &#34;addition&#34;,
@@ -181,19 +178,6 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
           &#34;Lines&#34;: [
             &#34;    console.log(arra[i]);&#34;,
             &#34;  }&#34;
-          ]
-        },
-        {
-          &#34;Type&#34;: &#34;deletion&#34;,
-          &#34;StartLine&#34;: 4,
-          &#34;EndLine&#34;: 5,
-          &#34;BufferLine&#34;: 6,
-          &#34;RenderHint&#34;: &#34;&#34;,
-          &#34;ColStart&#34;: 0,
-          &#34;ColEnd&#34;: 0,
-          &#34;Lines&#34;: [
-            &#34;&#34;,
-            &#34;function test2() {&#34;
           ]
         }
       ],

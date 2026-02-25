@@ -1,5 +1,5 @@
 {
-  "description": "Prefetch completion inserting for-loop body (1 old line -> 3 new lines) should not delete unrelated lines below. Reproduces issue #51.",
+  "description": "Prefetch completion inserting for-loop body (1 old line -> 3 new lines) should not delete unrelated lines below.",
   "buffer": {
     "lines": [
       "var arra = [1, 2, 3];",

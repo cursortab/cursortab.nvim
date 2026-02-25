@@ -1,0 +1,40 @@
+Full cycle: accept a completion, then a prefetch arrives with more changes.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+
+}
+
+function sub(a, b) {
+
+}
+-- steps --
+completion 2-2
+  | "  return a + b;"
+expect shown noDeletionGroups
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+    | ""
+    | "function sub(a, b) {"
+    | ""
+    | "}"
+
+accept
+
+prefetch 6-6 cursor=6:0
+  | "  return a - b;"
+expect shown noDeletionGroups
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+    | ""
+    | "function sub(a, b) {"
+    | "  return a - b;"
+    | "}"
+

@@ -1,0 +1,22 @@
+Completion at the last line expanding it with new content past the buffer end.
+row: 2
+col: 4
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def main():
+    pass
+-- steps --
+completion 2-2
+  | "    pass"
+  | ""
+  | "def helper():"
+  | "    return 42"
+expect shown noDeletionGroups
+  buffer:
+    | "def main():"
+    | "    pass"
+    | ""
+    | "def helper():"
+    | "    return 42"
+

@@ -1,0 +1,23 @@
+cursorRow: 2
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+function hello() {
+    console.log("old message");
+    return true;
+}
+-- new.txt --
+function hello() {
+    console.log("new message");
+    return true;
+    console.log("added line");
+}
+-- expected --
+stage @2 cursor=3:30
+  modification @2 1-1 replace_chars 17:20
+    + "    console.log(\"new message\");"
+    - "    console.log(\"old message\");"
+  addition @4 3-3
+    + "    console.log(\"added line\");"
+

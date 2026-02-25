@@ -1,0 +1,19 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 0
+viewportBottom: 0
+-- old.txt --
+            
+-- new.txt --
+            "timestamp": "2022-01-04T01:00:00Z",
+            "value": 260,
+            "name": "John"
+-- expected --
+stage @1 cursor=3:26
+  modification @1 1-1 append_chars 12:48
+    + "            \"timestamp\": \"2022-01-04T01:00:00Z\","
+    - "            "
+  addition @2 2-3
+    + "            \"value\": 260,"
+    + "            \"name\": \"John\""
+

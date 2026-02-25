@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+Hello world John
+-- new.txt --
+Hello John
+-- expected --
+stage @1 cursor=1:6
+  modification @1 1-1 delete_chars 6:12
+    + "Hello John"
+    - "Hello world John"
+

@@ -1,0 +1,20 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+start
+end
+-- new.txt --
+start
+
+
+
+end
+-- expected --
+stage @2 cursor=3:0
+  addition @2 1-3
+    + ""
+    + ""
+    + ""
+

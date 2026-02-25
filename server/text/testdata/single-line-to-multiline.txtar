@@ -1,0 +1,21 @@
+cursorRow: 1
+cursorCol: 8
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+def test
+-- new.txt --
+def test():
+    print("test")
+
+test()
+-- expected --
+stage @1 cursor=4:6
+  modification @1 1-1 append_chars 8:11
+    + "def test():"
+    - "def test"
+  addition @2 2-4
+    + "    print(\"test\")"
+    + ""
+    + "test()"
+

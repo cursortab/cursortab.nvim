@@ -1,0 +1,20 @@
+Completion modifying the very first line of the buffer (startLine=1 boundary).
+row: 1
+col: 19
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+# TODO: add imports
+
+def main():
+    pass
+-- steps --
+completion 1-1
+  | "import os"
+expect shown noDeletionGroups
+  buffer:
+    | "import os"
+    | ""
+    | "def main():"
+    | "    pass"
+

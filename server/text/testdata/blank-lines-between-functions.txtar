@@ -1,0 +1,53 @@
+cursorRow: 10
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+import numpy as np
+
+
+def calculate_mean(data):
+    return np.mean(data)
+
+
+def calculate_min_max(data):
+    return np.min(data), np.max(data)
+def calculate_var(data):
+    return np.var(data)
+if __name__ == "__main__":
+    data = np.array([1, 2, 3, 4, 5])
+    print(calculate_mean(data))
+    print(calculate_min_max(data))
+    print(calculate_var(data))
+
+-- new.txt --
+import numpy as np
+
+
+def calculate_mean(data):
+    return np.mean(data)
+
+
+def calculate_min_max(data):
+    return np.min(data), np.max(data)
+
+
+def calculate_var(data):
+    return np.var(data)
+
+
+if __name__ == "__main__":
+    data = np.array([1, 2, 3, 4, 5])
+    print(calculate_mean(data))
+    print(calculate_min_max(data))
+    print(calculate_var(data))
+
+-- expected --
+stage @10 cursor=6:0
+  addition @10 1-2
+    + ""
+    + ""
+  addition @12 5-6
+    + ""
+    + ""
+

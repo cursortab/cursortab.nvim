@@ -1,5 +1,0 @@
-function hello() {
-    console.log("new message");
-    return true;
-    console.log("added line");
-}

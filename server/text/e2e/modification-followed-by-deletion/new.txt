@@ -1,3 +1,0 @@
-- don't reset upon writing into completion
-- fix partial accept addition/deletion
-- fix dimmed style to work with the new empty lines

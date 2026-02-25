@@ -11,16 +11,20 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+
+	"golang.org/x/tools/txtar"
 )
 
-var updateAll = flag.Bool("update", false, "update all expected.json golden files")
+var updateAll = flag.Bool("update", false, "update all expected golden files")
 var update multiStringFlag
+var verifyAll = flag.Bool("verify-all", false, "mark all passing test cases as verified")
 var verify multiStringFlag
 
 func init() {
-	flag.Var(&update, "update-only", "update expected.json for specific test cases (can be repeated)")
+	flag.Var(&update, "update-only", "update expected for specific test cases (can be repeated)")
 	flag.Var(&verify, "verify", "mark a test case as verified by name (can be repeated)")
 }
 
@@ -33,10 +37,73 @@ func (f multiStringFlag) contains(v string) bool {
 }
 
 type fixtureParams struct {
-	CursorRow      int `json:"cursorRow"`
-	CursorCol      int `json:"cursorCol"`
-	ViewportTop    int `json:"viewportTop"`
-	ViewportBottom int `json:"viewportBottom"`
+	CursorRow      int
+	CursorCol      int
+	ViewportTop    int
+	ViewportBottom int
+}
+
+// parseTxtarFixture parses a txtar archive into its fixture components.
+// The header contains key: value metadata, and the archive sections contain
+// old.txt, new.txt, and expected (DSL format).
+func parseTxtarFixture(ar *txtar.Archive) (params fixtureParams, oldBytes, newBytes []byte, expected []map[string]any, err error) {
+	// Parse header metadata
+	for _, line := range strings.Split(string(ar.Comment), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		n, _ := strconv.Atoi(val)
+		switch key {
+		case "cursorRow":
+			params.CursorRow = n
+		case "cursorCol":
+			params.CursorCol = n
+		case "viewportTop":
+			params.ViewportTop = n
+		case "viewportBottom":
+			params.ViewportBottom = n
+		}
+	}
+
+	var expectedDSL string
+	for _, f := range ar.Files {
+		data := strings.TrimSuffix(string(f.Data), "\n")
+		switch f.Name {
+		case "old.txt":
+			oldBytes = []byte(data)
+		case "new.txt":
+			newBytes = []byte(data)
+		case "expected":
+			expectedDSL = data
+		}
+	}
+
+	expected, err = parseExpected(expectedDSL)
+	return
+}
+
+// writeTxtarFixture writes a fixture back to txtar format.
+func writeTxtarFixture(path string, params fixtureParams, oldBytes, newBytes []byte, expected []map[string]any) error {
+	header := fmt.Sprintf("cursorRow: %d\ncursorCol: %d\nviewportTop: %d\nviewportBottom: %d\n",
+		params.CursorRow, params.CursorCol, params.ViewportTop, params.ViewportBottom)
+
+	dsl := formatExpected(expected)
+
+	ar := &txtar.Archive{
+		Comment: []byte(header),
+		Files: []txtar.File{
+			{Name: "old.txt", Data: append(oldBytes, '\n')},
+			{Name: "new.txt", Data: append(newBytes, '\n')},
+			{Name: "expected", Data: []byte(dsl + "\n")},
+		},
+	}
+	return os.WriteFile(path, txtar.Format(ar), 0644)
 }
 
 type maxLinesResult struct {
@@ -269,7 +336,7 @@ func saveVerifiedManifest(path string, m map[string]string) error {
 }
 
 func TestE2E(t *testing.T) {
-	e2eDir := filepath.Join("e2e")
+	e2eDir := filepath.Join("testdata")
 	entries, err := os.ReadDir(e2eDir)
 	if err != nil {
 		t.Fatalf("failed to read e2e directory: %v", err)
@@ -282,22 +349,19 @@ func TestE2E(t *testing.T) {
 	var fixtures []fixtureResult
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !strings.HasSuffix(entry.Name(), ".txtar") {
 			continue
 		}
-		name := entry.Name()
-		dir := filepath.Join(e2eDir, name)
+		name := strings.TrimSuffix(entry.Name(), ".txtar")
+		fixturePath := filepath.Join(e2eDir, entry.Name())
 
 		t.Run(name, func(t *testing.T) {
-			oldBytes, err := os.ReadFile(filepath.Join(dir, "old.txt"))
-			assert.NoError(t, err, "read old.txt")
-			newBytes, err := os.ReadFile(filepath.Join(dir, "new.txt"))
-			assert.NoError(t, err, "read new.txt")
-			paramsBytes, err := os.ReadFile(filepath.Join(dir, "params.json"))
-			assert.NoError(t, err, "read params.json")
+			data, err := os.ReadFile(fixturePath)
+			assert.NoError(t, err, "read fixture")
 
-			var params fixtureParams
-			assert.NoError(t, json.Unmarshal(paramsBytes, &params), "parse params.json")
+			ar := txtar.Parse(data)
+			params, oldBytes, newBytes, expected, err := parseTxtarFixture(ar)
+			assert.NoError(t, err, "parse fixture")
 
 			oldLines := strings.Split(string(oldBytes), "\n")
 			newLines := strings.Split(string(newBytes), "\n")
@@ -363,38 +427,29 @@ func TestE2E(t *testing.T) {
 			}
 
 			// --- Update or compare ---
-			expectedPath := filepath.Join(dir, "expected.json")
-
 			if *updateAll || update.contains(name) {
-				data, err := json.MarshalIndent(batchLua, "", "  ")
-				assert.NoError(t, err, "marshal expected")
-				newBytes := append(data, '\n')
-				existingBytes, _ := os.ReadFile(expectedPath)
-				if sha256Hex(newBytes) == sha256Hex(existingBytes) {
-					t.Logf("skipped %s (unchanged)", expectedPath)
+				newDSL := formatExpected(batchLua)
+				oldDSL := formatExpected(expected)
+				if newDSL == oldDSL {
+					t.Logf("skipped %s (unchanged)", fixturePath)
 				} else {
-					assert.NoError(t, os.WriteFile(expectedPath, newBytes, 0644), "write expected.json")
+					assert.NoError(t, writeTxtarFixture(fixturePath, params, oldBytes, newBytes, batchLua), "write fixture")
 					delete(manifest, name)
 					manifestDirty = true
-					t.Logf("updated %s (unverified)", expectedPath)
+					t.Logf("updated %s (unverified)", fixturePath)
+					expected = batchLua
 				}
 			}
-
-			expectedBytes, err := os.ReadFile(expectedPath)
-			assert.NoError(t, err, "read expected.json")
-
-			var expected []map[string]any
-			assert.NoError(t, json.Unmarshal(expectedBytes, &expected), "parse expected.json")
 
 			batchJSON := toJSON(t, batchLua)
 			incJSON := toJSON(t, incLua)
 			expectedJSON := toJSON(t, expected)
 
 			// Check verification status
-			currentHash := sha256Hex(expectedBytes)
+			currentHash := sha256Hex([]byte(formatExpected(expected)))
 			verified := manifest[name] == currentHash
 
-			if verify.contains(name) {
+			if *verifyAll || verify.contains(name) {
 				if batchJSON == expectedJSON && incJSON == expectedJSON {
 					manifest[name] = currentHash
 					manifestDirty = true
@@ -421,7 +476,7 @@ func TestE2E(t *testing.T) {
 			fixtures = append(fixtures, fr)
 
 			if !verified {
-				t.Errorf("unverified: run with -verify after reviewing expected.json")
+				t.Errorf("unverified: run with -verify after reviewing expected")
 			}
 			assert.Equal(t, expectedJSON, batchJSON, "batch output mismatch")
 			assert.Equal(t, expectedJSON, incJSON, "incremental output mismatch")

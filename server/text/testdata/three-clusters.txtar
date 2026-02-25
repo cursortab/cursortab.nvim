@@ -1,0 +1,113 @@
+cursorRow: 22
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+content line 01
+content line 02
+content line 03
+content line 04
+content line 05
+content line 06
+content line 07
+content line 08
+content line 09
+content line 10
+content line 11
+content line 12
+content line 13
+content line 14
+content line 15
+content line 16
+content line 17
+content line 18
+content line 19
+content line 20
+content line 21
+content line 22
+content line 23
+content line 24
+content line 25
+content line 26
+content line 27
+content line 28
+content line 29
+content line 30
+content line 31
+content line 32
+content line 33
+content line 34
+content line 35
+content line 36
+content line 37
+content line 38
+content line 39
+content line 40
+
+-- new.txt --
+content line 01
+content line 02
+content line 03
+content line 04
+updated line 05
+updated line 06
+content line 07
+content line 08
+content line 09
+content line 10
+content line 11
+content line 12
+content line 13
+content line 14
+content line 15
+content line 16
+content line 17
+content line 18
+content line 19
+updated line 20
+updated line 21
+content line 22
+content line 23
+content line 24
+content line 25
+content line 26
+content line 27
+content line 28
+content line 29
+content line 30
+content line 31
+content line 32
+content line 33
+content line 34
+updated line 35
+updated line 36
+content line 37
+content line 38
+content line 39
+content line 40
+
+-- expected --
+stage @20 cursor=2:7
+  modification @20 1-1 replace_chars 0:7
+    + "updated line 20"
+    - "content line 20"
+  modification @21 2-2 replace_chars 0:7
+    + "updated line 21"
+    - "content line 21"
+
+stage @35 cursor=2:7
+  modification @35 1-1 replace_chars 0:7
+    + "updated line 35"
+    - "content line 35"
+  modification @36 2-2 replace_chars 0:7
+    + "updated line 36"
+    - "content line 36"
+
+stage @5 cursor=2:7
+  modification @5 1-1 replace_chars 0:7
+    + "updated line 05"
+    - "content line 05"
+  modification @6 2-2 replace_chars 0:7
+    + "updated line 06"
+    - "content line 06"
+

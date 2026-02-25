@@ -1,0 +1,42 @@
+cursorRow: 8
+cursorCol: 24
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+import numpy as np
+
+
+def calculate_mean(data):
+    return np.mean(data)
+
+
+def calculate_min_ma(data):
+    return np.std(data)
+
+
+def calculate_var(data):
+    return np.var(data)
+
+-- new.txt --
+import numpy as np
+
+
+def calculate_mean(data):
+    return np.mean(data)
+
+
+def calculate_min_max(data):
+    return np.min(data), np.max(data)
+
+
+def calculate_var(data):
+    return np.var(data)
+
+-- expected --
+stage @8 cursor=2:37
+  modification @8 1-2
+    + "def calculate_min_max(data):"
+    + "    return np.min(data), np.max(data)"
+    - "def calculate_min_ma(data):"
+    - "    return np.std(data)"
+

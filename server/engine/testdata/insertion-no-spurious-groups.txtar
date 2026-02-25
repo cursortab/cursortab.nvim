@@ -1,0 +1,33 @@
+After accepting a streaming stage that inserts lines below cursor, a follow-up FIM completion with stale EndLineInc should not treat already-accepted buffer lines as changes
+row: 5
+col: 23
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+import numpy as np
+
+def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+-- steps --
+completion 3-3
+  | "def bubble_sort(arr):"
+  | "    n = len(arr)"
+  | "    for i in range(n):"
+  | "        for j in range(0, n - i - 1):"
+  | "            if arr[j] > arr[j + 1]:"
+  | "                arr[j], arr[j + 1] = arr[j + 1], arr[j]"
+  | "    return arr"
+expect shown noGroupsBefore=7
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort(arr):"
+    | "    n = len(arr)"
+    | "    for i in range(n):"
+    | "        for j in range(0, n - i - 1):"
+    | "            if arr[j] > arr[j + 1]:"
+    | "                arr[j], arr[j + 1] = arr[j + 1], arr[j]"
+    | "    return arr"
+

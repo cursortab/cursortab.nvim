@@ -1,0 +1,15 @@
+Prefetch identical to buffer content should not be shown.
+row: 1
+col: 5
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+x = 1
+y = 2
+print(x + y)
+-- steps --
+prefetch 1-2
+  | "x = 1"
+  | "y = 2"
+expect !shown
+

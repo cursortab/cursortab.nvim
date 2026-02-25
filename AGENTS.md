@@ -25,9 +25,12 @@ cd server && go test ./text/... -run TestE2E -v
 cd server && go test ./text/... -run TestE2E -update
 ```
 
-Each E2E fixture is a directory under `server/text/e2e/` with `old.txt`,
-`new.txt`, `params.json`, and `expected.json`. Both batch and incremental
-pipelines are verified against the same expected output.
+Each E2E fixture is a `.txtar` file under `server/text/testdata/`. The header
+contains cursor/viewport params, and sections contain `old.txt`, `new.txt`,
+and `expected` (a custom DSL format). Both batch and incremental pipelines are
+verified against the same expected output. Engine E2E fixtures are `.txtar`
+files under `server/engine/testdata/` with `buffer.txt` and `steps` sections
+(also a custom DSL format).
 
 **Important:** Never run `-verify` or `-verify-case`. Verification must always
 be done manually by the user.

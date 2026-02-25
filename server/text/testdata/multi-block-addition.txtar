@@ -1,0 +1,49 @@
+cursorRow: 12
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+import numpy as np
+
+
+def calculate_mean(data):
+    return np.mean(data)
+
+
+def calculate_std(data):
+    return np.std(data)
+
+
+
+
+
+-- new.txt --
+import numpy as np
+
+
+def calculate_mean(data):
+    return np.mean(data)
+
+
+def calculate_std(data):
+    return np.std(data)
+
+
+def calculate_min(data):
+    return np.min(data)
+
+
+def calculate_max(data):
+    return np.max(data)
+
+
+-- expected --
+stage @12 cursor=6:23
+  addition @12 1-2
+    + "def calculate_min(data):"
+    + "    return np.min(data)"
+  addition @13 4-6
+    + ""
+    + "def calculate_max(data):"
+    + "    return np.max(data)"
+

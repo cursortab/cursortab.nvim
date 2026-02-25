@@ -1,3 +1,0 @@
-line 1
-new line
-line 3

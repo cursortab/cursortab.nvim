@@ -1,0 +1,18 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+line1
+line2
+line3
+-- new.txt --
+line1
+modified
+line3
+-- expected --
+stage @2 cursor=1:8
+  modification @2 1-1
+    + "modified"
+    - "line2"
+

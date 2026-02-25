@@ -1,0 +1,18 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+import numpy as np
+
+-- new.txt --
+import numpy as np
+
+def test():
+    pass
+-- expected --
+stage @3 cursor=2:8
+  addition @3 1-2
+    + "def test():"
+    + "    pass"
+

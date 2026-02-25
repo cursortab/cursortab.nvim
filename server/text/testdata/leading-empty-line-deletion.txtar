@@ -1,0 +1,25 @@
+cursorRow: 3
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 100
+-- old.txt --
+
+// Comment
+const x = 1;
+
+-- new.txt --
+// Comment
+const x = 1;
+
+// New section
+const y = 2;
+
+-- expected --
+stage @1 cursor=6:0
+  addition @5 4-6
+    + "// New section"
+    + "const y = 2;"
+    + ""
+  deletion @1 7-7
+    + ""
+

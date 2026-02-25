@@ -1,0 +1,17 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+line 1
+line 2
+line 3
+-- new.txt --
+
+-- expected --
+stage @1 cursor=-1:-1
+  deletion @1 1-3
+    + "line 1"
+    + "line 2"
+    + "line 3"
+

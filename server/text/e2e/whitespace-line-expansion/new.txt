@@ -1,4 +1,0 @@
-    Parameters
-    ----------
-    rA : numpy array
-        The coordinates of point A.

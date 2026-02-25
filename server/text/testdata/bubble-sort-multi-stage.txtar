@@ -1,0 +1,39 @@
+cursorRow: 4
+cursorCol: 11
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+import numpy as np
+
+
+def bubble_
+-- new.txt --
+import numpy as np
+
+
+def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n-i-1):
+            if arr[j] > arr[j+1]:
+                arr[j], arr[j+1] = arr[j+1], arr[j]
+    return arr
+
+
+
+-- expected --
+stage @4 cursor=10:0
+  modification @4 1-1 append_chars 11:21
+    + "def bubble_sort(arr):"
+    - "def bubble_"
+  addition @5 2-10
+    + "    n = len(arr)"
+    + "    for i in range(n):"
+    + "        for j in range(0, n-i-1):"
+    + "            if arr[j] > arr[j+1]:"
+    + "                arr[j], arr[j+1] = arr[j+1], arr[j]"
+    + "    return arr"
+    + ""
+    + ""
+    + ""
+

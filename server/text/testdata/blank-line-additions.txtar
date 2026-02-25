@@ -1,0 +1,31 @@
+cursorRow: 3
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+header
+
+func te
+-- new.txt --
+header
+
+func test1() {}
+    body1
+
+func test2() {}
+    body2
+
+func test3() {}
+-- expected --
+stage @3 cursor=7:15
+  modification @3 1-1 append_chars 7:15
+    + "func test1() {}"
+    - "func te"
+  addition @4 2-7
+    + "    body1"
+    + ""
+    + "func test2() {}"
+    + "    body2"
+    + ""
+    + "func test3() {}"
+

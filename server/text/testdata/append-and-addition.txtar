@@ -1,0 +1,19 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+partial
+-- new.txt --
+partial content completed
+new line 1
+new line 2
+-- expected --
+stage @1 cursor=3:10
+  modification @1 1-1 append_chars 7:25
+    + "partial content completed"
+    - "partial"
+  addition @2 2-3
+    + "new line 1"
+    + "new line 2"
+

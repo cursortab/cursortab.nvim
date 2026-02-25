@@ -1,0 +1,26 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+line A
+line B
+line C
+line D
+line E
+-- new.txt --
+line A
+new 1
+new 2
+line C
+line E
+-- expected --
+stage @2 cursor=2:5
+  modification @2 1-1
+    + "new 1"
+    - "line B"
+  addition @3 2-2
+    + "new 2"
+  deletion @4 6-6
+    + "line D"
+

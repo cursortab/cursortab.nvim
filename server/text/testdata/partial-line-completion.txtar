@@ -1,0 +1,37 @@
+cursorRow: 9
+cursorCol: 3
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+    return arr
+
+if 
+-- new.txt --
+def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+    return arr
+
+if __name__ == "__main__":
+    arr = [64, 34, 25, 12, 22, 11, 90]
+    sorted_arr = bubble_sort(arr)
+    print(sorted_arr)
+-- expected --
+stage @9 cursor=4:21
+  modification @9 1-1 append_chars 3:26
+    + "if __name__ == \"__main__\":"
+    - "if "
+  addition @10 2-4
+    + "    arr = [64, 34, 25, 12, 22, 11, 90]"
+    + "    sorted_arr = bubble_sort(arr)"
+    + "    print(sorted_arr)"
+

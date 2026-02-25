@@ -1,0 +1,18 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+line 1
+line 3
+line 4
+-- new.txt --
+line 1
+line 2
+line 3
+line 4
+-- expected --
+stage @2 cursor=1:6
+  addition @2 1-1
+    + "line 2"
+

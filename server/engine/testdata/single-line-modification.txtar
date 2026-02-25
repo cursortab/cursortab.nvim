@@ -1,0 +1,18 @@
+Single-line replacement: fix a return value in a function.
+row: 2
+col: 16
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function greet(name) {
+  return "hello";
+}
+-- steps --
+completion 2-2
+  | "  return \"hello, \" + name;"
+expect shown noDeletionGroups
+  buffer:
+    | "function greet(name) {"
+    | "  return \"hello, \" + name;"
+    | "}"
+

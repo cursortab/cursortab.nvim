@@ -1,0 +1,20 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+duplicate
+duplicate
+duplicate
+unique
+-- new.txt --
+duplicate
+modified
+duplicate
+unique
+-- expected --
+stage @2 cursor=1:8
+  modification @2 1-1
+    + "modified"
+    - "duplicate"
+

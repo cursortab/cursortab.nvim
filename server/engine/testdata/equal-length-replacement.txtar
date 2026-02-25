@@ -1,0 +1,19 @@
+Replacing 2 lines with 2 different lines (same line count, all content different).
+row: 1
+col: 5
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+a = 1
+b = 2
+print(a + b)
+-- steps --
+completion 1-2
+  | "a = 10"
+  | "b = 20"
+expect shown noDeletionGroups
+  buffer:
+    | "a = 10"
+    | "b = 20"
+    | "print(a + b)"
+

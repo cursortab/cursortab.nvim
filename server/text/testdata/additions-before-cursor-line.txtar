@@ -1,0 +1,24 @@
+cursorRow: 2
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+first
+cursor line content
+-- new.txt --
+first modified
+added line 1
+added line 2
+cursor line replaced
+-- expected --
+stage @1 cursor=4:20
+  modification @1 1-1 append_chars 5:14
+    + "first modified"
+    - "first"
+  addition @2 2-3
+    + "added line 1"
+    + "added line 2"
+  modification @2 4-4 replace_chars 12:20
+    + "cursor line replaced"
+    - "cursor line content"
+

@@ -1,0 +1,25 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+
+-- new.txt --
+// Initialize Hono app with types
+const application = new Hono<ApiContext>();
+
+// Global middleware
+application.use("*", corsMiddleware);
+
+-- expected --
+stage @1 cursor=6:0
+  modification @1 1-1 append_chars 0:33
+    + "// Initialize Hono app with types"
+    - ""
+  addition @2 2-6
+    + "const application = new Hono<ApiContext>();"
+    + ""
+    + "// Global middleware"
+    + "application.use(\"*\", corsMiddleware);"
+    + ""
+

@@ -1,0 +1,23 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+func hello() {
+    
+    
+}
+-- new.txt --
+func hello() {
+    fmt.Println("hello")
+    return nil
+}
+-- expected --
+stage @2 cursor=2:14
+  modification @2 1-1 append_chars 4:24
+    + "    fmt.Println(\"hello\")"
+    - "    "
+  modification @3 2-2 append_chars 4:14
+    + "    return nil"
+    - "    "
+

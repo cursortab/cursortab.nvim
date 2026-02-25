@@ -8,3 +8,5 @@ require (
 )
 
 require github.com/andybalholm/brotli v1.2.0
+
+require golang.org/x/tools v0.42.0 // indirect

@@ -1,0 +1,24 @@
+Completion expanding 1 line into 3 lines of implementation via the completion action.
+row: 2
+col: 4
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def main():
+    pass
+
+main()
+-- steps --
+completion 2-2
+  | "    x = 10"
+  | "    y = 20"
+  | "    print(x + y)"
+expect shown noDeletionGroups
+  buffer:
+    | "def main():"
+    | "    x = 10"
+    | "    y = 20"
+    | "    print(x + y)"
+    | ""
+    | "main()"
+

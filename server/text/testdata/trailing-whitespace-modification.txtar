@@ -1,0 +1,19 @@
+cursorRow: 2
+cursorCol: 5
+viewportTop: 0
+viewportBottom: 0
+-- old.txt --
+func main() {
+    x  
+-- new.txt --
+func main() {
+    x = getValue()
+    y = processValue(x)
+-- expected --
+stage @2 cursor=2:23
+  modification @2 1-1 replace_chars 6:18
+    + "    x = getValue()"
+    - "    x  "
+  addition @3 2-2
+    + "    y = processValue(x)"
+

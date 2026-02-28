@@ -315,7 +315,7 @@ require("cursortab").setup({
 
 ```bash
 # Using llama.cpp
-llama-server -hf sweepai/sweep-next-edit-1.5b-GGUF --port 8000
+llama-server -hf sweepai/sweep-next-edit-1.5b --port 8000
 
 # Or with a local GGUF file
 llama-server -m sweep-next-edit-1.5b.q8_0.v2.gguf --port 8000

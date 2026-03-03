@@ -260,7 +260,7 @@ local function create_overlay_window(
 	-- Query parent window state once: topline, leftcol, textoff, cursor, cursorline
 	---@type {topline: integer, leftcol: integer, textoff: integer}
 	local wininfo = vim.fn.getwininfo(parent_win)[1]
-	local leftcol = wininfo.leftcol
+	local leftcol = wininfo.leftcol or 0
 	local first_visible_line = wininfo.topline
 	local textoff = wininfo.textoff or 0
 	local cursor_line = vim.api.nvim_win_get_cursor(parent_win)[1] - 1

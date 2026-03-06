@@ -909,7 +909,11 @@ end
 function ui.show_completion(diff_result)
 	has_completion = true
 	ui.ensure_close_all()
-	show_completion(diff_result)
+	local ok = pcall(show_completion, diff_result)
+	if not ok then
+		ui.ensure_close_all()
+		has_completion = false
+	end
 end
 
 -- Show cursor prediction jump text

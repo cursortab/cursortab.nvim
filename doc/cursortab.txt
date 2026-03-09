@@ -96,6 +96,7 @@ Full configuration with defaults: >lua
         ".env.*",
         "*.log",
       },
+      ignore_filetypes = { "", "terminal" }, -- filetypes to skip completions
       ignore_gitignored = true,     -- skip files matched by .gitignore
     },
 
@@ -252,6 +253,16 @@ behavior.ignore_paths                  *cursortab-config-behavior-ignore-paths*
       ".env.*",
       "*.log",
     }
+<
+
+behavior.ignore_filetypes      *cursortab-config-behavior-ignore-filetypes*
+
+  List of Neovim filetypes to skip completions. Matches the exact filetype
+  string returned by `vim.api.nvim_get_option_value("filetype", ...)`.
+  Buffers that are read-only or non-modifiable are already skipped
+  automatically, so filetypes like "help", "qf", and "netrw" do not need to
+  be listed here. Default: >lua
+    { "", "terminal" }
 <
 
 behavior.ignore_gitignored      *cursortab-config-behavior-ignore-gitignored*

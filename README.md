@@ -128,6 +128,7 @@ require("cursortab").setup({
       ".env.*",
       "*.log",
     },
+    ignore_filetypes = { "", "terminal" }, -- Filetypes to skip completions
     ignore_gitignored = true,    -- Skip files matched by .gitignore
   },
 

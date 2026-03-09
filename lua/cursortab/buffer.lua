@@ -14,9 +14,6 @@ local buffer = {}
 ---@field current_buf integer|nil
 ---@field current_win integer|nil
 
--- Filetypes to skip (set for O(1) lookup)
-local skip_filetypes = { [""] = true, help = true, qf = true, netrw = true, fugitive = true, NvimTree = true }
-
 -- Convert a gitignore-style glob pattern to a Lua pattern.
 -- If the pattern contains "/", it matches against the full relative path;
 -- otherwise it matches against the filename only.
@@ -57,6 +54,19 @@ end
 local function matches_ignore_paths(path, patterns)
 	for _, pattern in ipairs(patterns) do
 		if match_ignore_pattern(path, pattern) then
+			return true
+		end
+	end
+	return false
+end
+
+-- Check if a filetype should be ignored.
+---@param filetype string
+---@param ignored_filetypes string[]
+---@return boolean
+local function is_ignored_filetype(filetype, ignored_filetypes)
+	for _, ft in ipairs(ignored_filetypes) do
+		if ft == filetype then
 			return true
 		end
 	end
@@ -134,10 +144,9 @@ local function update_buffer_state()
 	buffer_state.filetype = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
 
 	-- Combined check: should we skip idle completions for this buffer?
-	local should_skip_filetype = skip_filetypes[buffer_state.filetype] or false
-	local should_skip_path = false
-
 	local cfg = config.get()
+	local should_skip_filetype = is_ignored_filetype(buffer_state.filetype, cfg.behavior.ignore_filetypes)
+	local should_skip_path = false
 	local buf_path = vim.api.nvim_buf_get_name(current_buf)
 	if buf_path ~= "" then
 		if #cfg.behavior.ignore_paths > 0 then

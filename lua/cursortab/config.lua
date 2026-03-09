@@ -24,6 +24,7 @@
 ---@field max_visible_lines integer Max visible lines per completion (0 to disable)
 ---@field cursor_prediction CursortabCursorPredictionConfig
 ---@field ignore_paths string[] Glob patterns for files to skip (gitignore-style)
+---@field ignore_filetypes string[] Filetypes to skip completions
 ---@field ignore_gitignored boolean Skip files matched by .gitignore
 ---@field enabled_modes string[] Modes where completions are active ("insert", "normal")
 
@@ -123,6 +124,7 @@ local default_config = {
 			".env.*",
 			"*.log",
 		},
+		ignore_filetypes = { "", "terminal" }, -- Filetypes to skip completions
 		ignore_gitignored = true, -- Skip files matched by .gitignore
 	},
 
@@ -370,6 +372,16 @@ local function validate_config(cfg)
 			for i, pattern in ipairs(cfg.behavior.ignore_paths) do
 				if type(pattern) ~= "string" then
 					error(string.format("[cursortab.nvim] behavior.ignore_paths[%d] must be a string", i))
+				end
+			end
+		end
+		if cfg.behavior.ignore_filetypes ~= nil then
+			if type(cfg.behavior.ignore_filetypes) ~= "table" then
+				error("[cursortab.nvim] behavior.ignore_filetypes must be a list of filetype strings")
+			end
+			for i, ft in ipairs(cfg.behavior.ignore_filetypes) do
+				if type(ft) ~= "string" then
+					error(string.format("[cursortab.nvim] behavior.ignore_filetypes[%d] must be a string", i))
 				end
 			end
 		end

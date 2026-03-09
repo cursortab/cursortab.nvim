@@ -75,6 +75,7 @@ function M.check()
 	vim.health.info("proximity_threshold: " .. cfg.behavior.cursor_prediction.proximity_threshold)
 	vim.health.info("enabled_modes: " .. table.concat(cfg.behavior.enabled_modes, ", "))
 	vim.health.info("ignore_paths: " .. #cfg.behavior.ignore_paths .. " patterns")
+	vim.health.info("ignore_filetypes: " .. #cfg.behavior.ignore_filetypes .. " filetypes")
 	vim.health.info("ignore_gitignored: " .. (cfg.behavior.ignore_gitignored and "yes" or "no"))
 
 	-- Keymaps

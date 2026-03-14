@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/neovim/go-client/nvim"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -94,6 +95,14 @@ func (b *NvimBuffer) PreviousLines() []string { return b.previousLines }
 func (b *NvimBuffer) OriginalLines() []string { return b.originalLines }
 
 func (b *NvimBuffer) DiffHistories() []*types.DiffEntry { return b.diffHistories }
+
+// ClearDiffHistory resets the diff history and checkpoint to current state.
+// Called on file save to establish a clean baseline.
+func (b *NvimBuffer) ClearDiffHistory() {
+	b.diffHistories = []*types.DiffEntry{}
+	b.originalLines = make([]string, len(b.lines))
+	copy(b.originalLines, b.lines)
+}
 
 // noHistoryFiles is the list of filenames for which diff history is not recorded.
 var noHistoryFiles = []string{
@@ -347,9 +356,10 @@ func (b *NvimBuffer) CommitPending() {
 	}
 
 	// Extract granular diffs - one DiffEntry per contiguous changed region
-	diffEntries := extractGranularDiffs(originalRangeLines, lines)
+	diffEntries := extractGranularDiffs(originalRangeLines, lines, startLine)
+	stampEntries(diffEntries, types.DiffSourcePredicted, time.Now().UnixNano())
 	if !b.skipHistory() {
-		b.diffHistories = append(b.diffHistories, diffEntries...)
+		b.diffHistories = appendAndCoalesce(b.diffHistories, diffEntries)
 	}
 
 	// Compute the final buffer state after applying the completion
@@ -400,13 +410,14 @@ func (b *NvimBuffer) CommitUserEdits() bool {
 
 func (b *NvimBuffer) commitUserEditsInternal() bool {
 	// Extract granular diffs between checkpoint and current state
-	diffEntries := extractGranularDiffs(b.originalLines, b.lines)
+	diffEntries := extractGranularDiffs(b.originalLines, b.lines, 1)
+	stampEntries(diffEntries, types.DiffSourceManual, time.Now().UnixNano())
 	if len(diffEntries) == 0 {
 		return false
 	}
 
 	if !b.skipHistory() {
-		b.diffHistories = append(b.diffHistories, diffEntries...)
+		b.diffHistories = appendAndCoalesce(b.diffHistories, diffEntries)
 	}
 
 	// Save checkpoint as previous state (for sweep provider)
@@ -967,8 +978,10 @@ func (b *NvimBuffer) RegisterCopilotHandler(handler func(reqID int64, editsJSON 
 }
 
 // extractGranularDiffs analyzes old and new lines and returns DiffEntry records
-// for each contiguous region that changed.
-func extractGranularDiffs(oldLines, newLines []string) []*types.DiffEntry {
+// for each contiguous region that changed. baseLine is the 1-indexed buffer line
+// where the old content starts. Returned entries have StartLine set but no
+// Source or TimestampNs — callers stamp those via stampEntries.
+func extractGranularDiffs(oldLines, newLines []string, baseLine int) []*types.DiffEntry {
 	oldText := text.JoinLines(oldLines)
 	newText := text.JoinLines(newLines)
 
@@ -982,17 +995,19 @@ func extractGranularDiffs(oldLines, newLines []string) []*types.DiffEntry {
 	lineDiffs := dmp.DiffCharsToLines(diffs, lineArray)
 
 	var entries []*types.DiffEntry
+	currentLine := baseLine
 
 	for i := 0; i < len(lineDiffs); i++ {
 		diff := lineDiffs[i]
+		lineCount := strings.Count(diff.Text, "\n")
 
 		switch diff.Type {
 		case diffmatchpatch.DiffEqual:
-			// No change, skip
+			currentLine += lineCount
 			continue
 
 		case diffmatchpatch.DiffDelete:
-			// Get the deleted content (trim trailing newline from diff output)
+			startLine := currentLine
 			deletedText := strings.TrimSuffix(diff.Text, "\n")
 			insertedText := ""
 
@@ -1003,21 +1018,31 @@ func extractGranularDiffs(oldLines, newLines []string) []*types.DiffEntry {
 			}
 
 			entries = append(entries, &types.DiffEntry{
-				Original: deletedText,
-				Updated:  insertedText,
+				Original:  deletedText,
+				Updated:   insertedText,
+				StartLine: startLine,
 			})
+			currentLine += lineCount
 
 		case diffmatchpatch.DiffInsert:
-			// Pure insertion (no preceding delete)
 			insertedText := strings.TrimSuffix(diff.Text, "\n")
 			entries = append(entries, &types.DiffEntry{
-				Original: "",
-				Updated:  insertedText,
+				Original:  "",
+				Updated:   insertedText,
+				StartLine: currentLine,
 			})
 		}
 	}
 
 	return entries
+}
+
+// stampEntries sets Source and TimestampNs on all entries.
+func stampEntries(entries []*types.DiffEntry, source types.DiffSource, timestampNs int64) {
+	for _, e := range entries {
+		e.Source = source
+		e.TimestampNs = timestampNs
+	}
 }
 
 // Helper function to safely get string from map

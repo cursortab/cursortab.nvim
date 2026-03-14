@@ -28,6 +28,7 @@ type Buffer interface {
 	PrepareCompletion(startLine, endLineInc int, lines []string, groups []*text.Group) buffer.Batch
 	CommitPending()
 	CommitUserEdits() bool // Returns true if changes were committed
+	ClearDiffHistory()     // Reset diff history and checkpoint on save
 	ShowCursorTarget(line int) error
 	ClearUI() error
 	MoveCursor(line int, center, mark bool) error

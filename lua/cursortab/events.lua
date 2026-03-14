@@ -262,6 +262,16 @@ local function setup_autocommands()
 		end,
 	})
 
+	-- File save: reset diff history baseline
+	vim.api.nvim_create_autocmd({ "BufWritePost" }, {
+		callback = function()
+			if buffer.should_skip() then
+				return
+			end
+			daemon.send_event("file_saved")
+		end,
+	})
+
 	-- Set up autocommand to close completions/predictions on certain events
 	vim.api.nvim_create_autocmd({ "ModeChanged", "CmdlineEnter", "CmdwinEnter", "BufEnter" }, {
 		callback = function(args)

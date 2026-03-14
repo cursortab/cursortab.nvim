@@ -163,7 +163,7 @@ func TestExtractGranularDiffs_NoChanges(t *testing.T) {
 	oldLines := []string{"line 1", "line 2"}
 	newLines := []string{"line 1", "line 2"}
 
-	result := extractGranularDiffs(oldLines, newLines)
+	result := extractGranularDiffs(oldLines, newLines, 1)
 
 	assert.True(t, len(result) == 0 || result == nil, "no diffs for identical content")
 }
@@ -172,7 +172,7 @@ func TestExtractGranularDiffs_Modification(t *testing.T) {
 	oldLines := []string{"line 1", "original"}
 	newLines := []string{"line 1", "modified"}
 
-	result := extractGranularDiffs(oldLines, newLines)
+	result := extractGranularDiffs(oldLines, newLines, 1)
 
 	assert.True(t, len(result) > 0, "should have diffs")
 	// Should capture the change from "original" to "modified"
@@ -190,7 +190,7 @@ func TestExtractGranularDiffs_Addition(t *testing.T) {
 	oldLines := []string{"line 1"}
 	newLines := []string{"line 1", "new line"}
 
-	result := extractGranularDiffs(oldLines, newLines)
+	result := extractGranularDiffs(oldLines, newLines, 1)
 
 	assert.True(t, len(result) > 0, "should have diffs for addition")
 }
@@ -199,9 +199,33 @@ func TestExtractGranularDiffs_Deletion(t *testing.T) {
 	oldLines := []string{"line 1", "line 2"}
 	newLines := []string{"line 1"}
 
-	result := extractGranularDiffs(oldLines, newLines)
+	result := extractGranularDiffs(oldLines, newLines, 1)
 
 	assert.True(t, len(result) > 0, "should have diffs for deletion")
+}
+
+func TestExtractGranularDiffs_TracksStartLine(t *testing.T) {
+	oldLines := []string{"line 1", "original", "line 3"}
+	newLines := []string{"line 1", "modified", "line 3"}
+
+	result := extractGranularDiffs(oldLines, newLines, 10)
+
+	assert.True(t, len(result) > 0, "should have diffs")
+	assert.Equal(t, 11, result[0].StartLine, "change at line 2 with base 10 = line 11")
+}
+
+func TestStampEntries(t *testing.T) {
+	entries := []*types.DiffEntry{
+		{Original: "a", Updated: "b", StartLine: 1},
+		{Original: "c", Updated: "d", StartLine: 5},
+	}
+
+	stampEntries(entries, types.DiffSourcePredicted, 42)
+
+	assert.Equal(t, types.DiffSourcePredicted, entries[0].Source, "source stamped")
+	assert.Equal(t, int64(42), entries[0].TimestampNs, "timestamp stamped")
+	assert.Equal(t, types.DiffSourcePredicted, entries[1].Source, "source stamped")
+	assert.Equal(t, int64(42), entries[1].TimestampNs, "timestamp stamped")
 }
 
 func TestMakeRelativeToWorkspace(t *testing.T) {

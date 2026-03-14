@@ -136,6 +136,14 @@ type FileDiffHistory struct {
 	DiffHistory []*DiffEntry
 }
 
+// DiffSource indicates the origin of a diff entry
+type DiffSource string
+
+const (
+	DiffSourceManual    DiffSource = "manual"
+	DiffSourcePredicted DiffSource = "predicted"
+)
+
 // DiffEntry represents a single diff operation with structured before/after content
 // This allows providers to format the diff in their required format
 type DiffEntry struct {
@@ -143,6 +151,12 @@ type DiffEntry struct {
 	Original string
 	// Updated is the content after the change (the new text)
 	Updated string
+	// Source indicates whether this change was manual (user) or predicted (AI)
+	Source DiffSource
+	// TimestampNs is when the change was recorded (UnixNano)
+	TimestampNs int64
+	// StartLine is the approximate 1-indexed line in the buffer where the change starts
+	StartLine int
 }
 
 // GetOriginal returns the original content (implements utils.DiffEntry interface)

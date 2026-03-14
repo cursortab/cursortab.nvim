@@ -24,6 +24,7 @@ const (
 	EventInsertLeave       EventType = "insert_leave"
 	EventAccept            EventType = "accept"
 	EventPartialAccept     EventType = "partial_accept"
+	EventFileSaved         EventType = "file_saved"
 	EventIdleTimeout       EventType = "idle_timeout"
 	EventCompletionReady   EventType = "completion_ready"
 	EventCompletionError   EventType = "completion_error"
@@ -68,6 +69,7 @@ func buildEventTypeMap() map[string]EventType {
 		EventInsertLeave,
 		EventAccept,
 		EventPartialAccept,
+		EventFileSaved,
 		EventIdleTimeout,
 		EventCompletionReady,
 		EventCompletionError,
@@ -136,12 +138,14 @@ var transitions = []Transition{
 	{stateIdle, EventInsertEnter, (*Engine).doStopIdleTimer},
 	{stateIdle, EventInsertLeave, (*Engine).doStartIdleTimer},
 	{stateIdle, EventEsc, (*Engine).doStopIdleTimer},
+	{stateIdle, EventFileSaved, (*Engine).doFileSaved},
 	{stateIdle, EventTextChanged, (*Engine).doStartTextChangeTimer},
 
 	// From statePendingCompletion
 	{statePendingCompletion, EventTextChanged, (*Engine).doTextChangePending},
 	{statePendingCompletion, EventEsc, (*Engine).doReject},
 	{statePendingCompletion, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
+	{statePendingCompletion, EventFileSaved, (*Engine).doFileSaved},
 	{statePendingCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 
 	// From stateHasCompletion
@@ -149,6 +153,7 @@ var transitions = []Transition{
 	{stateHasCompletion, EventPartialAccept, (*Engine).doPartialAcceptCompletion},
 	{stateHasCompletion, EventEsc, (*Engine).doReject},
 	{stateHasCompletion, EventTextChanged, (*Engine).doTextChangeWithCompletion},
+	{stateHasCompletion, EventFileSaved, (*Engine).doFileSaved},
 	{stateHasCompletion, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
 	{stateHasCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 
@@ -156,6 +161,7 @@ var transitions = []Transition{
 	{stateHasCursorTarget, EventAccept, (*Engine).doAcceptCursorTarget},
 	{stateHasCursorTarget, EventEsc, (*Engine).doReject},
 	{stateHasCursorTarget, EventTextChanged, (*Engine).doRejectAndDebounce},
+	{stateHasCursorTarget, EventFileSaved, (*Engine).doFileSaved},
 	{stateHasCursorTarget, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
 	{stateHasCursorTarget, EventCursorMoved, (*Engine).doResetIdleTimer},
 
@@ -164,6 +170,7 @@ var transitions = []Transition{
 	{stateStreamingCompletion, EventEsc, (*Engine).doRejectStreaming},
 	{stateStreamingCompletion, EventPartialAccept, (*Engine).doPartialAcceptStreaming},
 	{stateStreamingCompletion, EventTextChanged, (*Engine).doRejectStreamingAndDebounce},
+	{stateStreamingCompletion, EventFileSaved, (*Engine).doFileSaved},
 	{stateStreamingCompletion, EventInsertLeave, (*Engine).doRejectStreamingAndStartIdleTimer},
 	{stateStreamingCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 }
@@ -417,6 +424,12 @@ func (e *Engine) doStopIdleTimer(event Event) {
 
 func (e *Engine) doStartIdleTimer(event Event) {
 	e.startIdleTimer()
+}
+
+func (e *Engine) doFileSaved(event Event) {
+	e.syncBuffer()
+	e.buffer.ClearDiffHistory()
+	e.saveCurrentFileState()
 }
 
 func (e *Engine) doStartTextChangeTimer(event Event) {

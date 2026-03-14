@@ -35,13 +35,21 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	e.syncBuffer()
 
+	// No-edit suppression: don't show completions until the file has been edited
+	if !e.manuallyTriggered && e.suppressForNoEdits() {
+		logger.Debug("suppressed: no recent edits")
+		return
+	}
+
 	// Mid-line suppression applies to all sources for insertion-only providers
 	if !e.manuallyTriggered && e.suppressForMidLine() {
+		logger.Debug("suppressed: mid-line cursor position")
 		return
 	}
 
 	// Deletion suppression only applies to typing (idle completions after deleting are fine)
 	if source == types.CompletionSourceTyping && !e.manuallyTriggered && e.suppressForSingleDeletion() {
+		logger.Debug("suppressed: single deletion")
 		return
 	}
 
@@ -128,6 +136,11 @@ type prefetchOpts struct {
 // Used to speculatively request completions ahead of user actions.
 func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, overrideCol int, opts prefetchOpts) {
 	if e.stopped {
+		return
+	}
+
+	if e.suppressForNoEdits() {
+		logger.Debug("prefetch suppressed: no recent edits")
 		return
 	}
 

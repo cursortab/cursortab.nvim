@@ -64,6 +64,13 @@ func (e *Engine) suppressForMidLine() bool {
 	return !inertSuffixPattern.MatchString(suffix)
 }
 
+// suppressForNoEdits returns true if the file has no recent edits.
+// Diff history is cleared on save and entries decay after IdleDecayDuration,
+// so an empty processed history means no actionable edits.
+func (e *Engine) suppressForNoEdits() bool {
+	return e.getAllFileDiffHistories() == nil
+}
+
 func isDeletion(action types.UserActionType) bool {
 	return action == types.ActionDeleteChar || action == types.ActionDeleteSelection
 }

@@ -310,26 +310,6 @@ func matchScore(oldLine, newLine string) float64 {
 	return LineSimilarity(oldLine, newLine)
 }
 
-// findBestMatch finds the best matching line in insertedLines for the given deletedLine.
-// Returns the index of the best match and its score.
-func findBestMatch(deletedLine string, insertedLines []string, usedInserts map[int]bool) (int, float64) {
-	bestIdx := -1
-	bestScore := 0.0
-
-	for i, insertedLine := range insertedLines {
-		if usedInserts[i] {
-			continue
-		}
-		score := matchScore(deletedLine, insertedLine)
-		if score > bestScore {
-			bestScore = score
-			bestIdx = i
-		}
-	}
-
-	return bestIdx, bestScore
-}
-
 // processLineDiffsWithMapping processes line-level diffs and builds the coordinate mapping.
 // Returns the LineMapping that tracks correspondence between old and new line numbers.
 func processLineDiffsWithMapping(lineDiffs []diffmatchpatch.Diff, result *DiffResult, oldLineCount, newLineCount int) *LineMapping {

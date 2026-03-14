@@ -99,8 +99,11 @@ func NewDaemon(config Config) (*Daemon, error) {
 	}
 
 	provType := types.ProviderType(config.Provider.Type)
-	insertionOnly := provType == types.ProviderTypeInline ||
-		provType == types.ProviderTypeFIM
+	editCompletionProvider := provType == types.ProviderTypeSweep ||
+		provType == types.ProviderTypeSweepAPI ||
+		provType == types.ProviderTypeZeta ||
+		provType == types.ProviderTypeCopilot ||
+		provType == types.ProviderTypeMercuryAPI
 
 	eng, err := engine.NewEngine(prov, buf, engine.EngineConfig{
 		NsID:                config.NsID,
@@ -112,11 +115,11 @@ func NewDaemon(config Config) (*Daemon, error) {
 			AutoAdvance:        config.Behavior.CursorPrediction.AutoAdvance,
 			ProximityThreshold: config.Behavior.CursorPrediction.ProximityThreshold,
 		},
-		MaxDiffTokens:    config.Provider.MaxDiffHistoryTokens,
-		MaxVisibleLines:  config.Behavior.MaxVisibleLines,
-		CompleteInInsert: config.Behavior.CompleteInInsert,
-		CompleteInNormal: config.Behavior.CompleteInNormal,
-		InsertionOnly:    insertionOnly,
+		MaxDiffTokens:          config.Provider.MaxDiffHistoryTokens,
+		MaxVisibleLines:        config.Behavior.MaxVisibleLines,
+		CompleteInInsert:       config.Behavior.CompleteInInsert,
+		CompleteInNormal:       config.Behavior.CompleteInNormal,
+		EditCompletionProvider: editCompletionProvider,
 	}, engine.SystemClock, ctx.NewGatherer(buf))
 	if err != nil {
 		return nil, err

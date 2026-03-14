@@ -35,8 +35,13 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	e.syncBuffer()
 
-	// Pre-request suppression (skip for manual triggers and idle completions)
-	if source == types.CompletionSourceTyping && !e.manuallyTriggered && e.shouldSuppressCompletion() {
+	// Mid-line suppression applies to all sources for insertion-only providers
+	if !e.manuallyTriggered && e.suppressForMidLine() {
+		return
+	}
+
+	// Deletion suppression only applies to typing (idle completions after deleting are fine)
+	if source == types.CompletionSourceTyping && !e.manuallyTriggered && e.suppressForSingleDeletion() {
 		return
 	}
 
@@ -321,7 +326,11 @@ func (e *Engine) handleDeferredCursorTarget() {
 // prefetchAtNMinusOne triggers prefetch when showing the last stage.
 // Applies the last stage's edit to the buffer snapshot so the model sees the
 // post-accept state, and centers the request on the cursor target position.
+// Disabled for insertion-only providers (FIM/inline) which duplicate content on prefetch.
 func (e *Engine) prefetchAtNMinusOne() {
+	if !e.config.EditCompletionProvider {
+		return
+	}
 	if e.stagedCompletion == nil {
 		return
 	}
@@ -353,7 +362,11 @@ func (e *Engine) prefetchAtNMinusOne() {
 
 // prefetchAtCursorTarget triggers prefetch after accepting to cursor target position.
 // This speculatively requests the next completion at the target location.
+// Disabled for insertion-only providers (FIM/inline) which duplicate content on prefetch.
 func (e *Engine) prefetchAtCursorTarget() {
+	if !e.config.EditCompletionProvider {
+		return
+	}
 	if e.cursorTarget == nil || !e.cursorTarget.ShouldRetrigger {
 		return
 	}

@@ -262,14 +262,14 @@ type FileState struct {
 
 // EngineConfig holds engine configuration
 type EngineConfig struct {
-	NsID                int
-	CompletionTimeout   time.Duration
-	IdleCompletionDelay time.Duration
-	TextChangeDebounce  time.Duration
-	CursorPrediction    CursorPredictionConfig
-	MaxDiffTokens       int  // Maximum tokens for diff history per file (0 = no limit)
-	MaxVisibleLines     int  // Maximum lines per stage (0 = no limit)
-	CompleteInInsert    bool // Show completions in insert mode
-	CompleteInNormal    bool // Show completions in normal mode
-	InsertionOnly       bool // True for FIM/inline providers that only extend forward
+	NsID                   int
+	CompletionTimeout      time.Duration
+	IdleCompletionDelay    time.Duration
+	TextChangeDebounce     time.Duration
+	CursorPrediction       CursorPredictionConfig
+	MaxDiffTokens          int  // Maximum tokens for diff history per file (0 = no limit)
+	MaxVisibleLines        int  // Maximum lines per stage (0 = no limit)
+	CompleteInInsert       bool // Show completions in insert mode
+	CompleteInNormal       bool // Show completions in normal mode
+	EditCompletionProvider bool // True for edit-prediction providers (sweep, zeta, mercury, copilot NES)
 }

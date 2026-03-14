@@ -367,8 +367,9 @@ func createTestEngine(buf *mockBuffer, prov *mockProvider, clock *mockClock) *En
 			AutoAdvance:        true,
 			ProximityThreshold: 3,
 		},
-		CompleteInInsert: true,
-		CompleteInNormal: true,
+		CompleteInInsert:       true,
+		CompleteInNormal:       true,
+		EditCompletionProvider: true,
 	}, clock, nil)
 	return eng
 }

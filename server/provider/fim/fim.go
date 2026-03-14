@@ -25,7 +25,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Name:          "fim",
 		Config:        config,
 		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingLines,
+		StreamingType: provider.StreamingNone,
 		Preprocessors: []provider.Preprocessor{
 			provider.TrimContent(),
 			setStreamContext(),
@@ -124,7 +124,16 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 		resultLines[i] = completionLines[i]
 	}
 
-	resultLines[len(resultLines)-1] += afterCursor
+	// Append afterCursor (suffix text like ")") to the appropriate line.
+	// When the first completion line has content (model continues the cursor line),
+	// the suffix belongs on the first line (e.g., "len(arr)").
+	// When it's empty (model starts with \n), the suffix belongs on the last line
+	// (e.g., multi-line bracket fill).
+	if completionLines[0] != "" {
+		resultLines[0] += afterCursor
+	} else {
+		resultLines[len(resultLines)-1] += afterCursor
+	}
 
 	// FIM inserts content at cursor position - always replace only the current line
 	return p.BuildCompletion(ctx, req.CursorRow, req.CursorRow, resultLines)

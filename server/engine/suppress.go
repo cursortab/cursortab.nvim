@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"cursortab/logger"
 	"cursortab/types"
 	"regexp"
 )
@@ -14,20 +13,6 @@ var inertSuffixPattern = regexp.MustCompile(`^\s*[)>}\]"'` + "`" + `]*\s*[:{;,]?
 // consecutiveDeletionThreshold is the number of consecutive deletion actions
 // after which completions are re-enabled (user is rewriting, not correcting).
 const consecutiveDeletionThreshold = 3
-
-// shouldSuppressCompletion returns true if the completion request should be
-// skipped based on recent user actions and cursor context.
-func (e *Engine) shouldSuppressCompletion() bool {
-	if e.suppressForSingleDeletion() {
-		logger.Debug("suppress: single deletion")
-		return true
-	}
-	if e.suppressForMidLine() {
-		logger.Debug("suppress: mid-line cursor (insertion-only provider)")
-		return true
-	}
-	return false
-}
 
 // suppressForSingleDeletion returns true if the last action was a single
 // deletion (typo correction) without a streak of deletions (rewrite).
@@ -58,7 +43,7 @@ func (e *Engine) suppressForSingleDeletion() bool {
 // suppressForMidLine returns true if the cursor is in the middle of a line
 // with meaningful code to the right, and the provider is insertion-only.
 func (e *Engine) suppressForMidLine() bool {
-	if !e.config.InsertionOnly {
+	if e.config.EditCompletionProvider {
 		return false
 	}
 

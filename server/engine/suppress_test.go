@@ -100,9 +100,9 @@ func TestSuppressForSingleDeletion(t *testing.T) {
 }
 
 func TestSuppressForMidLine(t *testing.T) {
-	// Edit provider (not insertion-only) → never suppress
+	// Edit completion provider → never suppress mid-line
 	e := &Engine{
-		config: EngineConfig{InsertionOnly: false},
+		config: EngineConfig{EditCompletionProvider: true},
 		buffer: &mockBuffer{
 			lines: []string{"func process(items []string) {"},
 			row:   1,
@@ -111,9 +111,9 @@ func TestSuppressForMidLine(t *testing.T) {
 	}
 	assert.False(t, e.suppressForMidLine(), "edit provider ignores mid-line")
 
-	// Insertion-only provider, cursor at end → no suppress
+	// Non-edit provider, cursor at end → no suppress
 	e = &Engine{
-		config: EngineConfig{InsertionOnly: true},
+		config: EngineConfig{EditCompletionProvider: false},
 		buffer: &mockBuffer{
 			lines: []string{"result = "},
 			row:   1,
@@ -122,9 +122,9 @@ func TestSuppressForMidLine(t *testing.T) {
 	}
 	assert.False(t, e.suppressForMidLine(), "cursor at end of line")
 
-	// Insertion-only provider, cursor mid-line with code to right → suppress
+	// Non-edit provider, cursor mid-line with code to right → suppress
 	e = &Engine{
-		config: EngineConfig{InsertionOnly: true},
+		config: EngineConfig{EditCompletionProvider: false},
 		buffer: &mockBuffer{
 			lines: []string{"for _, item := range items {"},
 			row:   1,
@@ -133,9 +133,9 @@ func TestSuppressForMidLine(t *testing.T) {
 	}
 	assert.True(t, e.suppressForMidLine(), "code to right of cursor")
 
-	// Insertion-only provider, only closing paren to right → no suppress
+	// Non-edit provider, only closing paren to right → no suppress
 	e = &Engine{
-		config: EngineConfig{InsertionOnly: true},
+		config: EngineConfig{EditCompletionProvider: false},
 		buffer: &mockBuffer{
 			lines: []string{"result = append(result, )"},
 			row:   1,
@@ -144,9 +144,9 @@ func TestSuppressForMidLine(t *testing.T) {
 	}
 	assert.False(t, e.suppressForMidLine(), "only closing paren")
 
-	// Insertion-only provider, closing bracket + semicolon → no suppress
+	// Non-edit provider, closing bracket + semicolon → no suppress
 	e = &Engine{
-		config: EngineConfig{InsertionOnly: true},
+		config: EngineConfig{EditCompletionProvider: false},
 		buffer: &mockBuffer{
 			lines: []string{"doSomething();"},
 			row:   1,

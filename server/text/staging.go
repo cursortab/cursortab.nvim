@@ -185,15 +185,8 @@ func groupChangesIntoStages(changes []indexedChange, proximityThreshold int, max
 // StageNeedsNavigation determines if a stage requires cursor prediction UI.
 // Returns true if the stage is outside viewport or far from cursor.
 func StageNeedsNavigation(stage *Stage, cursorRow, viewportTop, viewportBottom, distThreshold int) bool {
-	// Check distance first - if within threshold, no navigation needed.
-	// This handles cases like additions at end of file where BufferStart may be
-	// beyond the viewport but the stage is still close to the cursor.
-	distance := stageDistanceFromCursor(stage, cursorRow)
-	if distance <= distThreshold {
-		return false
-	}
-
-	// Check viewport bounds for stages that are far from cursor
+	// Always require navigation for stages entirely outside the viewport,
+	// even when close to the cursor (e.g. additions at the bottom edge).
 	if viewportTop > 0 && viewportBottom > 0 {
 		entirelyOutside := stage.BufferEnd < viewportTop || stage.BufferStart > viewportBottom
 		if entirelyOutside {
@@ -201,7 +194,8 @@ func StageNeedsNavigation(stage *Stage, cursorRow, viewportTop, viewportBottom, 
 		}
 	}
 
-	return true // distance > distThreshold
+	distance := stageDistanceFromCursor(stage, cursorRow)
+	return distance > distThreshold
 }
 
 // stageDistanceFromCursor calculates the minimum distance from cursor to a stage.

@@ -167,35 +167,27 @@ func (e *Engine) handleCursorTarget() {
 	if distance <= e.config.CursorPrediction.ProximityThreshold {
 		// Close enough - don't show cursor prediction
 
-		// If we have remaining staged completions, check if next stage is still close
+		// If we have remaining staged completions, check if next stage is visible and close
 		if e.stagedCompletion != nil && e.stagedCompletion.CurrentIdx < len(e.stagedCompletion.Stages) {
 			nextStage := e.getStage(e.stagedCompletion.CurrentIdx)
 			if nextStage == nil {
 				return
 			}
-			stageStart := nextStage.BufferStart
-			stageEnd := nextStage.BufferEnd
 
-			var stageDistance int
-			if e.buffer.Row() < stageStart {
-				stageDistance = stageStart - e.buffer.Row()
-			} else if e.buffer.Row() > stageEnd {
-				stageDistance = e.buffer.Row() - stageEnd
-			} else {
-				stageDistance = 0
-			}
+			viewportTop, viewportBottom := e.buffer.ViewportBounds()
+			needsNav := text.StageNeedsNavigation(nextStage, e.buffer.Row(), viewportTop, viewportBottom, e.config.CursorPrediction.ProximityThreshold)
 
-			if stageDistance <= e.config.CursorPrediction.ProximityThreshold {
+			if !needsNav {
 				e.showCurrentStage()
 				return
 			}
 			e.cursorTarget = &types.CursorPredictionTarget{
 				RelativePath:    e.buffer.Path(),
-				LineNumber:      int32(stageStart),
+				LineNumber:      int32(nextStage.BufferStart),
 				ShouldRetrigger: false,
 			}
 			e.state = stateHasCursorTarget
-			e.buffer.ShowCursorTarget(stageStart)
+			e.buffer.ShowCursorTarget(nextStage.BufferStart)
 			return
 		}
 

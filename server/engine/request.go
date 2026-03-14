@@ -100,7 +100,9 @@ func (e *Engine) getViewportHeightConstraint() int {
 	}
 	_, viewportBottom := e.buffer.ViewportBounds()
 	if viewportBottom > 0 && e.buffer.Row() > 0 {
-		if constraint := viewportBottom - e.buffer.Row(); constraint > 0 {
+		// +1 because both cursor and viewport bottom are inclusive (cursor on
+		// last visible line means 1 visible line remaining, not 0).
+		if constraint := viewportBottom - e.buffer.Row() + 1; constraint > 0 {
 			return constraint
 		}
 	}

@@ -258,31 +258,23 @@ func (e *Engine) hasMoreStages() bool {
 }
 
 // showOrNavigateToNextStage checks distance to next stage and either shows it
-// directly (if close) or shows a cursor target (if far).
+// directly (if close and visible) or shows a cursor target (if far or outside viewport).
 func (e *Engine) showOrNavigateToNextStage() {
 	nextStage := e.getStage(e.stagedCompletion.CurrentIdx)
 	if nextStage == nil {
 		return
 	}
 
-	// Calculate distance from cursor to next stage
 	cursorRow := e.buffer.Row()
-	var distance int
-	if cursorRow < nextStage.BufferStart {
-		distance = nextStage.BufferStart - cursorRow
-	} else if cursorRow > nextStage.BufferEnd {
-		distance = cursorRow - nextStage.BufferEnd
-	} else {
-		distance = 0
-	}
+	viewportTop, viewportBottom := e.buffer.ViewportBounds()
+	needsNav := text.StageNeedsNavigation(nextStage, cursorRow, viewportTop, viewportBottom, e.config.CursorPrediction.ProximityThreshold)
 
-	if distance <= e.config.CursorPrediction.ProximityThreshold {
-		// Close enough - show stage directly
+	if !needsNav {
 		e.showCurrentStage()
 		return
 	}
 
-	// Too far - show cursor target instead
+	// Needs navigation - show cursor target instead
 	e.cursorTarget = &types.CursorPredictionTarget{
 		RelativePath:    e.buffer.Path(),
 		LineNumber:      int32(nextStage.BufferStart),

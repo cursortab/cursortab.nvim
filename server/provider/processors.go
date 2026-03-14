@@ -163,11 +163,16 @@ func DiffEntryToUnifiedDiff(entry *types.DiffEntry) string {
 func TrimContent() Preprocessor {
 	return func(p *Provider, ctx *Context) error {
 		cursorLine := ctx.Request.CursorRow - 1
+		var syntaxRanges []*types.LineRange
+		if ts := ctx.Request.GetTreesitter(); ts != nil {
+			syntaxRanges = ts.SyntaxRanges
+		}
 		trimmedLines, newCursorLine, _, trimOffset, didTrim := utils.TrimContentAroundCursor(
 			ctx.Request.Lines,
 			cursorLine,
 			ctx.Request.CursorCol,
 			p.Config.ProviderMaxTokens,
+			syntaxRanges,
 		)
 		ctx.TrimmedLines = trimmedLines
 		ctx.CursorLine = newCursorLine

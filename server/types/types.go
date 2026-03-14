@@ -84,6 +84,16 @@ type TreesitterContext struct {
 	EnclosingSignature string
 	Siblings           []*TreesitterSymbol
 	Imports            []string
+	// SyntaxRanges contains ancestor AST node line ranges around the cursor,
+	// ordered innermost to outermost. Used to snap editable/context regions
+	// to meaningful syntax boundaries (e.g. function, class, block).
+	SyntaxRanges []*LineRange
+}
+
+// LineRange represents a 1-indexed inclusive line range
+type LineRange struct {
+	StartLine int // 1-indexed
+	EndLine   int // 1-indexed, inclusive
 }
 
 // TreesitterSymbol represents a named symbol extracted from treesitter

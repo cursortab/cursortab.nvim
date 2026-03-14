@@ -11,6 +11,7 @@ import (
 	"cursortab/logger"
 	"cursortab/metrics"
 	"cursortab/types"
+	"cursortab/utils"
 )
 
 // Token limits (characters, approximating 1 token ~= 3 chars)
@@ -92,7 +93,11 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	}
 
 	// Calculate editable and context regions
-	editableStart, editableEnd, contextStart, contextEnd := computeRegions(req.Lines, req.CursorRow)
+	var syntaxRanges []*types.LineRange
+	if ts := req.GetTreesitter(); ts != nil {
+		syntaxRanges = ts.SyntaxRanges
+	}
+	editableStart, editableEnd, contextStart, contextEnd := computeRegions(req.Lines, req.CursorRow, syntaxRanges)
 
 	// Build the prompt
 	prompt := buildPrompt(
@@ -187,7 +192,8 @@ func countChanges(oldLineCount, newLineCount int) (additions, deletions int) {
 // computeRegions calculates the editable and context regions around the cursor.
 // Returns 1-indexed line numbers: editableStart, editableEnd, contextStart, contextEnd.
 // Context defaults to the entire file; only trimmed for extremely large files.
-func computeRegions(lines []string, cursorRow int) (int, int, int, int) {
+// When syntax ranges are available, the editable region snaps to AST boundaries.
+func computeRegions(lines []string, cursorRow int, syntaxRanges []*types.LineRange) (int, int, int, int) {
 	if len(lines) == 0 {
 		return 1, 1, 1, 1
 	}
@@ -204,6 +210,9 @@ func computeRegions(lines []string, cursorRow int) (int, int, int, int) {
 
 	// Calculate editable region (expand around cursor within char budget)
 	editableStart, editableEnd := expandRegion(lines, cursorIdx, MaxRewriteChars)
+
+	// Snap editable region to syntax boundaries if available
+	editableStart, editableEnd = utils.SnapToSyntaxBoundaries(lines, editableStart, editableEnd, MaxRewriteChars, syntaxRanges)
 
 	// Context defaults to the entire file
 	contextStart := 0

@@ -708,8 +708,20 @@ func (b *NvimBuffer) TreesitterSymbols(row, col, maxSiblings int) *types.Treesit
 		}
 	}
 
+	// Parse syntax ranges (ancestor AST node line ranges, innermost to outermost)
+	if ranges, ok := result["syntax_ranges"].([]any); ok {
+		for _, r := range ranges {
+			if rm, ok := r.(map[string]any); ok {
+				ctx.SyntaxRanges = append(ctx.SyntaxRanges, &types.LineRange{
+					StartLine: getNumber(rm, "start_line"),
+					EndLine:   getNumber(rm, "end_line"),
+				})
+			}
+		}
+	}
+
 	// Return nil if we got nothing useful
-	if ctx.EnclosingSignature == "" && len(ctx.Siblings) == 0 && len(ctx.Imports) == 0 {
+	if ctx.EnclosingSignature == "" && len(ctx.Siblings) == 0 && len(ctx.Imports) == 0 && len(ctx.SyntaxRanges) == 0 {
 		return nil
 	}
 

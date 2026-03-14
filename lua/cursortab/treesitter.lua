@@ -100,10 +100,25 @@ function M.get_context(bufnr, row, col, max_siblings)
 		end
 	end
 
+	-- Collect ancestor node line ranges (innermost to outermost)
+	-- Used by providers to snap editable/context regions to syntax boundaries
+	local syntax_ranges = {}
+	node = cursor_node
+	while node do
+		local s_row = node:start()
+		local e_row = node:end_()
+		-- Only include nodes that span multiple lines (meaningful boundaries)
+		if e_row > s_row then
+			table.insert(syntax_ranges, { start_line = s_row + 1, end_line = e_row + 1 })
+		end
+		node = node:parent()
+	end
+
 	return {
 		enclosing_signature = enclosing_sig,
 		siblings = siblings,
 		imports = imports,
+		syntax_ranges = syntax_ranges,
 	}
 end
 

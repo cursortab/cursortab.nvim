@@ -78,7 +78,7 @@ func TestComputeRegions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			editStart, editEnd, contextStart, contextEnd := computeRegions(tt.lines, tt.cursorRow)
+			editStart, editEnd, contextStart, contextEnd := computeRegions(tt.lines, tt.cursorRow, nil)
 			assert.Equal(t, tt.wantEditStart, editStart, "editStart")
 			assert.Equal(t, tt.wantEditEnd, editEnd, "editEnd")
 			assert.Equal(t, tt.wantContextStart, contextStart, "contextStart")
@@ -379,6 +379,38 @@ func TestExpandRegion(t *testing.T) {
 			assert.Equal(t, tt.wantEnd, end, "end")
 		})
 	}
+}
+
+func TestComputeRegionsWithSyntaxRanges(t *testing.T) {
+	// 13-line Go file, cursor at line 6 (inside for-loop)
+	lines := []string{
+		"package main",                       // 1
+		"",                                   // 2
+		"func process() {",                   // 3
+		"    x := 1",                         // 4
+		"    for i := range items {",         // 5
+		"        result = append(result, i)", // 6  <- cursor
+		"    }",                              // 7
+		"    return result",                  // 8
+		"}",                                  // 9
+		"",                                   // 10
+		"func main() {",                      // 11
+		"    process()",                      // 12
+		"}",                                  // 13
+	}
+
+	// Syntax ranges: for-loop (5-7), func process (3-9)
+	syntaxRanges := []*types.LineRange{
+		{StartLine: 5, EndLine: 7},
+		{StartLine: 3, EndLine: 9},
+	}
+
+	editStart, editEnd, _, _ := computeRegions(lines, 6, syntaxRanges)
+
+	// With syntax ranges, the editable region should snap to function boundaries
+	// rather than cutting mid-block
+	assert.True(t, editStart <= 3, "should include func start")
+	assert.True(t, editEnd >= 9, "should include func end")
 }
 
 func TestCursorTagPlacement(t *testing.T) {

@@ -1,11 +1,75 @@
 package utils
 
+import "cursortab/types"
+
 // Abs returns the absolute value of an integer
 func Abs(x int) int {
 	if x < 0 {
 		return -x
 	}
 	return x
+}
+
+// SnapToSyntaxBoundaries expands a line region to align with syntax node boundaries
+// when the expansion fits within the character budget. Ranges are ordered innermost
+// to outermost. Returns 0-indexed start and end (inclusive).
+func SnapToSyntaxBoundaries(lines []string, start, end int, maxChars int, syntaxRanges []*types.LineRange) (int, int) {
+	if len(syntaxRanges) == 0 {
+		return start, end
+	}
+
+	currentChars := countCharsInRange(lines, start, end)
+
+	for _, sr := range syntaxRanges {
+		// Convert 1-indexed to 0-indexed
+		srStart := sr.StartLine - 1
+		srEnd := sr.EndLine - 1
+
+		// Clamp to valid range
+		if srStart < 0 {
+			srStart = 0
+		}
+		if srEnd >= len(lines) {
+			srEnd = len(lines) - 1
+		}
+
+		// Skip ranges that don't extend beyond the current region
+		if srStart >= start && srEnd <= end {
+			continue
+		}
+
+		// Calculate cost of expanding to this boundary
+		extraChars := 0
+		if srStart < start {
+			extraChars += countCharsInRange(lines, srStart, start-1)
+		}
+		if srEnd > end {
+			extraChars += countCharsInRange(lines, end+1, srEnd)
+		}
+
+		if currentChars+extraChars <= maxChars {
+			if srStart < start {
+				start = srStart
+			}
+			if srEnd > end {
+				end = srEnd
+			}
+			currentChars += extraChars
+		} else {
+			// Budget exceeded; stop trying larger boundaries
+			break
+		}
+	}
+
+	return start, end
+}
+
+func countCharsInRange(lines []string, start, end int) int {
+	chars := 0
+	for i := start; i <= end && i < len(lines); i++ {
+		chars += len(lines[i]) + 1
+	}
+	return chars
 }
 
 // Token estimation constants
@@ -21,7 +85,9 @@ func EstimateCharsFromTokens(tokens int) int {
 // TrimContentAroundCursor trims the content to fit within maxTokens while preserving
 // context around the cursor position. Returns the trimmed lines, adjusted cursor position,
 // trim offset, and whether trimming occurred.
-func TrimContentAroundCursor(lines []string, cursorRow, cursorCol, maxTokens int) ([]string, int, int, int, bool) {
+// An optional syntaxRanges parameter (1-indexed, innermost to outermost) causes the
+// window boundaries to snap to AST node boundaries when they fit within budget.
+func TrimContentAroundCursor(lines []string, cursorRow, cursorCol, maxTokens int, syntaxRanges []*types.LineRange) ([]string, int, int, int, bool) {
 	// Handle empty file
 	if len(lines) == 0 {
 		return lines, 0, cursorCol, 0, false
@@ -99,6 +165,9 @@ func TrimContentAroundCursor(lines []string, cursorRow, cursorCol, maxTokens int
 			}
 		}
 	}
+
+	// Snap to syntax boundaries if available
+	startLine, endLine = SnapToSyntaxBoundaries(lines, startLine, endLine, maxChars, syntaxRanges)
 
 	// Extract the trimmed lines
 	trimmedLines := make([]string, endLine-startLine+1)

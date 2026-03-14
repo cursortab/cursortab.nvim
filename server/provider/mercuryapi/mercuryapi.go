@@ -2,6 +2,7 @@ package mercuryapi
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -14,8 +15,8 @@ import (
 
 // Token limits (characters, approximating 1 token ~= 3 chars)
 const (
-	MaxRewriteChars = 450  // ~150 tokens for editable region
-	MaxContextChars = 1050 // ~350 tokens for surrounding context
+	MaxRewriteChars = 450    // ~150 tokens for editable region
+	MaxFileChars    = 150000 // trim files larger than this
 )
 
 // Prompt format constants
@@ -184,7 +185,8 @@ func countChanges(oldLineCount, newLineCount int) (additions, deletions int) {
 }
 
 // computeRegions calculates the editable and context regions around the cursor.
-// Returns 1-indexed line numbers: editableStart, editableEnd, contextStart, contextEnd
+// Returns 1-indexed line numbers: editableStart, editableEnd, contextStart, contextEnd.
+// Context defaults to the entire file; only trimmed for extremely large files.
 func computeRegions(lines []string, cursorRow int) (int, int, int, int) {
 	if len(lines) == 0 {
 		return 1, 1, 1, 1
@@ -203,8 +205,18 @@ func computeRegions(lines []string, cursorRow int) (int, int, int, int) {
 	// Calculate editable region (expand around cursor within char budget)
 	editableStart, editableEnd := expandRegion(lines, cursorIdx, MaxRewriteChars)
 
-	// Calculate context region (expand around editable within char budget)
-	contextStart, contextEnd := expandRegionAround(lines, editableStart, editableEnd, MaxContextChars)
+	// Context defaults to the entire file
+	contextStart := 0
+	contextEnd := len(lines) - 1
+
+	// For extremely large files, trim distant regions while preserving the editable area
+	totalChars := 0
+	for _, l := range lines {
+		totalChars += len(l) + 1
+	}
+	if totalChars > MaxFileChars {
+		contextStart, contextEnd = expandRegionAround(lines, editableStart, editableEnd, MaxFileChars)
+	}
 
 	return editableStart + 1, editableEnd + 1, contextStart + 1, contextEnd + 1
 }
@@ -396,6 +408,10 @@ func formatDiffHistories(histories []*types.FileDiffHistory) string {
 			sb.WriteString(h.FileName)
 			sb.WriteString("\n")
 
+			oldLines := countNonEmptyLines(entry.Original)
+			newLines := countNonEmptyLines(entry.Updated)
+			fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n", 1, oldLines, 1, newLines)
+
 			// Write old lines with - prefix
 			for line := range strings.SplitSeq(entry.Original, "\n") {
 				if line != "" {
@@ -417,4 +433,15 @@ func formatDiffHistories(histories []*types.FileDiffHistory) string {
 		}
 	}
 	return sb.String()
+}
+
+// countNonEmptyLines counts the non-empty lines in a string.
+func countNonEmptyLines(s string) int {
+	n := 0
+	for line := range strings.SplitSeq(s, "\n") {
+		if line != "" {
+			n++
+		}
+	}
+	return n
 }

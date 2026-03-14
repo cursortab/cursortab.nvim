@@ -180,7 +180,7 @@ func TestFormatDiffHistories(t *testing.T) {
 					},
 				},
 			},
-			contains: []string{"--- test.go", "+++ test.go", "-before", "+after"},
+			contains: []string{"--- test.go", "+++ test.go", "@@ -1,1 +1,1 @@", "-before", "+after"},
 		},
 		{
 			name: "multiple entries",
@@ -198,7 +198,7 @@ func TestFormatDiffHistories(t *testing.T) {
 					},
 				},
 			},
-			contains: []string{"--- a.go", "+a2", "--- b.go", "+b2"},
+			contains: []string{"--- a.go", "@@ -1,1 +1,1 @@", "+a2", "--- b.go", "+b2"},
 		},
 	}
 

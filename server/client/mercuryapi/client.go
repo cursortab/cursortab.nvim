@@ -19,8 +19,8 @@ const CompletionURL = "https://api.inceptionlabs.ai/v1/edit/completions"
 // FeedbackURL is the endpoint for feedback reporting
 const FeedbackURL = "https://api-feedback.inceptionlabs.ai/feedback"
 
-// Model is the Mercury coder model name
-const Model = "mercury-coder"
+// Model is the Mercury edit model name
+const Model = "mercury-edit"
 
 // Request is the OpenAI-compatible request format for Mercury
 type Request struct {

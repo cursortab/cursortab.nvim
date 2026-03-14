@@ -16,7 +16,7 @@ This document describes the release process for cursortab.nvim.
 
 Follow semantic versioning.
 
-**Beta:** `v0.MINOR.PATCH-beta` (e.g., `v0.1.0-beta`, `v0.2.0-beta`)
+**Pre-stable:** `v0.MINOR.PATCH` (e.g., `v0.7.0`, `v0.7.1`)
 
 - Breaking changes increment MINOR (marked with `!` in commits)
 - Bug fixes and features increment PATCH
@@ -31,7 +31,7 @@ Follow semantic versioning.
 The version is defined in `server/daemon.go`:
 
 ```go
-Version: "0.4.8-beta", // AUTO-UPDATED by release workflow
+Version: "0.7.0", // AUTO-UPDATED by release workflow
 ```
 
 The release workflow automatically updates this when a tag is pushed.
@@ -41,8 +41,8 @@ The release workflow automatically updates this when a tag is pushed.
 1. Create and push a git tag:
 
    ```bash
-   git tag -a v0.5.0-beta -m "v0.5.0-beta"
-   git push origin v0.5.0-beta
+   git tag -a v0.7.0 -m "v0.7.0"
+   git push origin v0.7.0
    ```
 
 2. The release workflow will:

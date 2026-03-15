@@ -61,7 +61,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		CompletionPath:      config.Provider.CompletionPath,
 		CompletionTimeout:   config.Provider.CompletionTimeout,
 		PrivacyMode:         config.Provider.PrivacyMode,
-		Version:             "0.7.0", // AUTO-UPDATED by release workflow
+		Version:             "0.7.1", // AUTO-UPDATED by release workflow
 		EditorVersion:       config.EditorVersion,
 		EditorOS:            config.EditorOS,
 		StateDir:            config.StateDir,

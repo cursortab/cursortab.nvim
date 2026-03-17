@@ -272,11 +272,12 @@ func (e *Engine) handleStreamCompleteSimple() {
 		SourcePath: e.buffer.Path(),
 	}
 
-	// If we rendered a stage during streaming, re-render from the batch pipeline
-	// for correctness. The streamed stage was a best-effort preview; the batch
-	// stage is the authoritative version.
+	// If we already rendered a stage during streaming, keep it as-is.
+	// Re-rendering would cause visible flicker since Finalize() diffs against
+	// full old lines (vs partial during streaming), producing different groups.
+	// The accept path reconciles any boundary mismatch (accept.go:54-63).
 	if firstStageRendered {
-		e.showCurrentStage()
+		e.state = stateHasCompletion
 		return
 	}
 

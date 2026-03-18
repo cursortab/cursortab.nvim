@@ -11,8 +11,14 @@ func TestFindNextWordBoundary(t *testing.T) {
 		input string
 		want  int // number of bytes to accept
 	}{
-		// Space boundaries
+		// Leading whitespace - consumed as a single chunk
 		{"space at start", " world", 1},
+		{"leading spaces", "    return true", 4}, // all 4 spaces
+		{"leading tabs", "\t\treturn", 2},        // both tabs
+		{"leading mixed", " \t  code", 4},        // all whitespace
+		{"only spaces", "    ", 4},               // all spaces, no non-ws
+
+		// Word then boundary
 		{"word then space", "hello world", 6}, // "hello " (5 + 1)
 		{"tab", "foo\tbar", 4},                // "foo\t"
 

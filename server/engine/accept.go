@@ -10,7 +10,7 @@ import (
 
 // reject clears all state and returns to idle.
 func (e *Engine) reject() {
-	// Update contextual filter: explicit rejection breaks "show" momentum
+	// Update gating: explicit rejection breaks "show" momentum
 	e.filterState.lastShown = false
 	e.filterState.lastDecisionTime = e.clock.Now()
 
@@ -50,7 +50,7 @@ func (e *Engine) acceptCompletion() {
 	// Send accept metric
 	e.sendMetric(metrics.EventAccepted)
 
-	// Update contextual filter: acceptance reinforces "show" momentum
+	// Update gating: acceptance reinforces "show" momentum
 	e.filterState.lastShown = true
 	e.filterState.lastDecisionTime = e.clock.Now()
 

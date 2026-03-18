@@ -13,7 +13,7 @@
 //     Invocation of Automatic Code Completion" (2024): https://arxiv.org/abs/2405.14753
 //   - Mozannar et al. "When to Show a Suggestion?" (AAAI 2024):
 //     https://arxiv.org/abs/2306.04930
-package contextfilter
+package gating
 
 import (
 	"math"
@@ -24,6 +24,8 @@ import (
 // Threshold is the minimum score (0-1) for showing a completion.
 // Requests scoring below this are suppressed without contacting the provider.
 const Threshold = 0.35
+
+const numWeights = 221
 
 // intercept is the logistic regression bias term.
 const intercept = -0.3043572714994554
@@ -344,63 +346,61 @@ type Input struct {
 	Now           time.Time // Current time
 }
 
+// Features builds the 221-element feature vector from an Input.
+func Features(in Input) [numWeights]float64 {
+	var f [numWeights]float64
+
+	if in.PreviousLabel {
+		f[0] = 1
+	}
+	if AfterCursorIsWhitespace(in.Lines, in.Row, in.Col) {
+		f[1] = 1
+	}
+	if !in.LastDecision.IsZero() {
+		f[2] = math.Log(1 + in.Now.Sub(in.LastDecision).Seconds())
+	}
+
+	line, col := CurrentLine(in.Lines, in.Row, in.Col)
+	prefix := line[:col]
+	f[3] = math.Log(1 + float64(len(prefix)))
+	f[4] = math.Log(1 + float64(len(strings.TrimRight(prefix, " \t"))))
+
+	docLen := DocumentByteLength(in.Lines)
+	cursorOff := ByteOffset(in.Lines, in.Row, in.Col)
+	f[5] = math.Log(1 + float64(docLen))
+	f[6] = math.Log(1 + float64(cursorOff))
+	f[7] = (float64(cursorOff) + 0.5) / (1.0 + float64(docLen))
+
+	lang := extToLanguage[in.FileExtension]
+	if idx, ok := languageIndex[lang]; ok {
+		f[8+idx] = 1
+	} else {
+		f[8] = 1
+	}
+
+	if col > 0 {
+		f[29+charIndex(line[col-1])] = 1
+	} else {
+		f[29] = 1
+	}
+
+	if nwc, ok := LastNonWSChar(line, col); ok {
+		f[125+charIndex(nwc)] = 1
+	} else {
+		f[125] = 1
+	}
+
+	return f
+}
+
 // Score computes the probability that the user will accept a completion
 // in the given context. Returns a value in [0, 1].
 func Score(in Input) float64 {
+	f := Features(in)
 	s := intercept
-
-	// Feature 0: Previous label (momentum)
-	if in.PreviousLabel {
-		s += weights[0]
+	for i, v := range f {
+		s += weights[i] * v
 	}
-
-	// Feature 1: After-cursor whitespace
-	if afterCursorIsWhitespace(in.Lines, in.Row, in.Col) {
-		s += weights[1]
-	}
-
-	// Feature 2: Time since last decision (log-scaled seconds)
-	if !in.LastDecision.IsZero() {
-		elapsed := in.Now.Sub(in.LastDecision).Seconds()
-		s += weights[2] * math.Log(1+elapsed)
-	}
-
-	// Features 3-4: Prefix length and trimmed prefix length
-	line, col := currentLine(in.Lines, in.Row, in.Col)
-	prefix := line[:col]
-	s += weights[3] * math.Log(1+float64(len(prefix)))
-	trimmedLen := len(strings.TrimRight(prefix, " \t"))
-	s += weights[4] * math.Log(1+float64(trimmedLen))
-
-	// Features 5-7: Document length, cursor offset, relative position
-	docLen := documentByteLength(in.Lines)
-	cursorOffset := byteOffset(in.Lines, in.Row, in.Col)
-	s += weights[5] * math.Log(1+float64(docLen))
-	s += weights[6] * math.Log(1+float64(cursorOffset))
-	s += weights[7] * (float64(cursorOffset) + 0.5) / (1.0 + float64(docLen))
-
-	// Feature 8: Language (one-hot)
-	lang := extToLanguage[in.FileExtension]
-	if idx, ok := languageIndex[lang]; ok {
-		s += weights[8+idx]
-	} else {
-		s += weights[8] // unknown language slot
-	}
-
-	// Feature 9: Last character of prefix (one-hot)
-	if col > 0 {
-		s += weights[29+charIndex(line[col-1])]
-	} else {
-		s += weights[29] // no-char slot
-	}
-
-	// Feature 10: Last non-whitespace character of prefix (one-hot)
-	if nwc, ok := lastNonWSChar(line, col); ok {
-		s += weights[125+charIndex(nwc)]
-	} else {
-		s += weights[125] // no-char slot
-	}
-
 	return sigmoid(s)
 }
 
@@ -409,7 +409,7 @@ func ShouldSuppress(score float64) bool {
 	return score < Threshold
 }
 
-func afterCursorIsWhitespace(lines []string, row, col int) bool {
+func AfterCursorIsWhitespace(lines []string, row, col int) bool {
 	if row < 1 || row > len(lines) {
 		return true
 	}
@@ -420,7 +420,7 @@ func afterCursorIsWhitespace(lines []string, row, col int) bool {
 	return strings.TrimSpace(line[col:]) == ""
 }
 
-func currentLine(lines []string, row, col int) (string, int) {
+func CurrentLine(lines []string, row, col int) (string, int) {
 	if row < 1 || row > len(lines) {
 		return "", 0
 	}
@@ -431,7 +431,7 @@ func currentLine(lines []string, row, col int) (string, int) {
 	return line, col
 }
 
-func documentByteLength(lines []string) int {
+func DocumentByteLength(lines []string) int {
 	total := 0
 	for _, line := range lines {
 		total += len(line) + 1
@@ -439,7 +439,7 @@ func documentByteLength(lines []string) int {
 	return total
 }
 
-func byteOffset(lines []string, row, col int) int {
+func ByteOffset(lines []string, row, col int) int {
 	offset := 0
 	for i := 0; i < row-1 && i < len(lines); i++ {
 		offset += len(lines[i]) + 1
@@ -451,7 +451,7 @@ func byteOffset(lines []string, row, col int) int {
 	return offset
 }
 
-func lastNonWSChar(line string, col int) (byte, bool) {
+func LastNonWSChar(line string, col int) (byte, bool) {
 	for i := col - 1; i >= 0; i-- {
 		if line[i] != ' ' && line[i] != '\t' {
 			return line[i], true

@@ -28,6 +28,7 @@ type BehaviorConfig struct {
 	CursorPrediction    CursorPredictionConfig `json:"cursor_prediction"`
 	CompleteInInsert    bool                   `json:"complete_in_insert"`
 	CompleteInNormal    bool                   `json:"complete_in_normal"`
+	EnableCommunityData bool                   `json:"enable_community_data"`
 }
 
 // FIMTokensConfig holds FIM token settings

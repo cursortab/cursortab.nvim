@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"cursortab/assert"
-	"cursortab/contextfilter"
+	"cursortab/gating"
 	"cursortab/types"
 )
 
@@ -160,7 +160,7 @@ func TestSuppressForMidLine(t *testing.T) {
 	assert.False(t, e.suppressForMidLine(), "closing paren + semicolon")
 }
 
-func TestSuppressForContextualFilter(t *testing.T) {
+func TestSuppressForGating(t *testing.T) {
 	e := &Engine{
 		clock: newMockClock(),
 		buffer: &mockBuffer{
@@ -170,11 +170,11 @@ func TestSuppressForContextualFilter(t *testing.T) {
 			path:  "main.go",
 		},
 	}
-	assert.False(t, e.suppressForContextualFilter(), "good context should pass")
+	assert.False(t, e.suppressForGating(), "good context should pass")
 	assert.True(t, e.filterState.lastShown, "lastShown should be true after pass")
 }
 
-func TestSuppressForContextualFilter_UpdatesState(t *testing.T) {
+func TestSuppressForGating_UpdatesState(t *testing.T) {
 	clock := newMockClock()
 	e := &Engine{
 		clock: clock,
@@ -186,12 +186,12 @@ func TestSuppressForContextualFilter_UpdatesState(t *testing.T) {
 		},
 	}
 
-	e.suppressForContextualFilter()
+	e.suppressForGating()
 	assert.False(t, e.filterState.lastDecisionTime.IsZero(),
 		"lastDecisionTime should be set after filter call")
 }
 
-func TestSuppressForContextualFilter_Momentum(t *testing.T) {
+func TestSuppressForGating_Momentum(t *testing.T) {
 	clock := newMockClock()
 	base := &Engine{
 		clock: clock,
@@ -201,14 +201,14 @@ func TestSuppressForContextualFilter_Momentum(t *testing.T) {
 			col:   5,
 			path:  "main.go",
 		},
-		filterState: contextualFilterState{
+		filterState: gatingState{
 			lastShown:        true,
 			lastDecisionTime: clock.Now().Add(-1 * time.Second),
 		},
 	}
 
 	// With momentum, score should be higher
-	scoreWith := contextfilter.Score(contextfilter.Input{
+	scoreWith := gating.Score(gating.Input{
 		Lines:         base.buffer.Lines(),
 		Row:           base.buffer.Row(),
 		Col:           base.buffer.Col(),
@@ -217,7 +217,7 @@ func TestSuppressForContextualFilter_Momentum(t *testing.T) {
 		LastDecision:  clock.Now().Add(-1 * time.Second),
 		Now:           clock.Now(),
 	})
-	scoreWithout := contextfilter.Score(contextfilter.Input{
+	scoreWithout := gating.Score(gating.Input{
 		Lines:         base.buffer.Lines(),
 		Row:           base.buffer.Row(),
 		Col:           base.buffer.Col(),

@@ -1,4 +1,4 @@
-package contextfilter
+package gating
 
 import (
 	"cursortab/assert"
@@ -168,27 +168,27 @@ func TestSigmoid(t *testing.T) {
 }
 
 func TestLastNonWSChar(t *testing.T) {
-	ch, ok := lastNonWSChar("x = ", 4)
+	ch, ok := LastNonWSChar("x = ", 4)
 	assert.True(t, ok, "should find non-ws char")
 	assert.Equal(t, byte('='), ch, "last non-ws char")
 
-	_, ok = lastNonWSChar("  ", 2)
+	_, ok = LastNonWSChar("  ", 2)
 	assert.False(t, ok, "no non-ws char in whitespace")
 
-	ch, ok = lastNonWSChar("func(", 5)
+	ch, ok = LastNonWSChar("func(", 5)
 	assert.True(t, ok, "should find char")
 	assert.Equal(t, byte('('), ch, "last non-ws char is (")
 }
 
 func TestAfterCursorIsWhitespace(t *testing.T) {
-	assert.True(t, afterCursorIsWhitespace([]string{"hello"}, 1, 5), "cursor at end")
-	assert.True(t, afterCursorIsWhitespace([]string{"hello   "}, 1, 5), "only spaces after")
-	assert.False(t, afterCursorIsWhitespace([]string{"hello world"}, 1, 5), "code after cursor")
+	assert.True(t, AfterCursorIsWhitespace([]string{"hello"}, 1, 5), "cursor at end")
+	assert.True(t, AfterCursorIsWhitespace([]string{"hello   "}, 1, 5), "only spaces after")
+	assert.False(t, AfterCursorIsWhitespace([]string{"hello world"}, 1, 5), "code after cursor")
 }
 
 func TestDocumentByteLength(t *testing.T) {
-	assert.Equal(t, 12, documentByteLength([]string{"hello", "world"}), "two 5-char lines")
-	assert.Equal(t, 1, documentByteLength([]string{""}), "single empty line")
+	assert.Equal(t, 12, DocumentByteLength([]string{"hello", "world"}), "two 5-char lines")
+	assert.Equal(t, 1, DocumentByteLength([]string{""}), "single empty line")
 }
 
 func TestWeightsArrayLength(t *testing.T) {

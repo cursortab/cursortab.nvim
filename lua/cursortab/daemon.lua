@@ -87,6 +87,7 @@ local function start_daemon()
 				auto_advance = cfg.behavior.cursor_prediction.auto_advance,
 				proximity_threshold = cfg.behavior.cursor_prediction.proximity_threshold,
 			},
+			enable_community_data = cfg.behavior.enable_community_data,
 		},
 		provider = {
 			type = cfg.provider.type,

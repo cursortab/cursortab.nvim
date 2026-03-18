@@ -126,6 +126,7 @@ local default_config = {
 		},
 		ignore_filetypes = { "", "terminal" }, -- Filetypes to skip completions
 		ignore_gitignored = true, -- Skip files matched by .gitignore
+		enable_community_data = false, -- Opt-in: share anonymous completion metrics to improve gating for everyone (see TELEMETRY.md)
 	},
 
 	provider = {

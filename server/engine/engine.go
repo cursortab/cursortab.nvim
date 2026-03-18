@@ -111,7 +111,7 @@ type Engine struct {
 	lastCursorOffset int                 // For cursor movement detection
 
 	// Contextual filter state (tracks momentum across filter invocations)
-	filterState contextualFilterState
+	filterState gatingState
 
 	// Metrics tracking (engine owns state, provider implements Sender)
 	metricSender   metrics.Sender

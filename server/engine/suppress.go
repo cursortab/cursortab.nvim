@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"cursortab/contextfilter"
+	"cursortab/gating"
 	"cursortab/logger"
 	"cursortab/types"
 )
@@ -85,16 +85,16 @@ func isDeletion(action types.UserActionType) bool {
 	return action == types.ActionDeleteChar || action == types.ActionDeleteSelection
 }
 
-// contextualFilterState tracks state across filter invocations for momentum features.
-type contextualFilterState struct {
+// gatingState tracks state across filter invocations for momentum features.
+type gatingState struct {
 	lastShown        bool      // Did the previous filter call result in "show"?
 	lastDecisionTime time.Time // When the last accept/reject/suppress happened
 }
 
-// suppressForContextualFilter returns true if the contextual filter score is
-// below the acceptance threshold. Updates filter state as a side effect.
-func (e *Engine) suppressForContextualFilter() bool {
-	score := contextfilter.Score(contextfilter.Input{
+// suppressForGating returns true if the gating score is below the acceptance
+// threshold. Updates filter state as a side effect.
+func (e *Engine) suppressForGating() bool {
+	score := gating.Score(gating.Input{
 		Lines:         e.buffer.Lines(),
 		Row:           e.buffer.Row(),
 		Col:           e.buffer.Col(),
@@ -104,15 +104,15 @@ func (e *Engine) suppressForContextualFilter() bool {
 		Now:           e.clock.Now(),
 	})
 
-	suppress := contextfilter.ShouldSuppress(score)
+	suppress := gating.ShouldSuppress(score)
 
 	e.filterState.lastShown = !suppress
 	e.filterState.lastDecisionTime = e.clock.Now()
 
 	if suppress {
-		logger.Debug("contextual filter suppressed (score=%.3f, threshold=%.3f)", score, contextfilter.Threshold)
+		logger.Debug("gating suppressed (score=%.3f, threshold=%.3f)", score, gating.Threshold)
 	} else {
-		logger.Debug("contextual filter passed (score=%.3f)", score)
+		logger.Debug("gating passed (score=%.3f)", score)
 	}
 
 	return suppress

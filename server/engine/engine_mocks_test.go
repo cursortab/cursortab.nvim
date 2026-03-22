@@ -163,6 +163,10 @@ func (b *mockBuffer) CommitUserEdits() bool {
 func (b *mockBuffer) ClearDiffHistory() {
 }
 
+func (b *mockBuffer) IsModified() bool {
+	return true // Default to modified so completions aren't suppressed in tests
+}
+
 func (b *mockBuffer) SkipHistory() bool {
 	return false
 }

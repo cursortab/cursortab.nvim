@@ -29,6 +29,7 @@ type Buffer interface {
 	CommitPending()
 	CommitUserEdits() bool // Returns true if changes were committed
 	ClearDiffHistory()     // Reset diff history and checkpoint on save
+	IsModified() bool      // True if buffer content differs from the last-saved checkpoint
 	SkipHistory() bool     // True for files where diff history is not recorded
 	ShowCursorTarget(line int) error
 	ClearUI() error

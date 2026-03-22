@@ -104,6 +104,20 @@ func (b *NvimBuffer) ClearDiffHistory() {
 	copy(b.originalLines, b.lines)
 }
 
+// IsModified returns true if the buffer content differs from the originalLines
+// checkpoint (set on save or initial open).
+func (b *NvimBuffer) IsModified() bool {
+	if len(b.lines) != len(b.originalLines) {
+		return true
+	}
+	for i := range b.lines {
+		if b.lines[i] != b.originalLines[i] {
+			return true
+		}
+	}
+	return false
+}
+
 // noHistoryFiles is the list of filenames for which diff history is not recorded.
 var noHistoryFiles = []string{
 	"COMMIT_EDITMSG",

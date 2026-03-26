@@ -199,7 +199,7 @@ end
 -- Patch nvim-cmp to suppress during cursortab completion
 function M._patch_completion_plugins()
 	local ok_cmp, cmp = pcall(require, "cmp")
-	if ok_cmp and cmp.get_config then
+	if ok_cmp and cmp.get_config and type(cmp.setup) == "function" then
 		local cmp_config = cmp.get_config()
 		cmp.setup({ enabled = wrap_enabled(cmp_config.enabled) })
 	end

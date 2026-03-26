@@ -74,7 +74,7 @@ local function dismiss_native_completion()
 		vim.api.nvim_feedkeys(keys, "n", false)
 	end
 	local ok_cmp, cmp = pcall(require, "cmp")
-	if ok_cmp and cmp.visible() then
+	if ok_cmp and type(cmp.visible) == "function" and cmp.visible() then
 		cmp.abort()
 	end
 	local ok_blink, blink = pcall(require, "blink.cmp")

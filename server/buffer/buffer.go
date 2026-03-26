@@ -911,6 +911,10 @@ func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
 		if not client then
 			return {}
 		end
+		local bufnr = vim.api.nvim_get_current_buf()
+		if not vim.lsp.buf_is_attached(bufnr, client.id) then
+			vim.lsp.buf_attach_client(bufnr, client.id)
+		end
 		return {{id = client.id, offset_encoding = client.offset_encoding or "utf-16"}}
 	`, &result, nil)
 

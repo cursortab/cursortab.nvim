@@ -30,10 +30,9 @@ type CompletionRequest struct {
 	WorkspacePath string
 	WorkspaceID   string
 	// File context
-	FilePath    string
-	Lines       []string
-	Version     int
-	ChangedTick int // Neovim's b:changedtick captured with Lines (for LSP version matching)
+	FilePath string
+	Lines    []string
+	Version  int
 	// PreviousLines is the file content before the most recent edit
 	PreviousLines []string
 	// Multi-file diff histories in the same workspace

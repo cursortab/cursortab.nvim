@@ -6,13 +6,12 @@
 //
 //	{
 //	  "textDocument": {"uri": "file:///path/to/file.go", "version": 5},
-//	  "position":     {"line": 9, "character": 12},     // 0-indexed
+//	  "position":     {"line": 9, "character": 12},     // 0-indexed, UTF-16
 //	  "context":      {"triggerKind": 2}
 //	}
 //
 // The Copilot LSP responds with an array of edits (LSP TextEdit format with
 // UTF-16 character offsets), which are converted to line-based completions.
-// Telemetry commands attached to edits are executed on accept.
 package copilot
 
 import (
@@ -79,9 +78,6 @@ type Provider struct {
 	reqIDCounter  int64
 	pendingReqID  int64
 	pendingResult chan *CopilotResult
-
-	// Last commands for telemetry on accept (one per edit)
-	lastCommands []*CopilotCmd
 
 	// Track last focused URI to avoid redundant didFocus notifications
 	lastFocusedURI string
@@ -163,8 +159,9 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	}
 	p.mu.Unlock()
 
-	p.logRequest(reqID, uri, req.ChangedTick, req.CursorRow, req.CursorCol)
-	if err := p.buffer.SendCopilotNESRequest(reqID, uri, req.ChangedTick, req.CursorRow, req.CursorCol); err != nil {
+	logger.Debug("copilot request:\n  ReqID: %d\n  URI: %s\n  CursorRow: %d\n  CursorCol: %d",
+		reqID, uri, req.CursorRow, req.CursorCol)
+	if err := p.buffer.SendCopilotNESRequest(reqID, uri); err != nil {
 		logger.Error("failed to send NES request: %v", err)
 		return p.emptyResponse(), nil
 	}
@@ -217,24 +214,6 @@ func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg strin
 	}
 }
 
-// AcceptCompletion implements engine.CompletionAccepter for telemetry
-func (p *Provider) AcceptCompletion(ctx context.Context) {
-	p.mu.Lock()
-	cmds := p.lastCommands
-	p.lastCommands = nil
-	p.mu.Unlock()
-
-	for _, cmd := range cmds {
-		if cmd == nil {
-			continue
-		}
-		logger.Debug("copilot: executing telemetry command: %s", cmd.Command)
-		if err := p.buffer.ExecuteCopilotCommand(cmd.Command, cmd.Arguments); err != nil {
-			logger.Warn("failed to execute copilot command: %v", err)
-		}
-	}
-}
-
 // ensureHandlerRegistered registers the RPC handler for Copilot responses.
 // Re-registers if the client ID changed (indicating a reconnection).
 func (p *Provider) ensureHandlerRegistered(clientID int) error {
@@ -252,11 +231,6 @@ func (p *Provider) ensureHandlerRegistered(clientID int) error {
 	p.handlerRegistered = true
 	p.lastClientID = clientID
 	return nil
-}
-
-func (p *Provider) logRequest(reqID int64, uri string, changedTick, cursorRow, cursorCol int) {
-	logger.Debug("copilot request:\n  ReqID: %d\n  URI: %s\n  ChangedTick: %d\n  CursorRow: %d\n  CursorCol: %d",
-		reqID, uri, changedTick, cursorRow, cursorCol)
 }
 
 func (p *Provider) logResponse(edits []CopilotEdit) {
@@ -280,23 +254,12 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 		return p.emptyResponse(), nil
 	}
 
-	// Collect commands for telemetry on accept
-	var commands []*CopilotCmd
 	var completions []*types.Completion
 
 	for i, edit := range edits {
-		// Validate that the edit's document version matches our buffer snapshot.
-		// Copilot's range refers to line/column positions in its document version;
-		// if our snapshot is from a different version, those positions are wrong.
-		if edit.TextDoc.Version != 0 && req.ChangedTick != 0 && edit.TextDoc.Version != req.ChangedTick {
-			logger.Debug("copilot: edit %d version mismatch (response=%d, snapshot=%d), discarding",
-				i, edit.TextDoc.Version, req.ChangedTick)
-			continue
-		}
-
 		// Store command for telemetry
 		if edit.Command != nil {
-			commands = append(commands, edit.Command)
+			logger.Debug("copilot: edit %d has command: %s", i, edit.Command.Command)
 		}
 
 		completion := p.convertSingleEdit(edit, req, i)
@@ -304,11 +267,6 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 			completions = append(completions, completion)
 		}
 	}
-
-	// Store commands for telemetry
-	p.mu.Lock()
-	p.lastCommands = commands
-	p.mu.Unlock()
 
 	if len(completions) == 0 {
 		return p.emptyResponse(), nil

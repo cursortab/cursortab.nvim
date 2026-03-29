@@ -1,10 +1,8 @@
 package copilot
 
 import (
-	"context"
 	"cursortab/assert"
 	"cursortab/types"
-	"sync"
 	"testing"
 )
 
@@ -327,34 +325,6 @@ func TestConvertEdits_StartLineOutOfBounds(t *testing.T) {
 	assert.Nil(t, resp.Completions, "no completions for out of bounds")
 }
 
-func TestConvertEdits_StoresCommand(t *testing.T) {
-	p := &Provider{
-		pendingResult: make(chan *CopilotResult, 1),
-	}
-	req := &types.CompletionRequest{
-		Lines:   []string{"hello"},
-		Version: 1,
-	}
-	cmd := &CopilotCmd{
-		Command:   "copilot/telemetry",
-		Arguments: []any{"arg1"},
-	}
-	edits := []CopilotEdit{{
-		Text: "hello world",
-		Range: CopilotRange{
-			Start: CopilotPos{Line: 0, Character: 0},
-			End:   CopilotPos{Line: 0, Character: 5},
-		},
-		TextDoc: CopilotDoc{Version: 1},
-		Command: cmd,
-	}}
-
-	p.convertEdits(edits, req)
-
-	assert.Len(t, 1, p.lastCommands, "one command stored")
-	assert.Equal(t, "copilot/telemetry", p.lastCommands[0].Command, "command name")
-}
-
 func TestConvertEdits_MultipleEdits(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
@@ -371,7 +341,6 @@ func TestConvertEdits_MultipleEdits(t *testing.T) {
 				End:   CopilotPos{Line: 0, Character: 6},
 			},
 			TextDoc: CopilotDoc{Version: 1},
-			Command: &CopilotCmd{Command: "cmd1"},
 		},
 		{
 			Text: "modified 3",
@@ -380,7 +349,6 @@ func TestConvertEdits_MultipleEdits(t *testing.T) {
 				End:   CopilotPos{Line: 2, Character: 6},
 			},
 			TextDoc: CopilotDoc{Version: 1},
-			Command: &CopilotCmd{Command: "cmd2"},
 		},
 	}
 
@@ -390,7 +358,6 @@ func TestConvertEdits_MultipleEdits(t *testing.T) {
 	assert.Len(t, 2, resp.Completions, "two completions")
 	assert.Equal(t, 1, resp.Completions[0].StartLine, "first edit start line")
 	assert.Equal(t, 3, resp.Completions[1].StartLine, "second edit start line")
-	assert.Len(t, 2, p.lastCommands, "two commands stored")
 }
 
 func TestHandleNESResponse_ValidResponse(t *testing.T) {
@@ -462,53 +429,6 @@ func TestHandleNESResponse_InvalidJSON(t *testing.T) {
 	default:
 		t.Fatal("expected result on channel")
 	}
-}
-
-func TestAcceptCompletion_NoCommand(t *testing.T) {
-	p := &Provider{
-		lastCommands: nil,
-	}
-
-	// Should not panic
-	p.AcceptCompletion(context.Background())
-
-	assert.Nil(t, p.lastCommands, "still nil")
-}
-
-func TestLastCommands_ConcurrentAccess(t *testing.T) {
-	p := &Provider{
-		pendingResult: make(chan *CopilotResult, 1),
-	}
-
-	var wg sync.WaitGroup
-	iterations := 100
-
-	// Test that concurrent read/write of lastCommands is safe with mutex
-	for range iterations {
-		wg.Add(2)
-
-		// Writer goroutine (simulates convertEdits setting lastCommands)
-		go func() {
-			defer wg.Done()
-			p.mu.Lock()
-			p.lastCommands = []*CopilotCmd{{Command: "test"}}
-			p.mu.Unlock()
-		}()
-
-		// Reader goroutine (simulates AcceptCompletion reading/clearing)
-		go func() {
-			defer wg.Done()
-			p.mu.Lock()
-			cmds := p.lastCommands
-			p.lastCommands = nil
-			p.mu.Unlock()
-			// Just access cmds to prevent "unused" warning
-			_ = cmds
-		}()
-	}
-
-	wg.Wait()
-	// If there's a race, the race detector will catch it
 }
 
 func TestEmptyResponse(t *testing.T) {

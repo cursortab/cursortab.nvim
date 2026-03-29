@@ -68,7 +68,6 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		FilePath:              e.buffer.Path(),
 		Lines:                 e.buffer.Lines(),
 		Version:               e.buffer.Version(),
-		ChangedTick:           e.buffer.ChangedTick(),
 		PreviousLines:         e.buffer.PreviousLines(),
 		FileDiffHistories:     e.getAllFileDiffHistories(),
 		CursorRow:             e.buffer.Row(),
@@ -174,7 +173,6 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 	}
 	previousLines := append([]string{}, e.buffer.PreviousLines()...)
 	version := e.buffer.Version()
-	changedTick := e.buffer.ChangedTick()
 	filePath := e.buffer.Path()
 	viewportHeight := e.getViewportHeightConstraint()
 
@@ -188,7 +186,6 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 			FilePath:          filePath,
 			Lines:             lines,
 			Version:           version,
-			ChangedTick:       changedTick,
 			PreviousLines:     previousLines,
 			FileDiffHistories: e.getAllFileDiffHistories(),
 			CursorRow:         overrideRow,

@@ -27,7 +27,6 @@ type NvimBuffer struct {
 	col           int // 0-indexed
 	path          string
 	version       int
-	changedTick   int                // Neovim's b:changedtick captured during Sync
 	diffHistories []*types.DiffEntry // Structured diff history for provider consumption
 	previousLines []string           // Buffer content before the most recent edit (for sweep provider)
 
@@ -88,8 +87,6 @@ func (b *NvimBuffer) Col() int { return b.col }
 func (b *NvimBuffer) Path() string { return b.path }
 
 func (b *NvimBuffer) Version() int { return b.version }
-
-func (b *NvimBuffer) ChangedTick() int { return b.changedTick }
 
 func (b *NvimBuffer) ViewportBounds() (top, bottom int) {
 	return b.viewportTop, b.viewportBottom
@@ -192,7 +189,6 @@ func (b *NvimBuffer) Sync(workspacePath string) (*SyncResult, error) {
 	var cursor [2]int
 	var scrollOffset int
 	var nvimCwd string
-	var changedTick int
 
 	batch.CurrentBuffer(&currentBuf)
 	batch.BufferName(nvim.Buffer(0), &path) // Use 0 for current buffer
@@ -202,9 +198,6 @@ func (b *NvimBuffer) Sync(workspacePath string) (*SyncResult, error) {
 
 	// Get Neovim's current working directory
 	batch.ExecLua(`return vim.fn.getcwd()`, &nvimCwd, nil)
-
-	// Capture changedtick atomically with buffer lines
-	batch.ExecLua(`return vim.b.changedtick`, &changedTick, nil)
 
 	// Get horizontal scroll offset (leftcol) from current window
 	batch.ExecLua(`
@@ -242,7 +235,6 @@ func (b *NvimBuffer) Sync(workspacePath string) (*SyncResult, error) {
 	b.row = cursor[0]              // Line (vertical position, 1-based in nvim cursor)
 	b.col = cursor[1]              // Column (horizontal position, 0-based in nvim cursor)
 	b.scrollOffsetX = scrollOffset // Horizontal scroll offset
-	b.changedTick = changedTick    // Neovim's buffer version for LSP
 
 	// Update viewport bounds (1-indexed)
 	b.viewportTop = viewportInfo[0]
@@ -890,8 +882,7 @@ func (b *NvimBuffer) clearNamespace(batch *nvim.Batch, nsID int) {
 
 // CopilotClientInfo contains information about an attached Copilot LSP client
 type CopilotClientInfo struct {
-	ID             int
-	OffsetEncoding string
+	ID int
 }
 
 // copilotClientLookupLua is the shared Lua code for finding the Copilot LSP client.
@@ -923,7 +914,7 @@ func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
 		if not vim.lsp.buf_is_attached(bufnr, client.id) then
 			vim.lsp.buf_attach_client(bufnr, client.id)
 		end
-		return {{id = client.id, offset_encoding = client.offset_encoding or "utf-16"}}
+		return {{id = client.id}}
 	`, &result, nil)
 
 	if err := batch.Execute(); err != nil {
@@ -935,8 +926,7 @@ func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
 	}
 
 	return &CopilotClientInfo{
-		ID:             getNumber(result[0], "id"),
-		OffsetEncoding: getString(result[0], "offset_encoding"),
+		ID: getNumber(result[0], "id"),
 	}, nil
 }
 
@@ -959,7 +949,7 @@ func (b *NvimBuffer) SendCopilotDidFocus(uri string) error {
 }
 
 // SendCopilotNESRequest sends textDocument/copilotInlineEdit request and delivers response via registered handler
-func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string, version int, row, col int) error {
+func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string) error {
 	if b.client == nil {
 		return fmt.Errorf("nvim client not set")
 	}
@@ -970,26 +960,44 @@ func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string, version int,
 	batch := b.client.NewBatch()
 	// The Lua code sends the request and uses rpcnotify to deliver the response back to Go
 	batch.ExecLua(copilotClientLookupLua+`
-		local chanID, reqID, uri, version, row, col = ...
+		local chanID, reqID, uri = ...
 		local client = find_copilot_client()
 		if not client then
 			vim.fn.rpcnotify(chanID, "cursortab_copilot_response", reqID, "[]", "no copilot client")
 			return
 		end
 
-		local params = {
-			textDocument = {
-				uri = uri,
-				version = version,
-			},
-			position = {
-				line = row - 1,  -- Convert to 0-indexed
-				character = col, -- Already 0-indexed
-			},
-			context = { triggerKind = 2 },
-		}
+		local bufnr = vim.api.nvim_get_current_buf()
 
-		client:request("textDocument/copilotInlineEdit", params, function(err, result)
+		-- Use the LSP protocol version (what Neovim sends in didChange), not b:changedtick.
+		-- These can diverge; using the wrong one causes Copilot to compute edits against
+		-- a mismatched document, producing wrong line numbers.
+		local version = vim.lsp.util.buf_versions[bufnr] or vim.b[bufnr].changedtick
+
+		-- Full document sync: correct any accumulated incremental change tracking drift.
+		-- Only send when the version changed since our last sync (skip no-op resyncs).
+		local last_sync = vim.b[bufnr]._cursortab_copilot_sync
+		if last_sync ~= version then
+			local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+			local full_text = table.concat(all_lines, "\n")
+			-- Range end uses INT32_MAX to cover the entire document regardless of length
+			client:notify("textDocument/didChange", {
+				textDocument = { uri = uri, version = version },
+				contentChanges = {{
+					range = {
+						start = { line = 0, character = 0 },
+						["end"] = { line = 2147483647, character = 0 },
+					},
+					text = full_text,
+				}},
+			})
+			vim.b[bufnr]._cursortab_copilot_sync = version
+		end
+
+		local pos_params = vim.lsp.util.make_position_params(0, "utf-16")
+		pos_params.textDocument.version = version
+
+		client:request("textDocument/copilotInlineEdit", pos_params, function(err, result)
 			local edits_json = "[]"
 			local err_msg = ""
 			if err then
@@ -999,25 +1007,7 @@ func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string, version int,
 			end
 			vim.fn.rpcnotify(chanID, "cursortab_copilot_response", reqID, edits_json, err_msg)
 		end)
-	`, nil, chanID, reqID, uri, version, row, col)
-
-	return batch.Execute()
-}
-
-// ExecuteCopilotCommand executes a Copilot telemetry command (for accept tracking)
-func (b *NvimBuffer) ExecuteCopilotCommand(command string, arguments []any) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
-	batch := b.client.NewBatch()
-	batch.ExecLua(copilotClientLookupLua+`
-		local command, arguments = ...
-		local client = find_copilot_client()
-		if client then
-			client:exec_cmd({command = command, arguments = arguments})
-		end
-	`, nil, command, arguments)
+	`, nil, chanID, reqID, uri)
 
 	return batch.Execute()
 }

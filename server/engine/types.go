@@ -19,7 +19,6 @@ type Buffer interface {
 	Col() int
 	Path() string
 	Version() int
-	ChangedTick() int
 	ViewportBounds() (top, bottom int)
 	AvailableWidth() int
 	PreviousLines() []string

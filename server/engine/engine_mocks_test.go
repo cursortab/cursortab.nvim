@@ -93,10 +93,6 @@ func (b *mockBuffer) Version() int {
 	return b.version
 }
 
-func (b *mockBuffer) ChangedTick() int {
-	return 0
-}
-
 func (b *mockBuffer) ViewportBounds() (top, bottom int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

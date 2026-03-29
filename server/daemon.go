@@ -44,6 +44,15 @@ type Daemon struct {
 	cancel      context.CancelFunc
 }
 
+func providerCapabilityForSource(source types.ProviderSource) types.ProviderCapability {
+	switch source {
+	case types.ProviderSourceInline, types.ProviderSourceFIM:
+		return types.ProviderCapabilityInsert
+	default:
+		return types.ProviderCapabilityEdit
+	}
+}
+
 func NewDaemon(config Config) (*Daemon, error) {
 	apiKey := ""
 	if config.Provider.ApiKeyEnv != "" {
@@ -76,36 +85,38 @@ func NewDaemon(config Config) (*Daemon, error) {
 		Middle: config.Provider.FIMTokens.Middle,
 	}
 
+	providerSource, err := types.ParseProviderSource(config.Provider.Type)
+	if err != nil {
+		return nil, err
+	}
+	providerCapability := providerCapabilityForSource(providerSource)
+
 	buf := buffer.New(buffer.Config{
 		NsID: config.NsID,
 	})
 
 	var prov engine.Provider
-	switch types.ProviderType(config.Provider.Type) {
-	case types.ProviderTypeInline:
+	switch providerSource {
+	case types.ProviderSourceInline:
 		prov = inline.NewProvider(providerConfig)
-	case types.ProviderTypeFIM:
+	case types.ProviderSourceFIM:
 		prov = fim.NewProvider(providerConfig)
-	case types.ProviderTypeSweep:
+	case types.ProviderSourceSweep:
 		prov = sweep.NewProvider(providerConfig)
-	case types.ProviderTypeSweepAPI:
+	case types.ProviderSourceSweepAPI:
 		prov = sweepapi.NewProvider(providerConfig)
-	case types.ProviderTypeZeta:
+	case types.ProviderSourceZeta:
 		prov = zeta.NewProvider(providerConfig)
-	case types.ProviderTypeCopilot:
+	case types.ProviderSourceCopilot:
 		prov = copilot.NewProvider(buf)
-	case types.ProviderTypeMercuryAPI:
+	case types.ProviderSourceMercuryAPI:
 		prov = mercuryapi.NewProvider(providerConfig)
 	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", config.Provider.Type)
+		return nil, fmt.Errorf("unsupported provider source: %s", providerSource)
 	}
 
-	provType := types.ProviderType(config.Provider.Type)
-	editCompletionProvider := provType == types.ProviderTypeSweep ||
-		provType == types.ProviderTypeSweepAPI ||
-		provType == types.ProviderTypeZeta ||
-		provType == types.ProviderTypeCopilot ||
-		provType == types.ProviderTypeMercuryAPI
+	// TODO: remove when engine consumes ProviderCapability directly.
+	editCompletionProvider := providerCapability == types.ProviderCapabilityEdit
 
 	// Initialize dataset sender if user opted in to contribute data
 	var datasetSender metrics.Sender

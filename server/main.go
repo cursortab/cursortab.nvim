@@ -2,6 +2,7 @@ package main
 
 import (
 	"cursortab/logger"
+	"cursortab/types"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -38,8 +39,9 @@ type FIMTokensConfig struct {
 }
 
 // ProviderConfig holds provider-specific settings
+// Type identifies the assembled source/backend.
 type ProviderConfig struct {
-	Type                 string          `json:"type"` // "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", "mercuryapi"
+	Type                 string          `json:"type"`
 	URL                  string          `json:"url"`
 	ApiKeyEnv            string          `json:"api_key_env"` // Environment variable name for API key
 	Model                string          `json:"model"`
@@ -82,8 +84,8 @@ func validateEnum(value, field string, valid []string) error {
 // Validate checks that the config has valid values.
 // All config must come from the Lua client - no defaults are applied here.
 func (c *Config) Validate() error {
-	if err := validateEnum(c.Provider.Type, "provider.type", []string{"inline", "fim", "sweep", "sweepapi", "zeta", "copilot", "mercuryapi"}); err != nil {
-		return err
+	if _, err := types.ParseProviderSource(c.Provider.Type); err != nil {
+		return fmt.Errorf("invalid provider.type %q: must be a supported source/backend identity", c.Provider.Type)
 	}
 	if err := validateEnum(c.LogLevel, "log_level", []string{"trace", "debug", "info", "warn", "error"}); err != nil {
 		return err

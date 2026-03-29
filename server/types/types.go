@@ -233,10 +233,22 @@ const (
 	ProviderCapabilityEdit   ProviderCapability = "edit"
 )
 
+func SupportedProviderSources() []string {
+	return []string{
+		string(ProviderSourceInline),
+		string(ProviderSourceFIM),
+		string(ProviderSourceSweep),
+		string(ProviderSourceSweepAPI),
+		string(ProviderSourceZeta),
+		string(ProviderSourceCopilot),
+		string(ProviderSourceMercuryAPI),
+	}
+}
+
 func ParseProviderSource(value string) (ProviderSource, error) {
 	source := ProviderSource(value)
 	if !source.IsValid() {
-		return "", fmt.Errorf("unsupported provider source: %s", value)
+		return "", fmt.Errorf("unsupported provider source %q", value)
 	}
 	return source, nil
 }

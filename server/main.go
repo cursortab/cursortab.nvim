@@ -85,7 +85,7 @@ func validateEnum(value, field string, valid []string) error {
 // All config must come from the Lua client - no defaults are applied here.
 func (c *Config) Validate() error {
 	if _, err := types.ParseProviderSource(c.Provider.Type); err != nil {
-		return fmt.Errorf("invalid provider.type %q: must be a supported source/backend identity", c.Provider.Type)
+		return fmt.Errorf("invalid provider.type %q: %w (must be one of %s and represent a supported source/backend identity)", c.Provider.Type, err, strings.Join(types.SupportedProviderSources(), ", "))
 	}
 	if err := validateEnum(c.LogLevel, "log_level", []string{"trace", "debug", "info", "warn", "error"}); err != nil {
 		return err

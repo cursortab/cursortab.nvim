@@ -44,12 +44,18 @@ type Daemon struct {
 	cancel      context.CancelFunc
 }
 
-func providerCapabilityForSource(source types.ProviderSource) types.ProviderCapability {
+func providerCapabilityForSource(source types.ProviderSource) (types.ProviderCapability, error) {
 	switch source {
 	case types.ProviderSourceInline, types.ProviderSourceFIM:
-		return types.ProviderCapabilityInsert
+		return types.ProviderCapabilityInsert, nil
+	case types.ProviderSourceSweep,
+		types.ProviderSourceSweepAPI,
+		types.ProviderSourceZeta,
+		types.ProviderSourceCopilot,
+		types.ProviderSourceMercuryAPI:
+		return types.ProviderCapabilityEdit, nil
 	default:
-		return types.ProviderCapabilityEdit
+		return "", fmt.Errorf("unsupported provider source for capability bridge: %q", source)
 	}
 }
 
@@ -89,7 +95,10 @@ func NewDaemon(config Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	providerCapability := providerCapabilityForSource(providerSource)
+	providerCapability, err := providerCapabilityForSource(providerSource)
+	if err != nil {
+		return nil, err
+	}
 
 	buf := buffer.New(buffer.Config{
 		NsID: config.NsID,

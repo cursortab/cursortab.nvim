@@ -244,7 +244,6 @@ const (
 	ProviderTypeInline     ProviderType = "inline"
 	ProviderTypeFIM        ProviderType = "fim"
 	ProviderTypeSweep      ProviderType = "sweep"
-	ProviderTypeSweepAPI   ProviderType = "sweepapi"
 	ProviderTypeZeta       ProviderType = "zeta"
 	ProviderTypeZeta2      ProviderType = "zeta-2"
 	ProviderTypeCopilot    ProviderType = "copilot"
@@ -255,7 +254,7 @@ const (
 // region-replacing) completions, as opposed to inline/FIM single-point fills.
 func (p ProviderType) IsEditCompletion() bool {
 	switch p {
-	case ProviderTypeSweep, ProviderTypeSweepAPI, ProviderTypeZeta, ProviderTypeZeta2,
+	case ProviderTypeSweep, ProviderTypeZeta, ProviderTypeZeta2,
 		ProviderTypeCopilot, ProviderTypeMercuryAPI:
 		return true
 	}

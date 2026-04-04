@@ -23,7 +23,6 @@ import (
 	"cursortab/provider/inline"
 	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
-	"cursortab/provider/sweepapi"
 	"cursortab/provider/zeta"
 	"cursortab/provider/zeta2"
 	"cursortab/types"
@@ -92,8 +91,6 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = fim.NewProvider(providerConfig)
 	case types.ProviderTypeSweep:
 		prov = sweep.NewProvider(providerConfig)
-	case types.ProviderTypeSweepAPI:
-		prov = sweepapi.NewProvider(providerConfig)
 	case types.ProviderTypeZeta:
 		prov = zeta.NewProvider(providerConfig)
 	case types.ProviderTypeZeta2:

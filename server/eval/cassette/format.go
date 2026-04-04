@@ -11,7 +11,7 @@
 //	rec := cassette.NewRecorder(http.DefaultTransport)
 //	client.HTTPClient.Transport = rec
 //	// ... make requests ...
-//	c := rec.Cassette("sweepapi", "sweep-api-v3")
+//	c := rec.Cassette("mercuryapi", "mercury-edit")
 //	_ = c.Save("path/to/cassette.ndjson")
 //
 //	// Replay:

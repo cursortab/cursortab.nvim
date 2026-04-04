@@ -59,12 +59,6 @@
     "showRate": 0.64,
     "quietRate": 0.4
   },
-  "sweepapi": {
-    "score": 0.08383645684904067,
-    "deltaChrF": 17.29126922511464,
-    "showRate": 0.32,
-    "quietRate": 1
-  },
   "zeta": {
     "score": 0.5616320137623684,
     "deltaChrF": 62.43438888168621,

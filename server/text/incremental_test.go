@@ -2176,7 +2176,7 @@ func TestIncrementalStageBuilder_FewModificationsInLargeFile(t *testing.T) {
 // split boundary are also changes (no exact matches), the finalized stage does not
 // produce spurious deletions of the unchanged trailing content.
 //
-// This reproduces the sweepapi provider bug where a model changes N lines and
+// This reproduces a provider bug where a model changes N lines and
 // MaxVisibleLines=4 splits after 4 changes, but the next changed lines have no
 // forward anchor yet in the streaming mapping, causing findOldLineRange to fall back
 // to len(OldLines) and include the entire remaining file as "deleted" content.

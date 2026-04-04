@@ -11,7 +11,6 @@ import (
 	"cursortab/provider/fim"
 	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
-	"cursortab/provider/sweepapi"
 	"cursortab/provider/zeta"
 	"cursortab/provider/zeta2"
 	"cursortab/types"
@@ -33,13 +32,6 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 	switch t.Type {
 	case "sweep":
 		p := sweep.NewProvider(cfg)
-		p.SetHTTPTransport(transport)
-		return p, nil
-	case "sweepapi":
-		if t.URL != "" {
-			return nil, fmt.Errorf("harness: target %q has URL override but sweepapi only supports the hosted endpoint; use type=sweep for self-hosted models", t.Name)
-		}
-		p := sweepapi.NewProvider(cfg)
 		p.SetHTTPTransport(transport)
 		return p, nil
 	case "mercuryapi":

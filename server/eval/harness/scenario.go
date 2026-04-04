@@ -31,7 +31,6 @@ import (
 //	  12-go-positional-to-options.txtar
 //	  12-go-positional-to-options/
 //	    mercuryapi.ndjson
-//	    sweepapi.ndjson
 //	    copilot.ndjson
 //
 // Fixture layout:
@@ -81,7 +80,7 @@ type Scenario struct {
 // type can appear multiple times (e.g. sweep-v1 vs sweep-v2).
 type Target struct {
 	Name  string // "sweep-v1", "mercury", etc.
-	Type  string // "sweepapi", "mercuryapi", "zeta", "zeta-2"
+	Type  string // "mercuryapi", "zeta", "zeta-2"
 	Model string // model version id
 	URL   string // provider endpoint; empty = default
 }

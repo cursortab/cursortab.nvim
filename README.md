@@ -29,7 +29,6 @@ A Neovim plugin that provides edit completions and cursor predictions.
     * [Inline Provider (Default)](#inline-provider-default)
     * [FIM Provider](#fim-provider)
     * [Sweep Provider](#sweep-provider)
-    * [Sweep API Provider](#sweep-api-provider)
     * [Zeta-2 Provider](#zeta-2-provider)
     * [Zeta Provider (legacy)](#zeta-provider-legacy)
     * [Copilot Provider](#copilot-provider)
@@ -202,7 +201,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", "zeta-2", "copilot", or "mercuryapi"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "zeta", "zeta-2", "copilot", or "mercuryapi"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -260,15 +259,14 @@ vim.api.nvim_set_hl(0, "CursorTabAddition", { bg = "#1a3a1a" })
 
 ### Providers
 
-The plugin supports eight AI provider backends: Inline, FIM, Sweep, Sweep API,
-Zeta-2, Zeta (legacy), Copilot, and Mercury API.
+The plugin supports seven AI provider backends: Inline, FIM, Sweep, Zeta-2, Zeta
+(legacy), Copilot, and Mercury API.
 
 | Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                   |
 | ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ----------------------- |
 | `inline`     |        |            |            |                   |           | Any base model          |
 | `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable         |
 | `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family  |
-| `sweepapi`   |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`    |
 | `zeta-2`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta-2` (SeedCoder-8B) |
 | `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta` (Qwen2.5-Coder)  |
 | `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot          |
@@ -276,16 +274,16 @@ Zeta-2, Zeta (legacy), Copilot, and Mercury API.
 
 **Context Per Provider:**
 
-| Context             | inline | fim | sweep | zeta-2 | zeta | sweepapi | copilot | mercuryapi |
-| ------------------- | :----: | :-: | :---: | :----: | :--: | :------: | :-----: | :--------: |
-| Buffer content      |   ✓    |  ✓  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
-| Edit history        |        | ✓°  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
-| Previous file state |        |     |   ✓   |        |      |    ✓     |         |            |
-| LSP diagnostics     |        | ✓°  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
-| Treesitter context  |        | ✓°  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
-| Git diff context    |        | ✓°  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
-| Recent files        |        | ✓°  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
-| User actions        |        |     |   ✓   |        |      |    ✓     |         |            |
+| Context             | inline | fim | sweep | zeta-2 | zeta | copilot | mercuryapi |
+| ------------------- | :----: | :-: | :---: | :----: | :--: | :-----: | :--------: |
+| Buffer content      |   ✓    |  ✓  |   ✓   |   ✓    |  ✓   |         |     ✓      |
+| Edit history        |        | ✓°  |   ✓   |   ✓    |  ✓   |         |     ✓      |
+| Previous file state |        |     |   ✓   |        |      |         |            |
+| LSP diagnostics     |        | ✓°  |   ✓   |   ✓    |  ✓   |         |     ✓      |
+| Treesitter context  |        | ✓°  |   ✓   |   ✓    |  ✓   |         |     ✓      |
+| Git diff context    |        | ✓°  |   ✓   |   ✓    |  ✓   |         |     ✓      |
+| Recent files        |        | ✓°  |   ✓   |   ✓    |  ✓   |         |     ✓      |
+| User actions        |        |     |   ✓   |        |      |         |            |
 
 ° FIM cross-file context requires repo-level tokens (`repo_name`, `file_sep`).
 Auto-detected for Qwen models; set manually for other models that support them.
@@ -318,7 +316,6 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 | copilot              | copilot    |     0.13 |      22.3 |       40% |   **100%** |      351 |      915 |
 | sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |      207 |
 | qwen3.6-35B-A3B      | fim        |     0.10 |      19.2 |       40% |        80% |  **113** |      411 |
-| sweepapi             | sweepapi   |     0.08 |      17.3 |       32% |   **100%** |      158 |      306 |
 
 #### Inline Provider (Default)
 
@@ -388,29 +385,6 @@ require("cursortab").setup({
 
 ```bash
 llama-server -hf sweepai/sweep-next-edit-1.5b --port 8000
-```
-
-</details>
-
-#### Sweep API Provider
-
-<details>
-<summary>Details</summary>
-
-Hosted Sweep API — no local model required. Get a token from
-[sweep.dev](https://sweep.dev/).
-
-```bash
-export SWEEPAPI_TOKEN="your-api-token-here"
-```
-
-```lua
-require("cursortab").setup({
-  provider = {
-    type = "sweepapi",
-    api_key_env = "SWEEPAPI_TOKEN",
-  },
-})
 ```
 
 </details>
@@ -612,7 +586,7 @@ also run `:CursortabRestart` to force a restart.
 
 The plugin runs a background daemon that persists after Neovim closes.
 Environment variables are only loaded when the daemon starts. If you add or
-change an environment variable (e.g., `SWEEPAPI_TOKEN` in your `.zshrc`), run
+change an environment variable (e.g., `OPENAI_API_KEY` in your `.zshrc`), run
 `:CursortabRestart` to restart the daemon with the new environment variables.
 
 Note: If you change plugin configuration (e.g., switch providers), the daemon

@@ -7,7 +7,6 @@ vim.opt.rtp:prepend(plugin_dir)
 require("cursortab").setup({
 	log_level = "debug",
 	provider = {
-		type = "sweepapi",
-		api_key_env = "SWEEPAI_API_KEY",
+		type = "sweep",
 	},
 })

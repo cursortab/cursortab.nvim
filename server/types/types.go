@@ -217,7 +217,6 @@ const (
 	ProviderTypeInline     ProviderType = "inline"
 	ProviderTypeFIM        ProviderType = "fim"
 	ProviderTypeSweep      ProviderType = "sweep"
-	ProviderTypeSweepAPI   ProviderType = "sweepapi"
 	ProviderTypeZeta       ProviderType = "zeta"
 	ProviderTypeCopilot    ProviderType = "copilot"
 	ProviderTypeMercuryAPI ProviderType = "mercuryapi"

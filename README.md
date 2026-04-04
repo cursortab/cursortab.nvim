@@ -31,7 +31,6 @@ A Neovim plugin that provides local edit completions and cursor predictions.
     * [Inline Provider (Default)](#inline-provider-default)
     * [FIM Provider](#fim-provider)
     * [Sweep Provider](#sweep-provider)
-    * [Sweep API Provider](#sweep-api-provider)
     * [Zeta Provider](#zeta-provider)
     * [Copilot Provider](#copilot-provider)
     * [Mercury API Provider](#mercury-api-provider)
@@ -183,7 +182,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", or "mercuryapi"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "zeta", "copilot", or "mercuryapi"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -236,31 +235,30 @@ vim.api.nvim_set_hl(0, "CursorTabAddition", { bg = "#1a3a1a" })
 
 ### Providers
 
-The plugin supports seven AI provider backends: Inline, FIM, Sweep, Sweep API,
-Zeta, Copilot, and Mercury API.
+The plugin supports six AI provider backends: Inline, FIM, Sweep, Zeta, Copilot,
+and Mercury API.
 
 | Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                  |
 | ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ---------------------- |
 | `inline`     |        |            |            |                   |           | Any base model         |
 | `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable        |
 | `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family |
-| `sweepapi`   |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`   |
 | `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta`                 |
 | `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot         |
 | `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-edit`         |
 
 **Context Per Provider:**
 
-| Context             | inline | fim | sweep | zeta | sweepapi | copilot | mercuryapi |
-| ------------------- | :----: | :-: | :---: | :--: | :------: | :-----: | :--------: |
-| Buffer content      |   ✓    |  ✓  |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Edit history        |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Previous file state |        |     |   ✓   |      |    ✓     |         |            |
-| LSP diagnostics     |        |     |       |  ✓   |    ✓     |         |     ✓      |
-| Treesitter context  |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Git diff context    |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Recent files        |        |     |       |      |    ✓     |         |     ✓      |
-| User actions        |        |     |       |      |    ✓     |         |            |
+| Context             | inline | fim | sweep | zeta | copilot | mercuryapi |
+| ------------------- | :----: | :-: | :---: | :--: | :-----: | :--------: |
+| Buffer content      |   ✓    |  ✓  |   ✓   |  ✓   |         |     ✓      |
+| Edit history        |        |     |   ✓   |  ✓   |         |     ✓      |
+| Previous file state |        |     |   ✓   |      |         |            |
+| LSP diagnostics     |        |     |       |  ✓   |         |     ✓      |
+| Treesitter context  |        |     |   ✓   |  ✓   |         |     ✓      |
+| Git diff context    |        |     |   ✓   |  ✓   |         |     ✓      |
+| Recent files        |        |     |       |      |         |     ✓      |
+| User actions        |        |     |       |      |         |            |
 
 #### Inline Provider (Default)
 
@@ -389,36 +387,6 @@ llama-server \
     --spec-ngram-size-n 24 \
     --draft-min 12 \
     --draft-max 64
-```
-
-</details>
-
-#### Sweep API Provider
-
-<details>
-<summary>Details</summary>
-
-Sweep's hosted API for Next-Edit predictions. No local model setup required.
-
-**Requirements:**
-
-- Create an account at [sweep.dev](https://sweep.dev/) and get your API token
-- Set the `SWEEPAPI_TOKEN` environment variable with your token
-
-**Example Configuration:**
-
-```bash
-# In your shell config (.bashrc, .zshrc, etc.)
-export SWEEPAPI_TOKEN="your-api-token-here"
-```
-
-```lua
-require("cursortab").setup({
-  provider = {
-    type = "sweepapi",
-    api_key_env = "SWEEPAPI_TOKEN",
-  },
-})
 ```
 
 </details>
@@ -665,7 +633,7 @@ also run `:CursortabRestart` to force a restart.
 
 The plugin runs a background daemon that persists after Neovim closes.
 Environment variables are only loaded when the daemon starts. If you add or
-change an environment variable (e.g., `SWEEPAPI_TOKEN` in your `.zshrc`), run
+change an environment variable (e.g., `OPENAI_API_KEY` in your `.zshrc`), run
 `:CursortabRestart` to restart the daemon with the new environment variables.
 
 Note: If you change plugin configuration (e.g., switch providers), the daemon

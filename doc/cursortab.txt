@@ -101,7 +101,7 @@ Full configuration with defaults: >lua
     },
 
     provider = {
-      type = "inline",              -- "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", "mercuryapi"
+      type = "inline",              -- "inline", "fim", "sweep", "zeta", "copilot", "mercuryapi"
       url = "http://localhost:8000",
       api_key_env = "",             -- Env var name for API key
       model = "",
@@ -275,11 +275,10 @@ behavior.ignore_gitignored      *cursortab-config-behavior-ignore-gitignored*
 PROVIDER OPTIONS                                    *cursortab-config-provider*
 
   `type`
-      Provider type: "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", or "mercuryapi".
+      Provider type: "inline", "fim", "sweep", "zeta", "copilot", or "mercuryapi".
       - inline: End-of-line completion, stops at newline
       - fim: Fill-in-the-middle, multi-line with prefix/suffix context
       - sweep: SweepAI Next-Edit model for multi-line edits (local)
-      - sweepapi: SweepAI hosted API (no local model required)
       - zeta: Zed's Zeta model with cursor predictions
       - copilot: GitHub Copilot completions
       - mercuryapi: Inception Labs' Mercury hosted Next-Edit model

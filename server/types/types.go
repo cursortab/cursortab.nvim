@@ -1,5 +1,7 @@
 package types
 
+import "fmt"
+
 // Completion represents a code completion with line range and content
 type Completion struct {
 	StartLine  int // 1-indexed
@@ -210,18 +212,61 @@ type UserAction struct {
 	TimestampMs int64 // Unix epoch milliseconds
 }
 
-// ProviderType represents the type of provider
-type ProviderType string
+// ProviderSource identifies the assembled source/backend.
+type ProviderSource string
 
 const (
-	ProviderTypeInline     ProviderType = "inline"
-	ProviderTypeFIM        ProviderType = "fim"
-	ProviderTypeSweep      ProviderType = "sweep"
-	ProviderTypeSweepAPI   ProviderType = "sweepapi"
-	ProviderTypeZeta       ProviderType = "zeta"
-	ProviderTypeCopilot    ProviderType = "copilot"
-	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
+	ProviderSourceInline     ProviderSource = "inline"
+	ProviderSourceFIM        ProviderSource = "fim"
+	ProviderSourceSweep      ProviderSource = "sweep"
+	ProviderSourceSweepAPI   ProviderSource = "sweepapi"
+	ProviderSourceZeta       ProviderSource = "zeta"
+	ProviderSourceCopilot    ProviderSource = "copilot"
+	ProviderSourceMercuryAPI ProviderSource = "mercuryapi"
 )
+
+// ProviderCapability identifies the requested internal completion semantics.
+type ProviderCapability string
+
+const (
+	ProviderCapabilityInsert ProviderCapability = "insert"
+	ProviderCapabilityEdit   ProviderCapability = "edit"
+)
+
+func SupportedProviderSources() []string {
+	return []string{
+		string(ProviderSourceInline),
+		string(ProviderSourceFIM),
+		string(ProviderSourceSweep),
+		string(ProviderSourceSweepAPI),
+		string(ProviderSourceZeta),
+		string(ProviderSourceCopilot),
+		string(ProviderSourceMercuryAPI),
+	}
+}
+
+func ParseProviderSource(value string) (ProviderSource, error) {
+	source := ProviderSource(value)
+	if !source.IsValid() {
+		return "", fmt.Errorf("unsupported provider source %q", value)
+	}
+	return source, nil
+}
+
+func (s ProviderSource) IsValid() bool {
+	switch s {
+	case ProviderSourceInline,
+		ProviderSourceFIM,
+		ProviderSourceSweep,
+		ProviderSourceSweepAPI,
+		ProviderSourceZeta,
+		ProviderSourceCopilot,
+		ProviderSourceMercuryAPI:
+		return true
+	default:
+		return false
+	}
+}
 
 // FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration
 type FIMTokenConfig struct {

@@ -1010,7 +1010,7 @@ func TestJoinLinesSplitLinesRoundTrip(t *testing.T) {
 
 	for _, lines := range cases {
 		text := JoinLines(lines)
-		result := splitLines(text)
+		result := SplitLines(text)
 		assert.Equal(t, len(lines), len(result), "round-trip length")
 
 		for i := range lines {

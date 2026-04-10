@@ -230,6 +230,12 @@ func (e *Engine) handlePrefetchReady(resp *types.CompletionResponse) {
 		if e.state == stateHasCompletion || e.state == stateStreamingCompletion {
 			return
 		}
+		// Don't replace a staged completion's cursor target — it points to the
+		// next stage the user needs to accept. The prefetch result stays stored
+		// and will be consumed after all stages are finished.
+		if e.state == stateHasCursorTarget && e.hasMoreStages() {
+			return
+		}
 		e.handlePrefetchCursorPrediction()
 	}
 }

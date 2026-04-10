@@ -45,7 +45,7 @@ type Buffer interface {
 }
 
 // Provider defines the interface that all AI providers must implement.
-// Implemented by inline.Provider, sweep.Provider, zeta.Provider.
+// Implemented by inline.Provider, sweep.Provider, zeta.Provider, zeta2.Provider.
 type Provider interface {
 	GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error)
 	GetContextLimits() ContextLimits
@@ -109,7 +109,7 @@ func (cl ContextLimits) WithDefaults() ContextLimits {
 }
 
 // LineStreamProvider extends Provider with line-by-line streaming capabilities.
-// For providers like sweep, zeta, fim that stream by lines.
+// For providers like sweep, zeta, zeta-2, fim that stream by lines.
 type LineStreamProvider interface {
 	Provider
 	// GetStreamingType returns: 0=none, 1=lines, 2=tokens
@@ -138,7 +138,7 @@ type TokenStreamProvider interface {
 // Streaming type constants
 const (
 	StreamingTypeNone   = 0 // Batch mode
-	StreamingTypeLines  = 1 // Line-by-line (sweep, zeta, fim)
+	StreamingTypeLines  = 1 // Line-by-line (sweep, zeta, zeta-2, fim)
 	StreamingTypeTokens = 2 // Token-by-token (inline)
 )
 
@@ -166,11 +166,19 @@ type PrefillContext interface {
 // Used by FIM providers where streamed lines are partial (middle-fill) and need
 // transformation before diffing. When implemented, the engine uses these old lines
 // and base offset instead of TrimmedContext, and transforms the first/last lines.
+//
+// TransformLine runs on every streamed line (including first and last) before
+// validation, accumulation, and stage building. Providers use it to strip
+// in-band markers the model emits inline in its output (e.g. Zeta2's
+// <|user_cursor|> cursor-position sentinel). A default no-op implementation
+// is provided by provider.Context.
 type StreamContext interface {
 	GetStreamOldLines() []string           // old lines for diff (nil = not applicable)
 	GetStreamBaseOffset() int              // 0-indexed base offset in buffer
 	TransformFirstLine(line string) string // transform first streamed line
 	TransformLastLine(line string) string  // transform last streamed line
+	TransformLine(line string) string      // transform every streamed line
+	ShouldSkipLine() bool                  // true when TransformLine consumed a marker-only line
 }
 
 // StreamingState holds state during incremental line streaming
@@ -285,5 +293,5 @@ type EngineConfig struct {
 	MaxVisibleLines        int  // Maximum lines per stage (0 = no limit)
 	CompleteInInsert       bool // Show completions in insert mode
 	CompleteInNormal       bool // Show completions in normal mode
-	EditCompletionProvider bool // True for edit-prediction providers (sweep, zeta, mercury, copilot NES)
+	EditCompletionProvider bool // True for edit-prediction providers (sweep, zeta, zeta-2, mercury, copilot NES)
 }

@@ -257,12 +257,13 @@ func (b *IncrementalStageBuilder) computeCurrentBufferLine(lineNum int) int {
 func (b *IncrementalStageBuilder) Finalize() *StagingResult {
 	defer logger.Trace("IncrementalStageBuilder.Finalize")()
 
-	if len(b.diffBuilder.NewLines) == 0 {
+	newLines := b.diffBuilder.NewLines
+	if len(newLines) == 0 {
 		return nil
 	}
 
 	oldText := JoinLines(b.OldLines)
-	newText := JoinLines(b.diffBuilder.NewLines)
+	newText := JoinLines(newLines)
 
 	diff := ComputeDiff(oldText, newText)
 
@@ -276,7 +277,7 @@ func (b *IncrementalStageBuilder) Finalize() *StagingResult {
 		ProximityThreshold: b.ProximityThreshold,
 		MaxLines:           b.MaxVisibleLines,
 		AvailableWidth:     b.AvailableWidth,
-		NewLines:           b.diffBuilder.NewLines,
+		NewLines:           newLines,
 		OldLines:           b.OldLines,
 		FilePath:           b.FilePath,
 	})

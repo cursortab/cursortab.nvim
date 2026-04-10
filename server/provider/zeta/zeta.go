@@ -32,6 +32,11 @@
 //	+func newHelper(ctx context.Context) error {
 //	-func oldHelper() error {
 //
+//	### Recent Files:                      (omitted if no recent snapshots)
+//	```other.go
+//	... first N lines of a recently viewed file ...
+//	```
+//
 //	### User Excerpt:
 //	```file.go
 //	<|start_of_file|>
@@ -96,7 +101,8 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	diagnosticsText := formatDiagnosticsForPrompt(req)
 	treesitterText := formatTreesitterForPrompt(req)
 	gitDiffText := formatGitDiffForPrompt(req)
-	prompt := buildInstructionPrompt(userEdits, diagnosticsText, treesitterText, gitDiffText, userExcerpt)
+	recentFilesText := formatRecentFilesForPrompt(req)
+	prompt := buildInstructionPrompt(userEdits, diagnosticsText, treesitterText, gitDiffText, recentFilesText, userExcerpt)
 
 	return &openai.CompletionRequest{
 		Model:       p.Config.ProviderModel,
@@ -254,7 +260,29 @@ func formatGitDiffForPrompt(req *types.CompletionRequest) string {
 	return gd.Diff
 }
 
-func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, userExcerpt string) string {
+// formatRecentFilesForPrompt renders RecentBufferSnapshots as fenced code blocks.
+func formatRecentFilesForPrompt(req *types.CompletionRequest) string {
+	if len(req.RecentBufferSnapshots) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, snap := range req.RecentBufferSnapshots {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("```")
+		b.WriteString(snap.FilePath)
+		b.WriteString("\n")
+		b.WriteString(strings.Join(snap.Lines, "\n"))
+		if len(snap.Lines) > 0 && !strings.HasSuffix(snap.Lines[len(snap.Lines)-1], "\n") {
+			b.WriteString("\n")
+		}
+		b.WriteString("```")
+	}
+	return b.String()
+}
+
+func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, recentFiles, userExcerpt string) string {
 	var promptBuilder strings.Builder
 
 	promptBuilder.WriteString("### Instruction:\n")
@@ -279,6 +307,12 @@ func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, u
 	if gitDiffCtx != "" {
 		promptBuilder.WriteString("### Staged Changes:\n\n")
 		promptBuilder.WriteString(gitDiffCtx)
+		promptBuilder.WriteString("\n\n")
+	}
+
+	if recentFiles != "" {
+		promptBuilder.WriteString("### Recent Files:\n\n")
+		promptBuilder.WriteString(recentFiles)
 		promptBuilder.WriteString("\n\n")
 	}
 

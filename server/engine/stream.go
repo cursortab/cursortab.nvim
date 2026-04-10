@@ -169,6 +169,23 @@ func (e *Engine) handleStreamLine(line string) {
 		return
 	}
 
+	// Strip any provider-configured in-band markers (e.g. Zeta2's
+	// <|user_cursor|>) before the line flows into validation, accumulation,
+	// or the stage builder. The default implementation on provider.Context is
+	// a no-op counter bump, so this is safe for all providers.
+	//
+	// When the marker was the entire line content (e.g. the model emitted
+	// <|user_cursor|> on its own line), ShouldSkipLine signals that the
+	// resulting empty line must be dropped. Accumulating it would add a
+	// phantom trailing line that the stage builder diffs against the old
+	// lines, producing a spurious deletion/addition stage.
+	if sc, ok := ss.ProviderContext.(StreamContext); ok {
+		line = sc.TransformLine(line)
+		if sc.ShouldSkipLine() {
+			return
+		}
+	}
+
 	// Accumulate text for postprocessing
 	ss.AccumulatedText.WriteString(line)
 	ss.AccumulatedText.WriteString("\n")

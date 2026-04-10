@@ -4,8 +4,167 @@ import (
 	"cursortab/assert"
 	"cursortab/text"
 	"cursortab/types"
+	"strings"
 	"testing"
 )
+
+// fakeStreamContext is a minimal StreamContext for testing handleStreamLine
+// wiring. It records raw inputs and delegates marker stripping to the same
+// algorithm as provider.Context (can't embed it due to import cycle).
+type fakeStreamContext struct {
+	marker        string
+	received      []string
+	cursorSeen    bool
+	cursorLine    int
+	cursorCol     int
+	linesReceived int
+	skipLine      bool
+}
+
+func (f *fakeStreamContext) GetStreamOldLines() []string           { return nil }
+func (f *fakeStreamContext) GetStreamBaseOffset() int              { return 0 }
+func (f *fakeStreamContext) TransformFirstLine(line string) string { return line }
+func (f *fakeStreamContext) TransformLastLine(line string) string  { return line }
+func (f *fakeStreamContext) ShouldSkipLine() bool                  { return f.skipLine }
+
+func (f *fakeStreamContext) TransformLine(line string) string {
+	f.skipLine = false
+	f.received = append(f.received, line)
+	defer func() { f.linesReceived++ }()
+	if f.marker != "" {
+		if !f.cursorSeen {
+			if idx := strings.Index(line, f.marker); idx >= 0 {
+				f.cursorSeen = true
+				f.cursorLine = f.linesReceived
+				f.cursorCol = idx
+			}
+		}
+		stripped := strings.ReplaceAll(line, f.marker, "")
+		if strings.TrimSpace(stripped) == "" && strings.Contains(line, f.marker) {
+			f.skipLine = true
+		}
+		return stripped
+	}
+	return line
+}
+
+// TestHandleStreamLine_CallsTransformLineBeforeAccumulation verifies that
+// handleStreamLine runs the StreamContext.TransformLine hook before the line
+// hits AccumulatedText or the stage builder. This is the fix for zeta2's
+// <|user_cursor|> marker leaking into rendered stages.
+func TestHandleStreamLine_CallsTransformLineBeforeAccumulation(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"a", "b", "c", "d", "e", "f"}
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	fakeCtx := &fakeStreamContext{marker: "<|user_cursor|>"}
+
+	eng.state = stateStreamingCompletion
+	eng.streamingState = &StreamingState{
+		StageBuilder: text.NewIncrementalStageBuilder(
+			buf.lines,
+			1,  // baseLineOffset
+			3,  // proximityThreshold
+			50, // maxVisibleLines
+			1, 50,
+			1, 0,
+			"test.go",
+			100,
+		),
+		ProviderContext: fakeCtx,
+		Request:         &types.CompletionRequest{FilePath: "test.go", Lines: buf.lines},
+	}
+
+	// Stream a sequence of lines, one containing the marker.
+	eng.handleStreamLine("a")
+	eng.handleStreamLine("b")
+	eng.handleStreamLine("    return arr<|user_cursor|>")
+	eng.handleStreamLine("d")
+
+	// TransformLine must have been called on every line in order.
+	assert.Equal(t, 4, len(fakeCtx.received), "TransformLine called on every line")
+	assert.Equal(t, "    return arr<|user_cursor|>", fakeCtx.received[2], "raw line reaches hook")
+
+	// Accumulated text must NOT contain the marker.
+	acc := eng.streamingState.AccumulatedText.String()
+	assert.False(t, strings.Contains(acc, "<|user_cursor|>"),
+		"accumulated text is clean — marker stripped before accumulation")
+	assert.True(t, strings.Contains(acc, "    return arr"), "stripped content preserved in accumulator")
+
+	// Marker position captured correctly.
+	assert.True(t, fakeCtx.cursorSeen, "marker recorded")
+	assert.Equal(t, 2, fakeCtx.cursorLine, "line index = 2 (3rd line, 0-indexed)")
+	assert.Equal(t, 14, fakeCtx.cursorCol, "column = byte offset before marker")
+}
+
+// TestHandleStreamLine_SkipsMarkerOnlyLine verifies that when the model emits
+// <|user_cursor|> on its own line, the resulting empty line is dropped from
+// accumulation and the stage builder. This prevents a phantom trailing stage.
+func TestHandleStreamLine_SkipsMarkerOnlyLine(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"a", "b", "c", "d", "e", "f"}
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	fakeCtx := &fakeStreamContext{marker: "<|user_cursor|>"}
+
+	eng.state = stateStreamingCompletion
+	eng.streamingState = &StreamingState{
+		StageBuilder: text.NewIncrementalStageBuilder(
+			buf.lines, 1, 3, 50, 1, 50, 1, 0, "test.go", 100,
+		),
+		ProviderContext: fakeCtx,
+		Request:         &types.CompletionRequest{FilePath: "test.go", Lines: buf.lines},
+	}
+
+	eng.handleStreamLine("a")
+	eng.handleStreamLine("b")
+	eng.handleStreamLine("<|user_cursor|>") // marker-only line
+
+	// TransformLine was called 3 times (including the marker-only line).
+	assert.Equal(t, 3, len(fakeCtx.received), "TransformLine called on every line including marker-only")
+
+	// Accumulated text must NOT contain the marker-only empty line.
+	// Only "a\nb\n" should be accumulated (2 lines × "line\n"), not "a\nb\n\n" (3 lines).
+	acc := eng.streamingState.AccumulatedText.String()
+	assert.Equal(t, "a\nb\n", acc, "marker-only line excluded from accumulation")
+
+	// Marker position still captured.
+	assert.True(t, fakeCtx.cursorSeen, "marker recorded even though line skipped")
+}
+
+// TestHandleStreamLine_TransformLineIsNoopWithoutMarker verifies that a
+// StreamContext with an empty marker pattern is a harmless no-op — all other
+// providers remain untouched.
+func TestHandleStreamLine_TransformLineIsNoopWithoutMarker(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"x", "y", "z"}
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	fakeCtx := &fakeStreamContext{}
+
+	eng.state = stateStreamingCompletion
+	eng.streamingState = &StreamingState{
+		StageBuilder: text.NewIncrementalStageBuilder(
+			buf.lines, 1, 3, 50, 1, 50, 1, 0, "test.go", 100,
+		),
+		ProviderContext: fakeCtx,
+		Request:         &types.CompletionRequest{FilePath: "test.go", Lines: buf.lines},
+	}
+
+	eng.handleStreamLine("some line with <|user_cursor|> in it")
+
+	// With no marker configured, the line passes through unchanged.
+	assert.Equal(t, 1, len(fakeCtx.received), "hook still called")
+	acc := eng.streamingState.AccumulatedText.String()
+	assert.True(t, strings.Contains(acc, "<|user_cursor|>"),
+		"empty-marker hook does not strip anything")
+}
 
 func TestTokenStreamingKeepPartial_TypingMatchesPartial(t *testing.T) {
 	buf := newMockBuffer()

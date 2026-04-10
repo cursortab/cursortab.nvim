@@ -25,6 +25,7 @@ import (
 	"cursortab/provider/sweep"
 	"cursortab/provider/sweepapi"
 	"cursortab/provider/zeta"
+	"cursortab/provider/zeta2"
 	"cursortab/types"
 
 	"github.com/neovim/go-client/nvim"
@@ -92,6 +93,8 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = sweepapi.NewProvider(providerConfig)
 	case types.ProviderTypeZeta:
 		prov = zeta.NewProvider(providerConfig)
+	case types.ProviderTypeZeta2:
+		prov = zeta2.NewProvider(providerConfig)
 	case types.ProviderTypeCopilot:
 		prov = copilot.NewProvider(buf)
 	case types.ProviderTypeMercuryAPI:
@@ -104,6 +107,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 	editCompletionProvider := provType == types.ProviderTypeSweep ||
 		provType == types.ProviderTypeSweepAPI ||
 		provType == types.ProviderTypeZeta ||
+		provType == types.ProviderTypeZeta2 ||
 		provType == types.ProviderTypeCopilot ||
 		provType == types.ProviderTypeMercuryAPI
 

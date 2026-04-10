@@ -13,7 +13,9 @@ import (
 // - "a\nb\n" -> ["a", "b"] (2 lines)
 // - "a\n\n" -> ["a", ""] (2 lines, second is empty)
 // - "a\nb" -> ["a", "b"] (2 lines, no trailing \n)
-func splitLines(text string) []string {
+// SplitLines splits text by newline and drops the trailing empty element
+// produced by the terminating newline convention (each line ends with \n).
+func SplitLines(text string) []string {
 	lines := strings.Split(text, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -231,8 +233,8 @@ func (r *DiffResult) addModification(oldLineNum, newLineNum int, oldContent, new
 func ComputeDiff(text1, text2 string) *DiffResult {
 	defer logger.Trace("text.ComputeDiff")()
 	// Count lines in both texts
-	oldLines := splitLines(text1)
-	newLines := splitLines(text2)
+	oldLines := SplitLines(text1)
+	newLines := SplitLines(text2)
 	oldLineCount := len(oldLines)
 	newLineCount := len(newLines)
 
@@ -329,7 +331,7 @@ func processLineDiffsWithMapping(lineDiffs []diffmatchpatch.Diff, result *DiffRe
 
 	for i < len(lineDiffs) {
 		diff := lineDiffs[i]
-		lines := splitLines(diff.Text)
+		lines := SplitLines(diff.Text)
 
 		switch diff.Type {
 		case diffmatchpatch.DiffEqual:
@@ -350,7 +352,7 @@ func processLineDiffsWithMapping(lineDiffs []diffmatchpatch.Diff, result *DiffRe
 			// Check if this is followed by an insert - potential modification
 			if i+1 < len(lineDiffs) && lineDiffs[i+1].Type == diffmatchpatch.DiffInsert {
 				// This is a delete followed by insert - treat as modification(s)
-				insertLines := splitLines(lineDiffs[i+1].Text)
+				insertLines := SplitLines(lineDiffs[i+1].Text)
 
 				// Build mapping for the modification region
 				handleModificationsWithMapping(lines, insertLines, oldLineNum, newLineNum,

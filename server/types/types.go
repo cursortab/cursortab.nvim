@@ -219,6 +219,7 @@ const (
 	ProviderTypeSweep      ProviderType = "sweep"
 	ProviderTypeSweepAPI   ProviderType = "sweepapi"
 	ProviderTypeZeta       ProviderType = "zeta"
+	ProviderTypeZeta2      ProviderType = "zeta-2"
 	ProviderTypeCopilot    ProviderType = "copilot"
 	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
 )

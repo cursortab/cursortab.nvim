@@ -1754,8 +1754,8 @@ func TestStageIncludesAllLinesFromDeleteInsertBlock(t *testing.T) {
 	diffResult := ComputeDiff(oldText, newText)
 
 	// Create stages from this diff
-	newLines := splitLines(newText)
-	oldLines := splitLines(oldText)
+	newLines := SplitLines(newText)
+	oldLines := SplitLines(oldText)
 	stagingResult := CreateStages(&StagingParams{
 		Diff:               diffResult,
 		CursorRow:          1,

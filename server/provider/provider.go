@@ -8,6 +8,7 @@ import (
 	"cursortab/types"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // StreamingType defines how completion content is streamed
@@ -16,7 +17,7 @@ type StreamingType int
 const (
 	// StreamingNone indicates batch mode (no streaming)
 	StreamingNone StreamingType = iota
-	// StreamingLines indicates line-by-line streaming (sweep, zeta, fim)
+	// StreamingLines indicates line-by-line streaming (sweep, zeta, zeta-2, fim)
 	StreamingLines
 	// StreamingTokens indicates token-by-token streaming (inline)
 	StreamingTokens
@@ -61,48 +62,93 @@ type Context struct {
 	StreamBaseOff  int      // 0-indexed base offset in buffer
 	FirstLinePfx   string   // prefix to prepend to first streamed line
 	LastLineSfx    string   // suffix to append to last streamed line
+
+	// Per-line cursor-marker stripping (e.g. Zeta2's <|user_cursor|> sentinel).
+	// Providers that need to strip in-band markers from every streamed line set
+	// CursorMarker in a preprocessor. TransformLine then strips the marker and
+	// records the position of its first occurrence in CursorMarkerLine /
+	// CursorMarkerCol (measured in the post-strip line sequence and the
+	// post-strip byte column, respectively). LinesReceived counts every line
+	// that has flowed through TransformLine so far, giving the marker's line
+	// index within the streamed response.
+	CursorMarker     string // sentinel to strip, or "" for no-op
+	CursorMarkerSeen bool   // true once the marker has been observed
+	CursorMarkerLine int    // 0-indexed line in the streamed response
+	CursorMarkerCol  int    // 0-indexed byte offset within the stripped line
+	LinesReceived    int    // running count of streamed lines seen by TransformLine
+	SkipLine         bool   // true when TransformLine consumed a marker-only line
+
+	// Cached editable range for FIM providers. Set by assemblePrompt,
+	// reused by parseCompletion to avoid recomputing.
+	EditableStart int // [start, end) within TrimmedLines
+	EditableEnd   int
 }
 
 // GetWindowStart returns the 0-indexed start offset of the trimmed window.
-// Implements engine.TrimmedContext interface.
 func (c *Context) GetWindowStart() int {
 	return c.WindowStart
 }
 
 // GetTrimmedLines returns the trimmed lines sent to the model.
-// Implements engine.TrimmedContext interface.
 func (c *Context) GetTrimmedLines() []string {
 	return c.TrimmedLines
 }
 
 // GetPrefill returns the prompt prefill text.
-// Implements engine.PrefillContext interface.
 func (c *Context) GetPrefill() string {
 	return c.Prefill
 }
 
 // GetStreamOldLines returns custom old lines for streaming diff.
-// Implements engine.StreamContext interface.
 func (c *Context) GetStreamOldLines() []string {
 	return c.StreamOldLines
 }
 
 // GetStreamBaseOffset returns the 0-indexed base offset in buffer.
-// Implements engine.StreamContext interface.
 func (c *Context) GetStreamBaseOffset() int {
 	return c.StreamBaseOff
 }
 
 // TransformFirstLine prepends the stored prefix to the first streamed line.
-// Implements engine.StreamContext interface.
 func (c *Context) TransformFirstLine(line string) string {
 	return c.FirstLinePfx + line
 }
 
 // TransformLastLine appends the stored suffix to the last streamed line.
-// Implements engine.StreamContext interface.
 func (c *Context) TransformLastLine(line string) string {
 	return line + c.LastLineSfx
+}
+
+// TransformLine strips the provider-configured CursorMarker (if any) from
+// every streamed line and records the marker's first observed position.
+// No-op counter increment when no CursorMarker is set.
+//
+// When the marker constitutes the entire line, SkipLine is set so the caller
+// can drop the line from accumulation and stage building.
+func (c *Context) TransformLine(line string) string {
+	c.SkipLine = false
+	defer func() { c.LinesReceived++ }()
+	if c.CursorMarker == "" {
+		return line
+	}
+	if !c.CursorMarkerSeen {
+		if idx := strings.Index(line, c.CursorMarker); idx >= 0 {
+			c.CursorMarkerSeen = true
+			c.CursorMarkerLine = c.LinesReceived
+			c.CursorMarkerCol = idx
+		}
+	}
+	stripped := strings.ReplaceAll(line, c.CursorMarker, "")
+	if strings.TrimSpace(stripped) == "" && strings.Contains(line, c.CursorMarker) {
+		c.SkipLine = true
+	}
+	return stripped
+}
+
+// ShouldSkipLine returns true when the last TransformLine call consumed a
+// marker-only line that should be dropped from the stream.
+func (c *Context) ShouldSkipLine() bool {
+	return c.SkipLine
 }
 
 // Provider implements engine.Provider with a configurable pipeline

@@ -32,7 +32,8 @@ A Neovim plugin that provides local edit completions and cursor predictions.
     * [FIM Provider](#fim-provider)
     * [Sweep Provider](#sweep-provider)
     * [Sweep API Provider](#sweep-api-provider)
-    * [Zeta Provider](#zeta-provider)
+    * [Zeta-2 Provider](#zeta-2-provider)
+    * [Zeta Provider (legacy)](#zeta-provider-legacy)
     * [Copilot Provider](#copilot-provider)
     * [Mercury API Provider](#mercury-api-provider)
   * [blink.cmp Integration](#blinkcmp-integration)
@@ -183,7 +184,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", "copilot", or "mercuryapi"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "sweepapi", "zeta", "zeta-2", "copilot", or "mercuryapi"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -236,39 +237,39 @@ vim.api.nvim_set_hl(0, "CursorTabAddition", { bg = "#1a3a1a" })
 
 ### Providers
 
-The plugin supports seven AI provider backends: Inline, FIM, Sweep, Sweep API,
-Zeta, Copilot, and Mercury API.
+The plugin supports eight AI provider backends: Inline, FIM, Sweep, Sweep API,
+Zeta-2, Zeta (legacy), Copilot, and Mercury API.
 
-| Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                  |
-| ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ---------------------- |
-| `inline`     |        |            |            |                   |           | Any base model         |
-| `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable        |
-| `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family |
-| `sweepapi`   |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`   |
-| `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta`                 |
-| `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot         |
-| `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-edit`         |
+| Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                   |
+| ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ----------------------- |
+| `inline`     |        |            |            |                   |           | Any base model          |
+| `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable         |
+| `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family  |
+| `sweepapi`   |   ✓    |     ✓      |     ✓      |         ✓         |     ✓     | `sweep-next-edit-7b`    |
+| `zeta-2`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta-2` (SeedCoder-8B) |
+| `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta` (Qwen2.5-Coder)  |
+| `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot          |
+| `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-edit`          |
 
 **Context Per Provider:**
 
-| Context             | inline | fim | sweep | zeta | sweepapi | copilot | mercuryapi |
-| ------------------- | :----: | :-: | :---: | :--: | :------: | :-----: | :--------: |
-| Buffer content      |   ✓    |  ✓  |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Edit history        |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Previous file state |        |     |   ✓   |      |    ✓     |         |            |
-| LSP diagnostics     |        |     |       |  ✓   |    ✓     |         |     ✓      |
-| Treesitter context  |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Git diff context    |        |     |   ✓   |  ✓   |    ✓     |         |     ✓      |
-| Recent files        |        |     |       |      |    ✓     |         |     ✓      |
-| User actions        |        |     |       |      |    ✓     |         |            |
+| Context             | inline | fim | sweep | zeta-2 | zeta | sweepapi | copilot | mercuryapi |
+| ------------------- | :----: | :-: | :---: | :----: | :--: | :------: | :-----: | :--------: |
+| Buffer content      |   ✓    |  ✓  |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
+| Edit history        |        |     |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
+| Previous file state |        |     |   ✓   |        |      |    ✓     |         |            |
+| LSP diagnostics     |        |     |       |   ✓    |  ✓   |    ✓     |         |     ✓      |
+| Treesitter context  |        |     |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
+| Git diff context    |        |     |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
+| Recent files        |        |     |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
+| User actions        |        |     |   ✓   |        |      |    ✓     |         |            |
 
 #### Inline Provider (Default)
 
 <details>
 <summary>Details</summary>
 
-End-of-line completion using OpenAI-compatible API endpoints. Works with any
-OpenAI-compatible `/v1/completions` endpoint.
+Single-line completion using any OpenAI-compatible `/v1/completions` endpoint.
 
 **Requirements:**
 
@@ -299,10 +300,9 @@ llama-server -hf ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF --port 8000
 <details>
 <summary>Details</summary>
 
-Fill-in-the-Middle completion using standard FIM tokens. Uses both prefix
-(before cursor) and suffix (after cursor) context. Compatible with Qwen,
-DeepSeek-Coder, and similar models. Works with any OpenAI-compatible
-`/v1/completions` endpoint.
+Fill-in-the-Middle multi-line completion. Compatible with Qwen, DeepSeek-Coder,
+and similar FIM-capable models via any OpenAI-compatible `/v1/completions`
+endpoint.
 
 **Requirements:**
 
@@ -342,17 +342,16 @@ llama-server \
 <details>
 <summary>Details</summary>
 
-Sweep Next-Edit models for fast, accurate next-edit predictions. Sends full file
-for small files, trimmed around cursor for large files.
+Local next-edit prediction using Sweep models.
 
 **Available Models**:
 
 - [`sweep-next-edit-v2-7B`](https://huggingface.co/sweepai/sweep-next-edit-v2-7B)
-  — 8B params, highest quality
+  — 8B
 - [`sweep-next-edit-1.5B`](https://huggingface.co/sweepai/sweep-next-edit-1.5B)
-  — 1B params, fast and accurate
+  — 1.5B
 - [`sweep-next-edit-0.5B`](https://huggingface.co/sweepai/sweep-next-edit-0.5B)
-  — 0.5B params, lightweight
+  — 0.5B
 
 **Requirements:**
 
@@ -398,7 +397,7 @@ llama-server \
 <details>
 <summary>Details</summary>
 
-Sweep's hosted API for Next-Edit predictions. No local model setup required.
+Hosted Sweep API. No local model required.
 
 **Requirements:**
 
@@ -423,13 +422,49 @@ require("cursortab").setup({
 
 </details>
 
-#### Zeta Provider
+#### Zeta-2 Provider
 
 <details>
 <summary>Details</summary>
 
-Zed's Zeta model - a Qwen2.5-Coder-7B fine-tuned for edit prediction using DPO
-and SFT.
+Zed's Zeta-2 (SeedCoder-8B). Successor to Zeta with improved accuracy.
+
+**Requirements:**
+
+- vLLM or compatible inference server
+- Zeta-2 model downloaded from
+  [Hugging Face](https://huggingface.co/zed-industries/zeta-2)
+
+**Example Configuration:**
+
+```lua
+require("cursortab").setup({
+  provider = {
+    type = "zeta-2",
+    url = "http://localhost:8000",
+    model = "zeta-2",
+  },
+})
+```
+
+**Example Setup:**
+
+```bash
+# Using vLLM
+vllm serve zed-industries/zeta-2 --served-model-name zeta-2 --port 8000
+
+# See the HuggingFace page for optimized deployment options
+```
+
+</details>
+
+#### Zeta Provider (legacy)
+
+<details>
+<summary>Details</summary>
+
+Zed's original Zeta model (Qwen2.5-Coder-7B). Superseded by
+[Zeta-2](#zeta-2-provider).
 
 **Requirements:**
 
@@ -454,8 +489,6 @@ require("cursortab").setup({
 ```bash
 # Using vLLM
 vllm serve zed-industries/zeta --served-model-name zeta --port 8000
-
-# See the HuggingFace page for optimized deployment options
 ```
 
 </details>
@@ -499,8 +532,8 @@ require("cursortab").setup({
 <details>
 <summary>Details</summary>
 
-[Mercury](https://docs.inceptionlabs.ai/) is Inception Labs' hosted Next-Edit
-prediction model.
+Hosted [Mercury](https://docs.inceptionlabs.ai/) next-edit model by Inception
+Labs.
 
 **Requirements:**
 

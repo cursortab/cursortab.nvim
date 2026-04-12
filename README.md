@@ -83,6 +83,13 @@ use {
 
 ## Quick Start
 
+Recommended starting points:
+
+- **Best hosted:** Mercury API
+- **Best local next-edit:** Zeta-2
+- **Fastest local:** Qwen3.5-0.8B with the `fim` or `inline` provider, or Sweep
+  1.5B/0.5B with the `sweep` provider
+
 The fastest way to get started is with the **Mercury API** provider (hosted, no
 local GPU needed):
 
@@ -104,20 +111,28 @@ local GPU needed):
    })
    ```
 
-If you prefer **local inference**, use the `sweep` provider with
-[llama.cpp](https://github.com/ggml-org/llama.cpp):
+If you prefer **local next-edit prediction**, use the `zeta-2` provider with
+[vLLM](https://github.com/vllm-project/vllm):
 
 ```bash
-llama-server -hf sweepai/sweep-next-edit-1.5b --port 8000
+vllm serve zed-industries/zeta-2 --served-model-name zeta-2 --port 8000
 ```
 
 ```lua
 require("cursortab").setup({
   provider = {
-    type = "sweep",
+    type = "zeta-2",
     url = "http://localhost:8000",
+    model = "zeta-2",
   },
 })
+```
+
+If you want the **fastest local setup**, use the `fim` or `inline` provider with
+[llama.cpp](https://github.com/ggml-org/llama.cpp):
+
+```bash
+llama-server -hf unsloth/Qwen3.5-0.8B-GGUF --port 8000
 ```
 
 See [Providers](#providers) for all available options.
@@ -314,7 +329,7 @@ require("cursortab").setup({
 ```
 
 ```bash
-llama-server -hf ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF --port 8000
+llama-server -hf unsloth/Qwen3.5-0.8B-GGUF:Q8_0 --port 8000
 ```
 
 </details>
@@ -338,7 +353,7 @@ require("cursortab").setup({
 ```
 
 ```bash
-llama-server -hf ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF --port 8000
+llama-server -hf unsloth/Qwen3.5-0.8B-GGUF:Q8_0 --port 8000
 ```
 
 </details>

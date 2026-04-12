@@ -1,0 +1,22 @@
+Correct JavaScript debounce utility — no edits needed at any cursor position.
+id: suppress-js-debounce
+language: javascript
+file: utils.js
+row: 2
+col: 12
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 5:57
+-- buffer.txt --
+export function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+-- steps --
+request-completion manual
+  expect !shown
+

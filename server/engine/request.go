@@ -172,6 +172,15 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 
 	go func() {
 		defer cancel()
+		// Stop() cancels mainCtx and closes eventChan in that order. There's
+		// still a race where this goroutine can commit to the send branch
+		// of the select below just as the channel is being closed. Recover
+		// so the in-flight prefetch doesn't tear the whole process down.
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Debug("prefetch goroutine recovered from panic during shutdown: %v", r)
+			}
+		}()
 
 		result, err := e.provider.GetCompletion(ctx, &types.CompletionRequest{
 			Source:            source,

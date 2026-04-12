@@ -1,0 +1,23 @@
+Correct Rust match with guard clause — no edits needed at any cursor position.
+id: suppress-rust-match
+language: rust
+file: describe.rs
+row: 3
+col: 49
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 6:38
+-- buffer.txt --
+pub fn describe(value: Option<i32>) -> String {
+    match value {
+        Some(n) if n < 0 => format!("negative: {n}"),
+        Some(0) => "zero".to_string(),
+        Some(n) => format!("positive: {n}"),
+        None => "absent".to_string(),
+    }
+}
+-- steps --
+request-completion manual
+  expect !shown
+

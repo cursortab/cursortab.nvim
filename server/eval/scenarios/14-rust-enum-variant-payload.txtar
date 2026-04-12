@@ -1,0 +1,55 @@
+User added a payload to an existing enum variant: `Disconnected` became `Disconnected { reason: String }`. Existing match arms don't bind the new field, and the formatting code breaks. Expect the match arm and the format call to both be fixed across sequential accepts.
+id: rust-enum-variant-payload
+language: rust
+file: state.rs
+row: 16
+col: 22
+viewportTop: 1
+viewportBottom: 40
+fim-row: 14
+fim-col: 32
+-- buffer.txt --
+use std::fmt;
+
+pub enum State {
+    Connecting,
+    Connected(String),
+    Disconnected { reason: String },
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            State::Connecting => write!(f, "connecting"),
+            State::Connected(host) => write!(f, "connected to {host}"),
+            State::Disconnected => write!(f, "disconnected"),
+        }
+    }
+}
+-- history --
+<|file|> state.rs
+<|old|>
+    Disconnected,
+<|new|>
+    Disconnected { reason: String },
+-- steps --
+request-completion manual
+-- expected --
+use std::fmt;
+
+pub enum State {
+    Connecting,
+    Connected(String),
+    Disconnected { reason: String },
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            State::Connecting => write!(f, "connecting"),
+            State::Connected(host) => write!(f, "connected to {host}"),
+            State::Disconnected { reason } => write!(f, "disconnected: {reason}"),
+        }
+    }
+}
+

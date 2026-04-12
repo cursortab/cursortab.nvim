@@ -1,0 +1,27 @@
+Correct Python dataclass with method — no edits needed at any cursor position.
+id: suppress-python-config
+language: python
+file: config.py
+row: 6
+col: 26
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 9:45, 12:42
+-- buffer.txt --
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Config:
+    host: str = "localhost"
+    port: int = 8080
+    debug: bool = False
+    tags: list[str] = field(default_factory=list)
+
+    def address(self) -> str:
+        return f"{self.host}:{self.port}"
+-- steps --
+request-completion manual
+  expect !shown
+

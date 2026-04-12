@@ -1,0 +1,93 @@
+User introduced a `Config` struct to replace a 5-positional-arg constructor. The caller in main still uses the old positional form. History shows the signature rewrite and adding the Config struct. Expect the caller rewrite.
+id: go-positional-to-options
+language: go
+file: server.go
+row: 28
+col: 30
+viewportTop: 1
+viewportBottom: 50
+fim-row: 26
+fim-col: 12
+-- buffer.txt --
+package server
+
+import (
+	"log/slog"
+	"time"
+)
+
+type Config struct {
+	Host         string
+	Port         int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	Logger       *slog.Logger
+}
+
+type Server struct {
+	cfg Config
+}
+
+func New(cfg Config) *Server {
+	return &Server{cfg: cfg}
+}
+
+func Run() *Server {
+	logger := slog.Default()
+	srv := New("localhost", 8080, 5*time.Second, 10*time.Second, logger)
+	return srv
+}
+-- history --
+<|file|> server.go
+<|old|>
+func New(host string, port int, readTimeout, writeTimeout time.Duration, logger *slog.Logger) *Server {
+	return &Server{
+		host:         host,
+		port:         port,
+		readTimeout:  readTimeout,
+		writeTimeout: writeTimeout,
+		logger:       logger,
+	}
+}
+<|new|>
+func New(cfg Config) *Server {
+	return &Server{cfg: cfg}
+}
+-- steps --
+request-completion manual
+-- expected --
+package server
+
+import (
+	"log/slog"
+	"time"
+)
+
+type Config struct {
+	Host         string
+	Port         int
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	Logger       *slog.Logger
+}
+
+type Server struct {
+	cfg Config
+}
+
+func New(cfg Config) *Server {
+	return &Server{cfg: cfg}
+}
+
+func Run() *Server {
+	logger := slog.Default()
+	srv := New(Config{
+		Host:         "localhost",
+		Port:         8080,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		Logger:       logger,
+	})
+	return srv
+}
+

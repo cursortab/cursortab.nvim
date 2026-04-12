@@ -1,0 +1,54 @@
+User made `fetch_user` async. The caller `build_profile` is now broken — it needs async/await and callers must propagate. Multi-step: fix caller body first, then fix the function signature.
+id: python-sync-to-async
+language: python
+file: profile.py
+row: 11
+col: 30
+viewportTop: 1
+viewportBottom: 40
+fim-row: 10
+fim-col: 0
+-- buffer.txt --
+import httpx
+
+
+async def fetch_user(client: httpx.AsyncClient, user_id: str) -> dict:
+    resp = await client.get(f"/users/{user_id}")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def build_profile(client: httpx.AsyncClient, user_id: str) -> str:
+    user = fetch_user(client, user_id)
+    return f"{user['name']} <{user['email']}>"
+-- history --
+<|file|> profile.py
+<|old|>
+def fetch_user(client: httpx.Client, user_id: str) -> dict:
+    resp = client.get(f"/users/{user_id}")
+    resp.raise_for_status()
+    return resp.json()
+<|new|>
+async def fetch_user(client: httpx.AsyncClient, user_id: str) -> dict:
+    resp = await client.get(f"/users/{user_id}")
+    resp.raise_for_status()
+    return resp.json()
+-- steps --
+request-completion manual
+accept
+
+request-completion manual
+-- expected --
+import httpx
+
+
+async def fetch_user(client: httpx.AsyncClient, user_id: str) -> dict:
+    resp = await client.get(f"/users/{user_id}")
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def build_profile(client: httpx.AsyncClient, user_id: str) -> str:
+    user = await fetch_user(client, user_id)
+    return f"{user['name']} <{user['email']}>"
+

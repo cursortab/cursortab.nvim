@@ -33,7 +33,9 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		PromptBuilder: buildPrompt,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
+			provider.StripRepetition(),
 			provider.DropLastLineIfTruncated(),
+			provider.RejectLeadingNewlineWithSuffix(),
 			parseCompletion,
 		},
 	}
@@ -97,6 +99,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 		Temperature: p.Config.ProviderTemperature,
 		MaxTokens:   p.Config.ProviderMaxTokens,
 		TopK:        p.Config.ProviderTopK,
+		Stop:        []string{prefixToken, suffixToken, middleToken},
 		N:           1,
 		Echo:        false,
 	}
@@ -112,10 +115,24 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 	}
 	cursorCol := min(req.CursorCol, len(currentLine))
 
+	// Build the suffix text (everything after cursor in the file) so we can
+	// detect when the model just regenerates it.
+	afterCursor := currentLine[cursorCol:]
+	var suffixBuilder strings.Builder
+	suffixBuilder.WriteString(afterCursor)
+	for i := req.CursorRow; i < len(req.Lines); i++ {
+		suffixBuilder.WriteString("\n")
+		suffixBuilder.WriteString(req.Lines[i])
+	}
+	suffix := suffixBuilder.String()
+
+	// Strip suffix overlap: if the completion ends with text that matches
+	// the beginning of the suffix, trim it. FIM models commonly regenerate
+	// the suffix verbatim when there's nothing to insert.
+	completionText = stripSuffixOverlap(completionText, suffix)
 	completionLines := strings.Split(completionText, "\n")
 
 	beforeCursor := currentLine[:cursorCol]
-	afterCursor := currentLine[cursorCol:]
 
 	resultLines := make([]string, len(completionLines))
 	resultLines[0] = beforeCursor + completionLines[0]
@@ -137,4 +154,25 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 
 	// FIM inserts content at cursor position - always replace only the current line
 	return p.BuildCompletion(ctx, req.CursorRow, req.CursorRow, resultLines)
+}
+
+// stripSuffixOverlap removes the longest suffix of completion that matches a
+// prefix of the file suffix. This catches the common FIM no-op pattern where
+// the model regenerates text that already exists after the cursor.
+func stripSuffixOverlap(completion, suffix string) string {
+	if completion == "" || suffix == "" {
+		return completion
+	}
+	// Find the longest k such that completion[len-k:] == suffix[:k].
+	maxK := min(len(completion), len(suffix))
+	best := 0
+	for k := 1; k <= maxK; k++ {
+		if completion[len(completion)-k:] == suffix[:k] {
+			best = k
+		}
+	}
+	if best > 0 {
+		return completion[:len(completion)-best]
+	}
+	return completion
 }

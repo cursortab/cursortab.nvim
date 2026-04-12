@@ -24,7 +24,7 @@ func QuoteLine(s string) string {
 	return b.String()
 }
 
-// UnquoteLine strips surrounding double quotes and unescapes \" and \\.
+// UnquoteLine strips surrounding double quotes and unescapes \", \\, \n, and \t.
 func UnquoteLine(s string) (string, error) {
 	if len(s) < 2 || s[0] != '"' || s[len(s)-1] != '"' {
 		return "", fmt.Errorf("not a quoted string: %s", s)
@@ -38,9 +38,12 @@ func UnquoteLine(s string) (string, error) {
 				b.WriteByte('"')
 			case '\\':
 				b.WriteByte('\\')
+			case 'n':
+				b.WriteByte('\n')
+			case 't':
+				b.WriteByte('\t')
 			default:
-				b.WriteByte(inner[i])
-				b.WriteByte(inner[i+1])
+				return "", fmt.Errorf("unknown escape \\%c", inner[i+1])
 			}
 			i++
 		} else {

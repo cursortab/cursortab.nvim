@@ -1,0 +1,75 @@
+User refactored Dog from inheriting Animal to composing it. Method calls that relied on inheritance (self.speak(), self.describe()) now need to go through self.animal. Tests understanding of OOP refactoring patterns.
+id: python-inheritance-to-composition
+language: python
+file: dog.py
+row: 20
+col: 43
+viewportTop: 1
+viewportBottom: 30
+fim-row: 19
+fim-col: 23
+-- buffer.txt --
+class Animal:
+    def __init__(self, name: str, sound: str):
+        self.name = name
+        self.sound = sound
+
+    def speak(self) -> str:
+        return f"{self.name} says {self.sound}"
+
+    def describe(self) -> str:
+        return f"{self.name} ({type(self).__name__})"
+
+
+class Dog:
+    def __init__(self, name: str, tricks: list[str]):
+        self.animal = Animal(name, "woof")
+        self.tricks = tricks
+
+    def greet(self, person: str) -> str:
+        return f"{self.speak()} to {person}!"
+
+    def show_tricks(self) -> str:
+        header = self.describe()
+        lines = [f"  - {t}" for t in self.tricks]
+        return f"{header} knows:\n" + "\n".join(lines)
+-- history --
+<|file|> dog.py
+<|old|>
+class Dog(Animal):
+    def __init__(self, name: str, tricks: list[str]):
+        super().__init__(name, "woof")
+        self.tricks = tricks
+<|new|>
+class Dog:
+    def __init__(self, name: str, tricks: list[str]):
+        self.animal = Animal(name, "woof")
+        self.tricks = tricks
+-- steps --
+request-completion manual
+-- expected --
+class Animal:
+    def __init__(self, name: str, sound: str):
+        self.name = name
+        self.sound = sound
+
+    def speak(self) -> str:
+        return f"{self.name} says {self.sound}"
+
+    def describe(self) -> str:
+        return f"{self.name} ({type(self).__name__})"
+
+
+class Dog:
+    def __init__(self, name: str, tricks: list[str]):
+        self.animal = Animal(name, "woof")
+        self.tricks = tricks
+
+    def greet(self, person: str) -> str:
+        return f"{self.animal.speak()} to {person}!"
+
+    def show_tricks(self) -> str:
+        header = self.animal.describe()
+        lines = [f"  - {t}" for t in self.tricks]
+        return f"{header} knows:\n" + "\n".join(lines)
+

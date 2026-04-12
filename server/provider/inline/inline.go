@@ -32,6 +32,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		PromptBuilder: buildPrompt,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
+			provider.StripRepetition(),
 			provider.RejectTruncated(),
 			parseCompletion,
 		},

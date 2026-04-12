@@ -1,0 +1,18 @@
+Unmodified buffer should be suppressed by the no-edits gate before any provider is called. Exercises gating, not quality.
+id: suppress-no-edits
+language: go
+file: main.go
+row: 3
+col: 14
+viewportTop: 1
+viewportBottom: 20
+modified: false
+targets: mercuryapi
+-- buffer.txt --
+package main
+
+func main() {}
+-- steps --
+request-completion
+  expect !shown suppressed
+

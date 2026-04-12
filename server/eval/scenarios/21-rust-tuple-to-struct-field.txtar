@@ -1,0 +1,49 @@
+User refactored a tuple struct to a named struct. Cursor is on .0 field access that should become .path. From Zed edit_prediction_cli: tree-sitter--tuple-to-struct-field-access.
+id: rust-tuple-to-struct-field
+language: rust
+file: crates/loader/src/loader.rs
+row: 5
+col: 57
+viewportTop: 1
+viewportBottom: 20
+fim-row: 5
+fim-col: 61
+-- buffer.txt --
+    #[must_use]
+    pub fn get_all_language_configurations(&self) -> Vec<(&LanguageConfiguration, &Path)> {
+        self.language_configurations
+            .iter()
+            .map(|c| (c, self.languages_by_id[c.language_id].0.as_ref()))
+            .collect()
+    }
+-- history --
+<|file|> crates/loader/src/loader.rs
+<|old|>
+    languages_by_id: Vec<(PathBuf, OnceCell<Language>, Option<Vec<PathBuf>>)>,
+<|new|>
+    languages_by_id: Vec<LanguageEntry>,
+<|file|> crates/loader/src/loader.rs
+<|old|>
+}
+
+pub struct CompileConfig<'a> {
+<|new|>
+}
+
+struct LanguageEntry {
+    path: PathBuf,
+    language: OnceCell<Language>,
+    external_files: Option<Vec<PathBuf>>,
+}
+
+pub struct CompileConfig<'a> {
+-- steps --
+request-completion manual
+-- expected --
+    #[must_use]
+    pub fn get_all_language_configurations(&self) -> Vec<(&LanguageConfiguration, &Path)> {
+        self.language_configurations
+            .iter()
+            .map(|c| (c, self.languages_by_id[c.language_id].path.as_ref()))
+            .collect()
+    }

@@ -1,0 +1,57 @@
+User widened a `tags: str` field to `tags: list[str]`. Multiple use sites now reference it as a scalar and need to iterate instead. History shows the type change; request-completion should propagate the first broken usage.
+id: python-str-to-list-field
+language: python
+file: article.py
+row: 13
+col: 22
+viewportTop: 1
+viewportBottom: 40
+fim-row: 13
+fim-col: 30
+-- buffer.txt --
+from dataclasses import dataclass
+
+
+@dataclass
+class Article:
+    title: str
+    tags: list[str]
+
+
+def render_header(article: Article) -> str:
+    lines = [f"# {article.title}"]
+    if article.tags:
+        lines.append(f"Tags: {article.tags.lower()}")
+    return "\n".join(lines)
+
+
+def search_by_tag(articles: list[Article], tag: str) -> list[Article]:
+    return [a for a in articles if a.tags == tag]
+-- history --
+<|file|> article.py
+<|old|>
+    tags: str
+<|new|>
+    tags: list[str]
+-- steps --
+request-completion manual
+-- expected --
+from dataclasses import dataclass
+
+
+@dataclass
+class Article:
+    title: str
+    tags: list[str]
+
+
+def render_header(article: Article) -> str:
+    lines = [f"# {article.title}"]
+    if article.tags:
+        lines.append(f"Tags: {', '.join(t.lower() for t in article.tags)}")
+    return "\n".join(lines)
+
+
+def search_by_tag(articles: list[Article], tag: str) -> list[Article]:
+    return [a for a in articles if a.tags == tag]
+

@@ -1,0 +1,30 @@
+Correct Rust struct with constructor and method — no edits needed at any cursor position.
+id: suppress-rust-point
+language: rust
+file: point.rs
+row: 3
+col: 15
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 9:21, 13:67
+-- buffer.txt --
+#[derive(Debug, Clone)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Point {
+    pub fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+
+    pub fn distance(&self, other: &Point) -> f64 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
+}
+-- steps --
+request-completion manual
+  expect !shown
+

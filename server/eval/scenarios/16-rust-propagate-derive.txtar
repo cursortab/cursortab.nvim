@@ -1,0 +1,32 @@
+Propagate a derive macro: user added Serialize to one enum's derive, cursor is on a sibling enum that needs the same treatment. From Zed edit_prediction_cli: codex-acp--add-derive.
+id: rust-propagate-derive
+language: rust
+file: src/prompt_args.rs
+row: 2
+col: 24
+viewportTop: 1
+viewportBottom: 20
+fim-row: 1
+fim-col: 14
+-- buffer.txt --
+#[derive(Debug)]
+pub enum PromptArgsError {
+    MissingAssignment { token: String },
+    MissingKey { token: String },
+}
+-- history --
+<|file|> src/prompt_args.rs
+<|old|>
+#[derive(Debug)]
+pub enum PromptExpansionError {
+<|new|>
+#[derive(Debug, Serialize)]
+pub enum PromptExpansionError {
+-- steps --
+request-completion manual
+-- expected --
+#[derive(Debug, Serialize)]
+pub enum PromptArgsError {
+    MissingAssignment { token: String },
+    MissingKey { token: String },
+}

@@ -28,6 +28,7 @@ A Neovim plugin that provides local edit completions and cursor predictions.
 * [Configuration](#configuration)
   * [Highlight Groups](#highlight-groups)
   * [Providers](#providers)
+    * [Benchmarks](#benchmarks)
     * [Inline Provider (Default)](#inline-provider-default)
     * [FIM Provider](#fim-provider)
     * [Sweep Provider](#sweep-provider)
@@ -40,8 +41,6 @@ A Neovim plugin that provides local edit completions and cursor predictions.
 * [Usage](#usage)
   * [Commands](#commands)
 * [Development](#development)
-  * [Build](#build)
-  * [Test](#test)
 * [FAQ](#faq)
 * [Contributing](#contributing)
 * [License](#license)
@@ -264,18 +263,41 @@ Zeta-2, Zeta (legacy), Copilot, and Mercury API.
 | Recent files        |        |     |   ✓   |   ✓    |  ✓   |    ✓     |         |     ✓      |
 | User actions        |        |     |   ✓   |        |      |    ✓     |         |            |
 
+#### Benchmarks
+
+Measured on 50 scenarios (25 quality + 25 suppress) using the eval harness.
+Sorted by Score (higher = better):
+
+- **Score** — `deltaChrF × gateScore / 100` where
+  `gateScore = 2 × showRate × quietRate / (showRate + quietRate)`. Combines edit
+  quality with gating behavior into a single metric.
+- **deltaChrF** — edit quality when shown (character n-gram F-score on the diff
+  region)
+- **Show rate** — fraction of quality scenarios where a completion was shown
+- **Quiet rate** — fraction of suppress scenarios where the provider correctly
+  produced nothing
+
+| Target               | Type       |    Score | deltaChrF | Show rate | Quiet rate | p50 (ms) | p90 (ms) |
+| -------------------- | ---------- | -------: | --------: | --------: | ---------: | -------: | -------: |
+| mercuryapi           | mercuryapi | **0.58** |  **64.4** |  **100%** |        81% |      565 |      739 |
+| zeta-2               | zeta-2     |     0.56 |      61.5 |       88% |    **96%** |      551 |      833 |
+| zeta                 | zeta       |     0.55 |      60.9 |       88% |        92% |      413 |      661 |
+| qwen3.5-27B          | fim        |     0.23 |      32.2 |       76% |        68% |      131 |      647 |
+| sweep-next-edit-7B   | sweep      |     0.22 |      45.2 |       64% |        40% |      237 |      474 |
+| sweep-next-edit-1.5B | sweep      |     0.20 |      41.9 |       68% |        36% |      155 |      258 |
+| qwen3.5-4B           | fim        |     0.18 |      27.1 |       76% |        60% |     1254 |     1339 |
+| qwen3.5-0.8B         | fim        |     0.18 |      31.4 |       84% |        44% |   **49** |      509 |
+| qwen3.5-2B           | fim        |     0.17 |      29.4 |       84% |        44% |       89 |      735 |
+| copilot              | copilot    |     0.13 |      22.3 |       40% |   **100%** |      351 |      915 |
+| sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |  **201** |
+| sweepapi             | sweepapi   |     0.08 |      16.4 |       32% |   **100%** |      156 |      300 |
+
 #### Inline Provider (Default)
 
 <details>
 <summary>Details</summary>
 
 Single-line completion using any OpenAI-compatible `/v1/completions` endpoint.
-
-**Requirements:**
-
-- An OpenAI-compatible completions endpoint
-
-**Example Configuration:**
 
 ```lua
 require("cursortab").setup({
@@ -286,10 +308,7 @@ require("cursortab").setup({
 })
 ```
 
-**Example Setup:**
-
 ```bash
-# Using llama.cpp
 llama-server -hf ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF --port 8000
 ```
 
@@ -301,38 +320,20 @@ llama-server -hf ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF --port 8000
 <summary>Details</summary>
 
 Fill-in-the-Middle multi-line completion. Compatible with Qwen, DeepSeek-Coder,
-and similar FIM-capable models via any OpenAI-compatible `/v1/completions`
-endpoint.
-
-**Requirements:**
-
-- An OpenAI-compatible completions endpoint with a FIM-capable model
-
-**Example Configuration:**
+and similar FIM-capable models.
 
 ```lua
 require("cursortab").setup({
   provider = {
     type = "fim",
     url = "http://localhost:8000",
+    max_tokens = 256,
   },
 })
 ```
 
-**Example Setup:**
-
 ```bash
-# Using llama.cpp with Qwen2.5-Coder 1.5B
 llama-server -hf ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF --port 8000
-
-# Or with Qwen 2.5 Coder 14B + 0.5B draft for speculative decoding
-llama-server \
-    -hf ggml-org/Qwen2.5-Coder-14B-Q8_0-GGUF:q8_0 \
-    -hfd ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF:q8_0 \
-    --port 8012 \
-    -b 1024 \
-    -ub 1024 \
-    --cache-reuse 256
 ```
 
 </details>
@@ -342,24 +343,8 @@ llama-server \
 <details>
 <summary>Details</summary>
 
-Local next-edit prediction using Sweep models.
-
-**Available Models**:
-
-- [`sweep-next-edit-v2-7B`](https://huggingface.co/sweepai/sweep-next-edit-v2-7B)
-  — 8B
-- [`sweep-next-edit-1.5B`](https://huggingface.co/sweepai/sweep-next-edit-1.5B)
-  — 1.5B
-- [`sweep-next-edit-0.5B`](https://huggingface.co/sweepai/sweep-next-edit-0.5B)
-  — 0.5B
-
-**Requirements:**
-
-- vLLM or compatible inference server
-- A Sweep Next-Edit model from
-  [Hugging Face](https://huggingface.co/sweepai/models)
-
-**Example Configuration:**
+Local next-edit prediction using [Sweep models](https://huggingface.co/sweepai):
+`sweep-next-edit-v2-7B`, `sweep-next-edit-1.5B`, `sweep-next-edit-0.5B`.
 
 ```lua
 require("cursortab").setup({
@@ -370,24 +355,8 @@ require("cursortab").setup({
 })
 ```
 
-**Example Setup:**
-
 ```bash
-# Using llama.cpp
 llama-server -hf sweepai/sweep-next-edit-1.5b --port 8000
-
-# Or with a local GGUF file
-llama-server -m sweep-next-edit-1.5b.q8_0.v2.gguf --port 8000
-
-# With caching and speculative decoding
-llama-server \
-    -m sweep-next-edit-1.5b.q8_0.v2.gguf \
-    --port 8000 \
-    --cache-reuse 64 \
-    --spec-type ngram-mod \
-    --spec-ngram-size-n 24 \
-    --draft-min 12 \
-    --draft-max 64
 ```
 
 </details>
@@ -397,17 +366,10 @@ llama-server \
 <details>
 <summary>Details</summary>
 
-Hosted Sweep API. No local model required.
-
-**Requirements:**
-
-- Create an account at [sweep.dev](https://sweep.dev/) and get your API token
-- Set the `SWEEPAPI_TOKEN` environment variable with your token
-
-**Example Configuration:**
+Hosted Sweep API — no local model required. Get a token from
+[sweep.dev](https://sweep.dev/).
 
 ```bash
-# In your shell config (.bashrc, .zshrc, etc.)
 export SWEEPAPI_TOKEN="your-api-token-here"
 ```
 
@@ -427,15 +389,8 @@ require("cursortab").setup({
 <details>
 <summary>Details</summary>
 
-Zed's Zeta-2 (SeedCoder-8B). Successor to Zeta with improved accuracy.
-
-**Requirements:**
-
-- vLLM or compatible inference server
-- Zeta-2 model downloaded from
-  [Hugging Face](https://huggingface.co/zed-industries/zeta-2)
-
-**Example Configuration:**
+Zed's [Zeta-2](https://huggingface.co/zed-industries/zeta-2) (SeedCoder-8B).
+Requires vLLM or compatible inference server.
 
 ```lua
 require("cursortab").setup({
@@ -447,13 +402,8 @@ require("cursortab").setup({
 })
 ```
 
-**Example Setup:**
-
 ```bash
-# Using vLLM
 vllm serve zed-industries/zeta-2 --served-model-name zeta-2 --port 8000
-
-# See the HuggingFace page for optimized deployment options
 ```
 
 </details>
@@ -463,16 +413,8 @@ vllm serve zed-industries/zeta-2 --served-model-name zeta-2 --port 8000
 <details>
 <summary>Details</summary>
 
-Zed's original Zeta model (Qwen2.5-Coder-7B). Superseded by
-[Zeta-2](#zeta-2-provider).
-
-**Requirements:**
-
-- vLLM or compatible inference server
-- Zeta model downloaded from
-  [Hugging Face](https://huggingface.co/zed-industries/zeta)
-
-**Example Configuration:**
+Zed's original [Zeta](https://huggingface.co/zed-industries/zeta) model
+(Qwen2.5-Coder-7B). Superseded by [Zeta-2](#zeta-2-provider).
 
 ```lua
 require("cursortab").setup({
@@ -484,10 +426,7 @@ require("cursortab").setup({
 })
 ```
 
-**Example Setup:**
-
 ```bash
-# Using vLLM
 vllm serve zed-industries/zeta --served-model-name zeta --port 8000
 ```
 
@@ -498,24 +437,9 @@ vllm serve zed-industries/zeta --served-model-name zeta --port 8000
 <details>
 <summary>Details</summary>
 
-GitHub Copilot completions using the official
-[copilot-language-server](https://github.com/github/copilot-language-server-release)
-LSP server, enabled with `vim.lsp.enable`. Can be installed in multiple ways:
-
-1. Install using `npm` or your OS's package manager
-2. Install with
-   [mason-lspconfig.nvim](https://github.com/mason-org/mason-lspconfig.nvim)
-3. [copilot.lua](https://github.com/zbirenbaum/copilot.lua) and
-   [copilot.vim](https://github.com/github/copilot.vim) both bundle the LSP
-   server in their plugin
-4. Sign in to Copilot: `:LspCopilotSignIn`
-
-**Requirements:**
-
-- GitHub Copilot subscription
-- `copilot-language-server` installed and enabled via `vim.lsp.enable`
-
-**Example Configuration:**
+GitHub Copilot via
+[copilot-language-server](https://github.com/github/copilot-language-server-release).
+Requires a Copilot subscription and `vim.lsp.enable`.
 
 ```lua
 require("cursortab").setup({
@@ -535,11 +459,9 @@ require("cursortab").setup({
 Hosted [Mercury](https://docs.inceptionlabs.ai/) next-edit model by Inception
 Labs.
 
-**Requirements:**
-
-- Mercury API key (set via `MERCURY_AI_TOKEN` environment variable)
-
-**Example Configuration:**
+```bash
+export MERCURY_AI_TOKEN="your-api-key-here"
+```
 
 ```lua
 require("cursortab").setup({
@@ -611,53 +533,16 @@ require("blink.cmp").setup({
 
 ## Development
 
-### Build
-
-To build the server component:
-
 ```bash
+# Build the server
 cd server && go build
-```
 
-### Test
-
-To run tests:
-
-```bash
+# Run all tests
 cd server && go test ./...
 ```
 
-To run the E2E pipeline tests (ComputeDiff → CreateStages → ToLuaFormat):
-
-```bash
-cd server && go test ./text/... -run TestE2E -v
-```
-
-To record new expected output after changes:
-
-```bash
-cd server && go test ./text/... -run TestE2E -update
-```
-
-Updated fixtures are marked as **unverified**. After reviewing the generated
-`expected.json` files and the HTML report, mark a specific fixture as verified:
-
-```bash
-cd server && go test ./text/... -run TestE2E -verify <name>
-```
-
-Verification state is tracked in `server/text/e2e/verified.json` (a SHA256
-manifest). In the HTML report, verified passing tests are collapsed while
-unverified or failing tests are shown expanded.
-
-Each fixture is a directory under `server/text/e2e/` with `old.txt`, `new.txt`,
-`params.json`, and `expected.json`. Both batch and incremental pipelines are
-verified against the same expected output. An HTML report is generated at
-`server/text/e2e/report.html`.
-
-To add a new fixture manually, create a directory with the four files and run
-with `-update` to generate the initial `expected.json`, then review and
-`-verify-case=<name>` to mark it verified.
+For E2E tests, eval harness, and detailed development instructions, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## FAQ
 
@@ -708,9 +593,8 @@ will automatically restart on the next `setup()` call.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or a pull request.
-
-Feel free to open issues for bugs :)
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build,
+test, and eval instructions.
 
 ## License
 

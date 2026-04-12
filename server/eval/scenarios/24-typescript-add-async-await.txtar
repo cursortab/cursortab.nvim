@@ -1,0 +1,68 @@
+User is adding async/await to multiple handler functions. Model should propagate the pattern to the next handler. From Zed edit_prediction_cli: vscode--add-async-and-await.
+id: typescript-add-async-await
+language: typescript
+file: src/vs/workbench/contrib/debug/browser/debugCommands.ts
+row: 4
+col: 10
+viewportTop: 1
+viewportBottom: 20
+fim-row: 4
+fim-col: 10
+-- buffer.txt --
+	weight: KeybindingWeight.WorkbenchContrib,
+	primary: isWeb ? (KeyMod.Alt | KeyCode.F10) : KeyCode.F10,
+	when: CONTEXT_DEBUG_STATE.isEqualTo('stopped'),
+	handler: (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		const contextKeyService = accessor.get(IContextKeyService);
+		if (CONTEXT_DISASSEMBLY_VIEW_FOCUS.getValue(contextKeyService)) {
+			getThreadAndRun(accessor, context, (thread: IThread) => thread.next('instruction'));
+		} else {
+			getThreadAndRun(accessor, context, (thread: IThread) => thread.next());
+		}
+	}
+});
+-- history --
+<|file|> src/vs/workbench/contrib/debug/browser/debugCommands.ts
+<|old|>
+	handler: (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		getThreadAndRun(accessor, context, thread => thread.reverseContinue());
+<|new|>
+	handler: async (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		await getThreadAndRun(accessor, context, thread => thread.reverseContinue());
+<|file|> src/vs/workbench/contrib/debug/browser/debugCommands.ts
+<|old|>
+	handler: (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		const contextKeyService = accessor.get(IContextKeyService);
+		if (CONTEXT_DISASSEMBLY_VIEW_FOCUS.getValue(contextKeyService)) {
+			getThreadAndRun(accessor, context, (thread: IThread) => thread.stepBack('instruction'));
+		} else {
+			getThreadAndRun(accessor, context, (thread: IThread) => thread.stepBack());
+<|new|>
+	handler: async (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		const contextKeyService = accessor.get(IContextKeyService);
+		if (CONTEXT_DISASSEMBLY_VIEW_FOCUS.getValue(contextKeyService)) {
+			await getThreadAndRun(accessor, context, (thread: IThread) => thread.stepBack('instruction'));
+		} else {
+			await getThreadAndRun(accessor, context, (thread: IThread) => thread.stepBack());
+<|file|> src/vs/workbench/contrib/debug/browser/debugCommands.ts
+<|old|>
+	handler: (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		getThreadAndRun(accessor, context, thread => thread.terminate());
+<|new|>
+	handler: async (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		await getThreadAndRun(accessor, context, thread => thread.terminate());
+-- steps --
+request-completion manual
+-- expected --
+	weight: KeybindingWeight.WorkbenchContrib,
+	primary: isWeb ? (KeyMod.Alt | KeyCode.F10) : KeyCode.F10,
+	when: CONTEXT_DEBUG_STATE.isEqualTo('stopped'),
+	handler: async (accessor: ServicesAccessor, _: string, context: CallStackContext | unknown) => {
+		const contextKeyService = accessor.get(IContextKeyService);
+		if (CONTEXT_DISASSEMBLY_VIEW_FOCUS.getValue(contextKeyService)) {
+			await getThreadAndRun(accessor, context, (thread: IThread) => thread.next('instruction'));
+		} else {
+			await getThreadAndRun(accessor, context, (thread: IThread) => thread.next());
+		}
+	}
+});

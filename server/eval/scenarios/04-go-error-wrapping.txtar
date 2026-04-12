@@ -1,0 +1,35 @@
+Go error wrapping: a returned error should be wrapped with context. Exercises multi-token completion and language-specific idioms.
+id: go-error-wrapping
+language: go
+file: store.go
+row: 6
+col: 17
+viewportTop: 1
+viewportBottom: 20
+fim-row: 7
+fim-col: 9
+-- buffer.txt --
+package store
+
+import "fmt"
+
+func Put(key string, value []byte) error {
+	if err := db.Put(key, value); err != nil {
+		return err
+	}
+	return nil
+}
+-- steps --
+request-completion manual
+-- expected --
+package store
+
+import "fmt"
+
+func Put(key string, value []byte) error {
+	if err := db.Put(key, value); err != nil {
+		return fmt.Errorf("store.Put: %w", err)
+	}
+	return nil
+}
+

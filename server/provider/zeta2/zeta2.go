@@ -94,6 +94,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		PromptBuilder: buildPrompt,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
+			provider.StripRepetition(),
 			parseCompletion,
 		},
 		StopTokens: []string{endMarker, strings.TrimSuffix(endMarker, "\n")},

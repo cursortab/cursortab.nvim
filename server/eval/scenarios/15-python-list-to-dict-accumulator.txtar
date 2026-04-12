@@ -1,0 +1,40 @@
+User restructured a `counts: list[tuple[str, int]]` accumulator to `counts: dict[str, int]` for O(1) updates. The append-and-scan loop has to become a direct increment. History shows the type change; the body is still using the old shape.
+id: python-list-to-dict-accumulator
+language: python
+file: tally.py
+row: 12
+col: 35
+viewportTop: 1
+viewportBottom: 40
+fim-row: 4
+fim-col: 8
+-- buffer.txt --
+def tally_words(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for word in text.lower().split():
+        found = False
+        for i, (w, c) in enumerate(counts):
+            if w == word:
+                counts[i] = (w, c + 1)
+                found = True
+                break
+        if not found:
+            counts.append((word, 1))
+    return counts
+-- history --
+<|file|> tally.py
+<|old|>
+def tally_words(text: str) -> list[tuple[str, int]]:
+    counts: list[tuple[str, int]] = []
+<|new|>
+def tally_words(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+-- steps --
+request-completion manual
+-- expected --
+def tally_words(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for word in text.lower().split():
+        counts[word] = counts.get(word, 0) + 1
+    return counts
+

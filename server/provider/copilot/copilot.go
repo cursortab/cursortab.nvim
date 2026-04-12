@@ -69,9 +69,20 @@ type CopilotResult struct {
 	Error error
 }
 
+// LSPBuffer is the minimum set of buffer methods the Copilot provider needs.
+// NvimBuffer satisfies this interface via duck typing. The eval harness
+// provides a cassette-backed implementation that replays recorded LSP
+// exchanges without requiring a live Neovim session.
+type LSPBuffer interface {
+	GetCopilotClient() (*buffer.CopilotClientInfo, error)
+	SendCopilotDidFocus(uri string) error
+	SendCopilotNESRequest(reqID int64, uri string) error
+	RegisterCopilotHandler(handler func(reqID int64, editsJSON string, errMsg string)) error
+}
+
 // Provider implements engine.Provider for Copilot NES
 type Provider struct {
-	buffer *buffer.NvimBuffer
+	buffer LSPBuffer
 
 	// Async request state
 	mu            sync.Mutex
@@ -88,7 +99,7 @@ type Provider struct {
 }
 
 // NewProvider creates a new Copilot provider
-func NewProvider(buf *buffer.NvimBuffer) *Provider {
+func NewProvider(buf LSPBuffer) *Provider {
 	return &Provider{
 		buffer:        buf,
 		pendingResult: make(chan *CopilotResult, 1),

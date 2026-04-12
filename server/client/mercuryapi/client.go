@@ -104,6 +104,15 @@ func NewClient(configURL, apiKey string, timeoutMs int) *Client {
 	}
 }
 
+// SetHTTPTransport replaces the transport used for all outgoing requests.
+// Used by the eval harness to intercept calls via a cassette transport.
+func (c *Client) SetHTTPTransport(rt http.RoundTripper) {
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	c.HTTPClient.Transport = rt
+}
+
 // DoCompletion sends a completion request to the Mercury API
 func (c *Client) DoCompletion(ctx context.Context, req *Request) (*Response, error) {
 	defer logger.Trace("mercuryapi.DoCompletion")()

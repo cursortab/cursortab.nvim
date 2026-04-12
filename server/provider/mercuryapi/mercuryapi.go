@@ -53,6 +53,7 @@ package mercuryapi
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -104,6 +105,12 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 // GetContextLimits implements engine.Provider
 func (p *Provider) GetContextLimits() engine.ContextLimits {
 	return engine.DefaultContextLimits()
+}
+
+// SetHTTPTransport forwards the transport override to the underlying client.
+// Used by the eval harness for cassette record/replay.
+func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
+	p.client.SetHTTPTransport(rt)
 }
 
 // SendMetric implements metrics.Sender

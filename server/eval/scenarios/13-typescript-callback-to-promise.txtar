@@ -1,0 +1,65 @@
+User converted a node-style callback-API to Promise-returning. Callers inside the same file still use the old callback form. This is a two-step fix: the consumer of the promise needs async/await, and the surrounding function must become async.
+id: typescript-callback-to-promise
+language: typescript
+file: db.ts
+row: 15
+col: 16
+viewportTop: 1
+viewportBottom: 40
+fim-row: 13
+fim-col: 7
+-- buffer.txt --
+interface Row {
+  id: number;
+  name: string;
+}
+
+export class DB {
+  async query(sql: string): Promise<Row[]> {
+    // ...returns rows from the underlying driver
+    return [];
+  }
+}
+
+export function loadNames(db: DB): string[] {
+  const names: string[] = [];
+  db.query("SELECT id, name FROM users", (err, rows) => {
+    if (err) throw err;
+    for (const r of rows) names.push(r.name);
+  });
+  return names;
+}
+-- history --
+<|file|> db.ts
+<|old|>
+  query(sql: string, cb: (err: Error | null, rows: Row[]) => void): void {
+    // ...returns rows from the underlying driver
+  }
+<|new|>
+  async query(sql: string): Promise<Row[]> {
+    // ...returns rows from the underlying driver
+    return [];
+  }
+-- steps --
+request-completion manual
+accept
+
+request-completion manual
+-- expected --
+interface Row {
+  id: number;
+  name: string;
+}
+
+export class DB {
+  async query(sql: string): Promise<Row[]> {
+    // ...returns rows from the underlying driver
+    return [];
+  }
+}
+
+export async function loadNames(db: DB): Promise<string[]> {
+  const rows = await db.query("SELECT id, name FROM users");
+  return rows.map((r) => r.name);
+}
+

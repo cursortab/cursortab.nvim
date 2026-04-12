@@ -125,14 +125,6 @@ func Contains(t *testing.T, haystack, needle string, label string) {
 	}
 }
 
-// NotContains checks if a string does not contain a substring
-func NotContains(t *testing.T, haystack, needle string, label string) {
-	t.Helper()
-	if strings.Contains(haystack, needle) {
-		t.Errorf("Expected %q to not contain %q for %s", haystack, needle, label)
-	}
-}
-
 // Error checks that an error is not nil
 func Error(t *testing.T, err error, label string) {
 	t.Helper()

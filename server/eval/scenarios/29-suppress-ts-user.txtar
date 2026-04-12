@@ -1,0 +1,28 @@
+Correct TypeScript interface and utility functions — no edits needed at any cursor position.
+id: suppress-ts-user
+language: typescript
+file: user.ts
+row: 3
+col: 15
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 8:42, 12:42
+-- buffer.txt --
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+function formatUser(user: User): string {
+  return `${user.name} <${user.email}>`;
+}
+
+export function greetUser(user: User): string {
+  return `Hello, ${formatUser(user)}!`;
+}
+-- steps --
+request-completion manual
+  expect !shown
+

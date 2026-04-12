@@ -2,7 +2,7 @@ package engine
 
 import (
 	"cursortab/assert"
-	"cursortab/text"
+	"cursortab/e2e"
 	"cursortab/types"
 	"fmt"
 	"os"
@@ -42,51 +42,22 @@ type cursorPos struct {
 }
 
 type scenarioStep struct {
-	Action     string          `json:"action"`
-	Completion *completionData `json:"completion,omitempty"`
-	SetCursor  *cursorPos      `json:"setCursor,omitempty"`
-	Expect     *expectations   `json:"expect,omitempty"`
-}
-
-type expectations struct {
-	Shown             *bool    `json:"shown,omitempty"`
-	StageCount        *int     `json:"stageCount,omitempty"`
-	NoGroupsBefore    int      `json:"noGroupsBefore,omitempty"`
-	NoDeletionGroups  *bool    `json:"noDeletionGroups,omitempty"`
-	BufferAfterAccept []string `json:"bufferAfterAccept,omitempty"`
+	Action     string            `json:"action"`
+	Completion *completionData   `json:"completion,omitempty"`
+	SetCursor  *cursorPos        `json:"setCursor,omitempty"`
+	Expect     *e2e.Expectations `json:"expect,omitempty"`
 }
 
 // parseTxtarScenario parses a txtar archive into an engineScenario.
-// Header contains description + buffer params. Sections: buffer.txt, steps.
 func parseTxtarScenario(ar *txtar.Archive) (*engineScenario, error) {
 	sc := &engineScenario{}
+	hdr := e2e.ParseHeader(ar.Comment)
 
-	lines := strings.Split(string(ar.Comment), "\n")
-	if len(lines) > 0 {
-		sc.Description = strings.TrimSpace(lines[0])
-	}
-	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		key, val, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		val = strings.TrimSpace(val)
-		n, _ := strconv.Atoi(val)
-		switch key {
-		case "row":
-			sc.Buffer.Row = n
-		case "col":
-			sc.Buffer.Col = n
-		case "viewportTop":
-			sc.Buffer.ViewportTop = n
-		case "viewportBottom":
-			sc.Buffer.ViewportBottom = n
-		}
-	}
+	sc.Description = hdr[""]
+	sc.Buffer.Row, _ = strconv.Atoi(hdr["row"])
+	sc.Buffer.Col, _ = strconv.Atoi(hdr["col"])
+	sc.Buffer.ViewportTop, _ = strconv.Atoi(hdr["viewportTop"])
+	sc.Buffer.ViewportBottom, _ = strconv.Atoi(hdr["viewportBottom"])
 
 	for _, f := range ar.Files {
 		switch f.Name {
@@ -108,96 +79,18 @@ func parseTxtarScenario(ar *txtar.Archive) (*engineScenario, error) {
 
 // --- Helpers ---
 
-func e2eStageIsPureInsertion(stage *text.Stage) bool {
-	if stage.BufferStart != stage.BufferEnd || len(stage.Groups) == 0 {
-		return false
-	}
-	groupLines := 0
-	for _, g := range stage.Groups {
-		if g.Type != "addition" {
-			return false
-		}
-		groupLines += g.EndLine - g.StartLine + 1
-	}
-	return len(stage.Lines) == groupLines
-}
-
-func applyStageToLines(lines []string, stage *text.Stage) []string {
-	isPure := e2eStageIsPureInsertion(stage)
-	start := stage.BufferStart - 1
-
-	if isPure {
-		out := make([]string, 0, len(lines)+len(stage.Lines))
-		out = append(out, lines[:start]...)
-		out = append(out, stage.Lines...)
-		out = append(out, lines[start:]...)
-		return out
-	}
-
-	end := stage.BufferEnd
-	out := make([]string, 0, len(lines)-end+start+len(stage.Lines))
-	out = append(out, lines[:start]...)
-	out = append(out, stage.Lines...)
-	if end < len(lines) {
-		out = append(out, lines[end:]...)
-	}
-	if len(out) == 0 {
-		out = []string{""}
-	}
-	return out
-}
-
-func e2eAdvanceOffsets(stages []*text.Stage, appliedIdx int) {
-	stage := stages[appliedIdx]
-	var oldLineCount int
-	if e2eStageIsPureInsertion(stage) {
-		oldLineCount = 0
-	} else {
-		oldLineCount = stage.BufferEnd - stage.BufferStart + 1
-	}
-	offset := len(stage.Lines) - oldLineCount
-	if offset != 0 {
-		for i := appliedIdx + 1; i < len(stages); i++ {
-			if stages[i].BufferStart >= stage.BufferStart {
-				stages[i].BufferStart += offset
-				stages[i].BufferEnd += offset
-				for _, g := range stages[i].Groups {
-					g.BufferLine += offset
-				}
-			}
-		}
-	}
-}
-
+// applyAllStagesToCopy applies every staged completion stage to a copy of
+// bufLines. Helper for test assertions that want the post-accept buffer.
 func applyAllStagesToCopy(bufLines []string, eng *Engine) []string {
-	if eng.stagedCompletion == nil || len(eng.stagedCompletion.Stages) == 0 {
+	if eng.stagedCompletion == nil {
 		return bufLines
 	}
-
-	out := append([]string{}, bufLines...)
-
-	// Deep-copy stages so offset adjustments don't affect the engine
-	stages := make([]*text.Stage, len(eng.stagedCompletion.Stages))
-	for i, s := range eng.stagedCompletion.Stages {
-		cp := *s
-		cp.Groups = make([]*text.Group, len(s.Groups))
-		for j, g := range s.Groups {
-			gCopy := *g
-			cp.Groups[j] = &gCopy
-		}
-		stages[i] = &cp
-	}
-
-	for i := range stages {
-		out = applyStageToLines(out, stages[i])
-		e2eAdvanceOffsets(stages, i)
-	}
-	return out
+	return applyAllStages(bufLines, eng.stagedCompletion.Stages)
 }
 
 // --- Verification ---
 
-func verifyExpectations(t *testing.T, eng *Engine, buf *mockBuffer, expect *expectations, label string) {
+func verifyExpectations(t *testing.T, eng *Engine, buf *mockBuffer, expect *e2e.Expectations, label string) {
 	t.Helper()
 	if expect == nil {
 		return
@@ -232,16 +125,16 @@ func verifyExpectations(t *testing.T, eng *Engine, buf *mockBuffer, expect *expe
 		}
 	}
 
-	if expect.BufferAfterAccept != nil {
+	if expect.BufferLines != nil {
 		actual := applyAllStagesToCopy(buf.lines, eng)
-		if len(actual) != len(expect.BufferAfterAccept) {
+		if len(actual) != len(expect.BufferLines) {
 			t.Errorf("%s bufferAfterAccept: line count mismatch: got %d, want %d\n  got:  %v\n  want: %v",
-				label, len(actual), len(expect.BufferAfterAccept), actual, expect.BufferAfterAccept)
+				label, len(actual), len(expect.BufferLines), actual, expect.BufferLines)
 		} else {
 			for i := range actual {
-				if actual[i] != expect.BufferAfterAccept[i] {
+				if actual[i] != expect.BufferLines[i] {
 					t.Errorf("%s bufferAfterAccept: line %d mismatch:\n  got:  %q\n  want: %q",
-						label, i+1, actual[i], expect.BufferAfterAccept[i])
+						label, i+1, actual[i], expect.BufferLines[i])
 				}
 			}
 		}

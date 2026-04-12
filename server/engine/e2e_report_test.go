@@ -214,9 +214,9 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 					}
 				}
 			}
-			if step.Expect.BufferAfterAccept != nil {
+			if step.Expect.BufferLines != nil {
 				sr.ActualBuffer = applyAllStagesToCopy(buf.lines, eng)
-				sr.ExpectedBuffer = step.Expect.BufferAfterAccept
+				sr.ExpectedBuffer = step.Expect.BufferLines
 				if len(sr.ActualBuffer) != len(sr.ExpectedBuffer) {
 					sr.Failures = append(sr.Failures, fmt.Sprintf("bufferAfterAccept: %d lines, want %d", len(sr.ActualBuffer), len(sr.ExpectedBuffer)))
 				} else {
@@ -291,7 +291,6 @@ func renderAfterAcceptPane(b *strings.Builder, sr *stepResult) {
 	b.WriteString("<div class=\"pane\">\n")
 	b.WriteString("<h3>After Accept</h3><pre>")
 
-	// Build a set of wrong line indices
 	wrongLines := map[int]bool{}
 	maxLen := max(len(sr.ActualBuffer), len(sr.ExpectedBuffer))
 	for i := 0; i < maxLen; i++ {
@@ -341,19 +340,6 @@ func renderStepGroups(b *strings.Builder, stages []e2e.StageInfo) {
 func generateEngineReport(results []scenarioResult, outputPath string) error {
 	var b strings.Builder
 
-	b.WriteString(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Engine E2E Report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-<style>
-`)
-	b.WriteString(e2e.BaseCSS)
-	b.WriteString("\n</style>\n</head>\n<body>\n")
-
 	var total, passCount, failCount int
 	for _, r := range results {
 		total++
@@ -363,18 +349,9 @@ func generateEngineReport(results []scenarioResult, outputPath string) error {
 			failCount++
 		}
 	}
-	fmt.Fprintf(&b, `<h1>Engine E2E Report <span class="stats"><span class="meta">%d fixtures</span>`, total)
-	fmt.Fprintf(&b, `<span class="pass">%d pass</span>`, passCount)
-	if failCount > 0 {
-		fmt.Fprintf(&b, `<span class="fail">%d fail</span>`, failCount)
-	}
-	b.WriteString("</span></h1>\n")
 
-	b.WriteString("<div class=\"filters\">\n")
-	fmt.Fprintf(&b, "<button class=\"filter-btn active\" data-filter=\"all\">All (%d)</button>\n", total)
-	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"passed\">Passed (%d)</button>\n", passCount)
-	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"failed\">Failed (%d)</button>\n", failCount)
-	b.WriteString("</div>\n")
+	e2e.ReportHeader(&b, "Engine E2E Report")
+	e2e.ReportStats(&b, "Engine E2E Report", total, passCount, failCount)
 
 	for _, r := range results {
 		status := "passed"
@@ -417,7 +394,6 @@ func generateEngineReport(results []scenarioResult, outputPath string) error {
 				b.WriteString("</div>\n")
 			}
 
-			// JSON details for the scenario step
 			if sr.Completion != nil {
 				e2e.RenderJSONSection(&b, map[string]any{
 					"completion": sr.Completion,
@@ -430,8 +406,7 @@ func generateEngineReport(results []scenarioResult, outputPath string) error {
 		b.WriteString("</details>\n")
 	}
 
-	b.WriteString(e2e.FilterJS)
-	b.WriteString("\n</body></html>")
+	e2e.ReportFooter(&b)
 	return os.WriteFile(outputPath, []byte(b.String()), 0644)
 }
 

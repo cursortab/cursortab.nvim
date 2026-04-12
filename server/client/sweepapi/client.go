@@ -133,6 +133,15 @@ func NewClient(configURL, apiKey string, timeoutMs int) *Client {
 	}
 }
 
+// SetHTTPTransport replaces the transport used for all outgoing requests.
+// Used by the eval harness to intercept calls via a cassette transport.
+func (c *Client) SetHTTPTransport(rt http.RoundTripper) {
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	c.HTTPClient.Transport = rt
+}
+
 // DoCompletion sends a completion request to the Sweep API.
 // The response is ndjson (newline-delimited JSON) when multiple_suggestions is true,
 // returning one AutocompleteResponse per line. For single suggestions, returns a slice of one.

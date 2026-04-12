@@ -1,0 +1,46 @@
+User renamed a match arm from DiagnosticsUpdated to Disk. Model should complete the rename to DiskBasedDiagnosticsFinished. From Zed edit_prediction_cli: zed--change-match-arm.
+id: rust-rename-match-variant
+language: rust
+file: crates/edit_prediction/src/edit_prediction.rs
+row: 7
+col: 28
+viewportTop: 1
+viewportBottom: 20
+fim-row: 7
+fim-col: 32
+-- buffer.txt --
+                    {
+                        project_state.recent_paths.remove(ix);
+                    }
+                    project_state.recent_paths.push_front(path);
+                }
+            }
+            project::Event::Disk { .. } => {
+                if cx.has_flag::<EditPredictionJumpsFeatureFlag>() {
+                    self.refresh_prediction_from_diagnostics(
+                        project,
+                    );
+                }
+            }
+-- history --
+<|file|> crates/edit_prediction/src/edit_prediction.rs
+<|old|>
+            project::Event::DiagnosticsUpdated { .. } => {
+<|new|>
+            project::Event::Disk { .. } => {
+-- steps --
+request-completion manual
+-- expected --
+                    {
+                        project_state.recent_paths.remove(ix);
+                    }
+                    project_state.recent_paths.push_front(path);
+                }
+            }
+            project::Event::DiskBasedDiagnosticsFinished { .. } => {
+                if cx.has_flag::<EditPredictionJumpsFeatureFlag>() {
+                    self.refresh_prediction_from_diagnostics(
+                        project,
+                    );
+                }
+            }

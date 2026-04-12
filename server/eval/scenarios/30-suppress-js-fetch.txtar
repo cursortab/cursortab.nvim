@@ -1,0 +1,23 @@
+Correct JavaScript async fetch with error handling — no edits needed at any cursor position.
+id: suppress-js-fetch
+language: javascript
+file: api.js
+row: 2
+col: 54
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 7:14
+-- buffer.txt --
+async function fetchUserData(userId) {
+  const response = await fetch(`/api/users/${userId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user: ${response.status}`);
+  }
+  const data = await response.json();
+  return data;
+}
+-- steps --
+request-completion manual
+  expect !shown
+

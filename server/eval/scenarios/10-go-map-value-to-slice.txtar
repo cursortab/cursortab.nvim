@@ -1,0 +1,72 @@
+User widened the value side of a headers map from `string` to `[]string` to support multi-value headers. The write site used direct assignment; it now needs to append. The read site used the value directly; it needs to handle the slice.
+id: go-map-value-to-slice
+language: go
+file: headers.go
+row: 16
+col: 11
+viewportTop: 1
+viewportBottom: 40
+fim-row: 14
+fim-col: 1
+-- buffer.txt --
+package http
+
+import "strings"
+
+type Headers struct {
+	values map[string][]string
+}
+
+func NewHeaders() *Headers {
+	return &Headers{values: make(map[string][]string)}
+}
+
+func (h *Headers) Set(key, value string) {
+	h.values[strings.ToLower(key)] = value
+}
+
+func (h *Headers) Get(key string) string {
+	return h.values[strings.ToLower(key)]
+}
+-- history --
+<|file|> headers.go
+<|old|>
+	values map[string]string
+<|new|>
+	values map[string][]string
+<|file|> headers.go
+<|old|>
+	return &Headers{values: make(map[string]string)}
+<|new|>
+	return &Headers{values: make(map[string][]string)}
+-- steps --
+request-completion manual
+accept
+
+request-completion manual
+-- expected --
+package http
+
+import "strings"
+
+type Headers struct {
+	values map[string][]string
+}
+
+func NewHeaders() *Headers {
+	return &Headers{values: make(map[string][]string)}
+}
+
+func (h *Headers) Set(key, value string) {
+	k := strings.ToLower(key)
+	h.values[k] = append(h.values[k], value)
+}
+
+func (h *Headers) Get(key string) string {
+	vs := h.values[strings.ToLower(key)]
+	if len(vs) == 0 {
+		return ""
+	}
+	return vs[0]
+}
+

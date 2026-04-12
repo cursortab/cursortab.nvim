@@ -528,8 +528,60 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 .group-tag.modification { background: #1a2332; color: #a5d6ff; }
 .group-tag.deletion { background: #67060c; color: #ffa198; }`
 
+// ReportHeader writes the common HTML header (DOCTYPE through opening body tag)
+// with the shared CSS and an optional title.
+func ReportHeader(b *strings.Builder, title string) {
+	b.WriteString(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+`)
+	fmt.Fprintf(b, "<title>%s</title>\n", html.EscapeString(title))
+	b.WriteString(`<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+`)
+	b.WriteString(BaseCSS)
+	b.WriteString("\n</style>\n</head>\n<body>\n")
+}
+
+// ReportFooter writes the closing body/html tags with filter JS.
+func ReportFooter(b *strings.Builder) {
+	b.WriteString(filterJS)
+	b.WriteString("\n</body></html>")
+}
+
+// ReportStats writes the H1 title with pass/fail counts and filter buttons.
+func ReportStats(b *strings.Builder, title string, total, pass, fail int, extraCounts ...struct {
+	Label, Class string
+	N            int
+}) {
+	fmt.Fprintf(b, `<h1>%s <span class="stats"><span class="meta">%d fixtures</span>`, html.EscapeString(title), total)
+	fmt.Fprintf(b, `<span class="pass">%d pass</span>`, pass)
+	if fail > 0 {
+		fmt.Fprintf(b, `<span class="fail">%d fail</span>`, fail)
+	}
+	for _, ec := range extraCounts {
+		if ec.N > 0 {
+			fmt.Fprintf(b, `<span class="%s">%d %s</span>`, ec.Class, ec.N, html.EscapeString(ec.Label))
+		}
+	}
+	b.WriteString("</span></h1>\n")
+
+	b.WriteString("<div class=\"filters\">\n")
+	fmt.Fprintf(b, "<button class=\"filter-btn active\" data-filter=\"all\">All (%d)</button>\n", total)
+	fmt.Fprintf(b, "<button class=\"filter-btn\" data-filter=\"passed\">Passed (%d)</button>\n", pass)
+	fmt.Fprintf(b, "<button class=\"filter-btn\" data-filter=\"failed\">Failed (%d)</button>\n", fail)
+	for _, ec := range extraCounts {
+		fmt.Fprintf(b, "<button class=\"filter-btn\" data-filter=\"%s\">%s (%d)</button>\n",
+			html.EscapeString(strings.ToLower(ec.Label)), html.EscapeString(ec.Label), ec.N)
+	}
+	b.WriteString("</div>\n")
+}
+
 // FilterJS returns shared filter button JS for e2e reports.
-const FilterJS = `<script>
+const filterJS = `<script>
 function applyFilter(filter) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'))
   const btn = document.querySelector('.filter-btn[data-filter="' + filter + '"]')

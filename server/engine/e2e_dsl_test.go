@@ -38,64 +38,6 @@ import (
 	"strings"
 )
 
-// FormatSteps converts scenario steps to the engine DSL format.
-func FormatSteps(steps []scenarioStep) string {
-	var b strings.Builder
-	for i, step := range steps {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-
-		switch step.Action {
-		case "completion", "prefetch":
-			fmt.Fprintf(&b, "%s %d-%d", step.Action, step.Completion.StartLine, step.Completion.EndLineInc)
-			if step.SetCursor != nil {
-				fmt.Fprintf(&b, " cursor=%d:%d", step.SetCursor.Row, step.SetCursor.Col)
-			}
-			b.WriteByte('\n')
-			for _, line := range step.Completion.Lines {
-				fmt.Fprintf(&b, "  | %s\n", e2e.QuoteLine(line))
-			}
-
-		case "accept":
-			b.WriteString("accept\n")
-		}
-
-		if step.Expect != nil {
-			formatExpectations(&b, step.Expect)
-		}
-	}
-	return b.String()
-}
-
-func formatExpectations(b *strings.Builder, e *expectations) {
-	b.WriteString("expect")
-	if e.Shown != nil {
-		if *e.Shown {
-			b.WriteString(" shown")
-		} else {
-			b.WriteString(" !shown")
-		}
-	}
-	if e.NoDeletionGroups != nil && *e.NoDeletionGroups {
-		b.WriteString(" noDeletionGroups")
-	}
-	if e.StageCount != nil {
-		fmt.Fprintf(b, " stageCount=%d", *e.StageCount)
-	}
-	if e.NoGroupsBefore > 0 {
-		fmt.Fprintf(b, " noGroupsBefore=%d", e.NoGroupsBefore)
-	}
-	b.WriteByte('\n')
-
-	if e.BufferAfterAccept != nil {
-		b.WriteString("  buffer:\n")
-		for _, line := range e.BufferAfterAccept {
-			fmt.Fprintf(b, "    | %s\n", e2e.QuoteLine(line))
-		}
-	}
-}
-
 // ParseSteps parses the engine DSL format back into scenario steps.
 func ParseSteps(s string) ([]scenarioStep, error) {
 	lines := strings.Split(s, "\n")
@@ -114,7 +56,7 @@ func ParseSteps(s string) ([]scenarioStep, error) {
 			i++
 			// Check for expect after accept
 			if i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "expect") {
-				expect, newI, err := parseExpect(lines, i)
+				expect, newI, err := e2e.ParseExpect(lines, i)
 				if err != nil {
 					return nil, fmt.Errorf("line %d: %w", i+1, err)
 				}
@@ -185,7 +127,7 @@ func parseActionStep(lines []string, i int) (scenarioStep, int, error) {
 
 	// Parse optional expect
 	if i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "expect") {
-		expect, newI, err := parseExpect(lines, i)
+		expect, newI, err := e2e.ParseExpect(lines, i)
 		if err != nil {
 			return step, i, err
 		}
@@ -194,57 +136,4 @@ func parseActionStep(lines []string, i int) (scenarioStep, int, error) {
 	}
 
 	return step, i, nil
-}
-
-func parseExpect(lines []string, i int) (*expectations, int, error) {
-	line := strings.TrimSpace(lines[i])
-	if !strings.HasPrefix(line, "expect") {
-		return nil, i, fmt.Errorf("expected 'expect', got: %s", line)
-	}
-
-	e := &expectations{}
-	parts := strings.Fields(line)
-	for _, p := range parts[1:] {
-		switch p {
-		case "shown":
-			t := true
-			e.Shown = &t
-		case "!shown":
-			f := false
-			e.Shown = &f
-		case "noDeletionGroups":
-			t := true
-			e.NoDeletionGroups = &t
-		default:
-			if strings.HasPrefix(p, "stageCount=") {
-				var n int
-				fmt.Sscanf(p, "stageCount=%d", &n)
-				e.StageCount = &n
-			} else if strings.HasPrefix(p, "noGroupsBefore=") {
-				fmt.Sscanf(p, "noGroupsBefore=%d", &e.NoGroupsBefore)
-			}
-		}
-	}
-
-	i++
-
-	// Parse buffer: section
-	if i < len(lines) && strings.TrimSpace(lines[i]) == "buffer:" {
-		i++
-		for i < len(lines) {
-			trimmed := strings.TrimSpace(lines[i])
-			if !strings.HasPrefix(trimmed, "| ") {
-				break
-			}
-			quoted := trimmed[2:]
-			val, err := e2e.UnquoteLine(quoted)
-			if err != nil {
-				return nil, i, fmt.Errorf("line %d: %w", i+1, err)
-			}
-			e.BufferAfterAccept = append(e.BufferAfterAccept, val)
-			i++
-		}
-	}
-
-	return e, i, nil
 }

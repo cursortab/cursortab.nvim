@@ -1,0 +1,78 @@
+User widened `fn find(id: u32) -> Option<User>` to `fn find_all(tag: &str) -> Vec<User>`. Caller was `.unwrap()` — that no longer compiles, it needs to iterate. Multi-step: first fix the caller, then fix the body's find logic.
+id: rust-option-to-vec
+language: rust
+file: users.rs
+row: 18
+col: 12
+viewportTop: 1
+viewportBottom: 40
+fim-row: 16
+fim-col: 15
+-- buffer.txt --
+#[derive(Clone)]
+pub struct User {
+    pub id: u32,
+    pub name: String,
+    pub tags: Vec<String>,
+}
+
+pub struct Store {
+    users: Vec<User>,
+}
+
+impl Store {
+    pub fn find_all(&self, tag: &str) -> Vec<User> {
+        self.users
+            .iter()
+            .find(|u| u.tags.iter().any(|t| t == tag))
+            .cloned()
+    }
+
+    pub fn print_matching(&self, tag: &str) {
+        let user = self.find_all(tag).unwrap();
+        println!("{}: {}", user.id, user.name);
+    }
+}
+-- history --
+<|file|> users.rs
+<|old|>
+    pub fn find(&self, id: u32) -> Option<User> {
+        self.users.iter().find(|u| u.id == id).cloned()
+    }
+<|new|>
+    pub fn find_all(&self, tag: &str) -> Vec<User> {
+        self.users
+            .iter()
+            .find(|u| u.tags.iter().any(|t| t == tag))
+            .cloned()
+    }
+-- steps --
+request-completion manual
+-- expected --
+#[derive(Clone)]
+pub struct User {
+    pub id: u32,
+    pub name: String,
+    pub tags: Vec<String>,
+}
+
+pub struct Store {
+    users: Vec<User>,
+}
+
+impl Store {
+    pub fn find_all(&self, tag: &str) -> Vec<User> {
+        self.users
+            .iter()
+            .filter(|u| u.tags.iter().any(|t| t == tag))
+            .cloned()
+            .collect()
+    }
+
+    pub fn print_matching(&self, tag: &str) {
+        for user in self.find_all(tag) {
+            println!("{}: {}", user.id, user.name);
+        }
+    }
+}
+

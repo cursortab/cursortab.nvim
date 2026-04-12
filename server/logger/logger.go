@@ -159,6 +159,11 @@ func getLogger() *LimitedLogger {
 	return defaultLogger
 }
 
+// SetLevel changes the log level of the active logger.
+func SetLevel(level LogLevel) {
+	getLogger().level = level
+}
+
 // Package-level logging functions that use the global logger (or default if not initialized)
 func Debug(format string, v ...any) { getLogger().Debug(format, v...) }
 func Info(format string, v ...any)  { getLogger().Info(format, v...) }

@@ -1,0 +1,44 @@
+User accidentally typed "imfrom" instead of "from". Model should fix the typo by restoring the correct import. From Zed edit_prediction_cli: flask--add-import-statement.
+id: python-fix-import-typo
+language: python
+file: src/flask/logging.py
+row: 7
+col: 2
+viewportTop: 1
+viewportBottom: 20
+fim-row: 7
+fim-col: 0
+-- buffer.txt --
+from __future__ import annotations
+
+import logging
+import sys
+import typing as t
+
+imfrom werkzeug.local import LocalProxy
+
+from .globals import request
+
+if t.TYPE_CHECKING:  # pragma: no cover
+    from .sansio.app import App
+-- history --
+<|file|> src/flask/logging.py
+<|old|>
+from werkzeug.local import LocalProxy
+<|new|>
+imfrom werkzeug.local import LocalProxy
+-- steps --
+request-completion manual
+-- expected --
+from __future__ import annotations
+
+import logging
+import sys
+import typing as t
+
+from werkzeug.local import LocalProxy
+
+from .globals import request
+
+if t.TYPE_CHECKING:  # pragma: no cover
+    from .sansio.app import App

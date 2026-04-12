@@ -1,0 +1,23 @@
+Rust Option method chain: suggest `.unwrap_or_default()` on an Option value. Exercises method-chain completion and Rust-specific idioms.
+id: rust-option-method
+language: rust
+file: lib.rs
+row: 3
+col: 9
+viewportTop: 1
+viewportBottom: 20
+fim-row: 3
+fim-col: 9
+-- buffer.txt --
+fn length_or_zero(s: Option<&str>) -> usize {
+    let owned = s.map(str::to_owned);
+    owned
+}
+-- steps --
+request-completion manual
+-- expected --
+fn length_or_zero(s: Option<&str>) -> usize {
+    let owned = s.map(str::to_owned);
+    owned.unwrap_or_default().len()
+}
+

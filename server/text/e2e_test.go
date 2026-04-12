@@ -1,16 +1,14 @@
 package text
 
 import (
-	"crypto/sha256"
 	"cursortab/assert"
-	"encoding/hex"
+	"cursortab/e2e"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,12 +18,9 @@ import (
 
 var updateAll = flag.Bool("update", false, "update all expected golden files")
 var update multiStringFlag
-var verifyAll = flag.Bool("verify-all", false, "mark all passing test cases as verified")
-var verify multiStringFlag
 
 func init() {
 	flag.Var(&update, "update-only", "update expected for specific test cases (can be repeated)")
-	flag.Var(&verify, "verify", "mark a test case as verified by name (can be repeated)")
 }
 
 type multiStringFlag []string
@@ -44,32 +39,12 @@ type fixtureParams struct {
 }
 
 // parseTxtarFixture parses a txtar archive into its fixture components.
-// The header contains key: value metadata, and the archive sections contain
-// old.txt, new.txt, and expected (DSL format).
 func parseTxtarFixture(ar *txtar.Archive) (params fixtureParams, oldBytes, newBytes []byte, expected []map[string]any, err error) {
-	// Parse header metadata
-	for _, line := range strings.Split(string(ar.Comment), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		key, val, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		val = strings.TrimSpace(val)
-		n, _ := strconv.Atoi(val)
-		switch key {
-		case "cursorRow":
-			params.CursorRow = n
-		case "cursorCol":
-			params.CursorCol = n
-		case "viewportTop":
-			params.ViewportTop = n
-		case "viewportBottom":
-			params.ViewportBottom = n
-		}
-	}
+	hdr := e2e.ParseHeader(ar.Comment)
+	params.CursorRow, _ = strconv.Atoi(hdr["cursorRow"])
+	params.CursorCol, _ = strconv.Atoi(hdr["cursorCol"])
+	params.ViewportTop, _ = strconv.Atoi(hdr["viewportTop"])
+	params.ViewportBottom, _ = strconv.Atoi(hdr["viewportBottom"])
 
 	var expectedDSL string
 	for _, f := range ar.Files {
@@ -125,7 +100,6 @@ type fixtureResult struct {
 	BatchPass         bool
 	IncrementalPass   bool
 	MaxLinesResults   []maxLinesResult
-	Verified          bool
 }
 
 // stageIsPureInsertion checks if a stage is a pure insertion (insert without
@@ -272,7 +246,6 @@ func (b *testBuffer) partialAcceptStage(stage *Stage) {
 
 // advanceOffsets applies the offset from the applied stage to remaining stages
 // that are at or after the applied stage's buffer position.
-// Stages before the applied stage's position are unaffected.
 func advanceOffsets(stages []*Stage, appliedIdx int) {
 	stage := stages[appliedIdx]
 
@@ -299,208 +272,7 @@ func advanceOffsets(stages []*Stage, appliedIdx int) {
 	}
 }
 
-func sha256Hex(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
-}
-
-func loadVerifiedManifest(path string) map[string]string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return map[string]string{}
-	}
-	var m map[string]string
-	if json.Unmarshal(data, &m) != nil {
-		return map[string]string{}
-	}
-	return m
-}
-
-func saveVerifiedManifest(path string, m map[string]string) error {
-	// Sort keys for stable output
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	ordered := make([]struct{ k, v string }, len(keys))
-	for i, k := range keys {
-		ordered[i] = struct{ k, v string }{k, m[k]}
-	}
-
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, append(data, '\n'), 0644)
-}
-
-func TestE2E(t *testing.T) {
-	e2eDir := filepath.Join("testdata")
-	entries, err := os.ReadDir(e2eDir)
-	if err != nil {
-		t.Fatalf("failed to read e2e directory: %v", err)
-	}
-
-	manifestPath := filepath.Join(e2eDir, "verified.json")
-	manifest := loadVerifiedManifest(manifestPath)
-	manifestDirty := false
-
-	var fixtures []fixtureResult
-
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".txtar") {
-			continue
-		}
-		name := strings.TrimSuffix(entry.Name(), ".txtar")
-		fixturePath := filepath.Join(e2eDir, entry.Name())
-
-		t.Run(name, func(t *testing.T) {
-			data, err := os.ReadFile(fixturePath)
-			assert.NoError(t, err, "read fixture")
-
-			ar := txtar.Parse(data)
-			params, oldBytes, newBytes, expected, err := parseTxtarFixture(ar)
-			assert.NoError(t, err, "parse fixture")
-
-			oldLines := strings.Split(string(oldBytes), "\n")
-			newLines := strings.Split(string(newBytes), "\n")
-
-			if params.CursorRow < 1 || params.CursorRow > len(oldLines) {
-				t.Fatalf("cursorRow %d is out of bounds for old.txt (%d lines)", params.CursorRow, len(oldLines))
-			}
-
-			// --- Batch pipeline ---
-			oldText := JoinLines(oldLines)
-			newText := JoinLines(newLines)
-			diff := ComputeDiff(oldText, newText)
-
-			batchResult := CreateStages(&StagingParams{
-				Diff:               diff,
-				CursorRow:          params.CursorRow,
-				CursorCol:          params.CursorCol,
-				ViewportTop:        params.ViewportTop,
-				ViewportBottom:     params.ViewportBottom,
-				BaseLineOffset:     1,
-				ProximityThreshold: 10,
-				NewLines:           newLines,
-				OldLines:           oldLines,
-				FilePath:           "test.txt",
-			})
-
-			var batchLua []map[string]any
-			if batchResult != nil {
-				for _, stage := range batchResult.Stages {
-					batchLua = append(batchLua, ToLuaFormat(stage, stage.BufferStart))
-				}
-			}
-
-			// --- Incremental pipeline ---
-			builder := NewIncrementalStageBuilder(
-				oldLines,
-				1,
-				10,
-				0,
-				params.ViewportTop, params.ViewportBottom,
-				params.CursorRow, params.CursorCol,
-				"test.txt",
-				0, // availableWidth
-			)
-			for _, line := range newLines {
-				builder.AddLine(line)
-			}
-			incResult := builder.Finalize()
-
-			var incLua []map[string]any
-			if incResult != nil {
-				for _, stage := range incResult.Stages {
-					incLua = append(incLua, ToLuaFormat(stage, stage.BufferStart))
-				}
-			}
-
-			// --- Apply verification with multiple MaxLines values ---
-			maxLinesValues := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 1000}
-			var mlResults []maxLinesResult
-
-			for _, maxLines := range maxLinesValues {
-				mlResult := verifyApplyWithMaxLines(t, oldLines, newLines, oldText, newText, params, maxLines)
-				mlResults = append(mlResults, mlResult)
-			}
-
-			// --- Update or compare ---
-			if *updateAll || update.contains(name) {
-				newDSL := formatExpected(batchLua)
-				oldDSL := formatExpected(expected)
-				if newDSL == oldDSL {
-					t.Logf("skipped %s (unchanged)", fixturePath)
-				} else {
-					assert.NoError(t, writeTxtarFixture(fixturePath, params, oldBytes, newBytes, batchLua), "write fixture")
-					delete(manifest, name)
-					manifestDirty = true
-					t.Logf("updated %s (unverified)", fixturePath)
-					expected = batchLua
-				}
-			}
-
-			batchJSON := toJSON(t, batchLua)
-			incJSON := toJSON(t, incLua)
-			expectedJSON := toJSON(t, expected)
-
-			// Check verification status
-			currentHash := sha256Hex([]byte(formatExpected(expected)))
-			verified := manifest[name] == currentHash
-
-			if *verifyAll || verify.contains(name) {
-				if batchJSON == expectedJSON && incJSON == expectedJSON {
-					manifest[name] = currentHash
-					manifestDirty = true
-					verified = true
-					t.Logf("verified %s", name)
-				} else {
-					t.Errorf("cannot verify %s: batch or incremental output does not match expected", name)
-				}
-			}
-
-			fr := fixtureResult{
-				Name:              name,
-				OldText:           string(oldBytes),
-				NewText:           string(newBytes),
-				Params:            params,
-				Expected:          expected,
-				BatchActual:       batchLua,
-				IncrementalActual: incLua,
-				BatchPass:         batchJSON == expectedJSON,
-				IncrementalPass:   incJSON == expectedJSON,
-				MaxLinesResults:   mlResults,
-				Verified:          verified,
-			}
-			fixtures = append(fixtures, fr)
-
-			if !verified {
-				t.Errorf("unverified: run with -verify after reviewing expected")
-			}
-			assert.Equal(t, expectedJSON, batchJSON, "batch output mismatch")
-			assert.Equal(t, expectedJSON, incJSON, "incremental output mismatch")
-		})
-	}
-
-	// Save manifest if changed
-	if manifestDirty {
-		if err := saveVerifiedManifest(manifestPath, manifest); err != nil {
-			t.Logf("failed to save verified manifest: %v", err)
-		} else {
-			t.Logf("saved %s", manifestPath)
-		}
-	}
-
-	// Generate HTML report
-	reportPath := filepath.Join(e2eDir, "report.html")
-	if err := generateReport(fixtures, reportPath); err != nil {
-		t.Logf("failed to generate report: %v", err)
-	} else {
-		t.Logf("report: %s", reportPath)
-	}
-}
+// --- Shared helpers ---
 
 // copyStages deep-copies a slice of stages for apply simulation.
 func copyStages(stages []*Stage) []*Stage {
@@ -515,6 +287,241 @@ func copyStages(stages []*Stage) []*Stage {
 		copies[i] = &cp
 	}
 	return copies
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func toJSON(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.MarshalIndent(v, "", "  ")
+	assert.NoError(t, err, "marshal json")
+	return string(data)
+}
+
+// --- Fixture loading ---
+
+type fixture struct {
+	Name     string
+	Path     string
+	Params   fixtureParams
+	Old      []byte
+	New      []byte
+	OldLines []string
+	NewLines []string
+	Expected []map[string]any
+}
+
+func loadFixtures(t *testing.T, e2eDir string) []fixture {
+	t.Helper()
+	entries, err := os.ReadDir(e2eDir)
+	if err != nil {
+		t.Fatalf("failed to read e2e directory: %v", err)
+	}
+
+	var fixtures []fixture
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".txtar") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".txtar")
+		fixturePath := filepath.Join(e2eDir, entry.Name())
+
+		data, err := os.ReadFile(fixturePath)
+		assert.NoError(t, err, "read fixture "+name)
+
+		ar := txtar.Parse(data)
+		params, oldBytes, newBytes, expected, err := parseTxtarFixture(ar)
+		assert.NoError(t, err, "parse fixture "+name)
+
+		oldLines := strings.Split(string(oldBytes), "\n")
+		newLines := strings.Split(string(newBytes), "\n")
+
+		fixtures = append(fixtures, fixture{
+			Name: name, Path: fixturePath,
+			Params: params, Old: oldBytes, New: newBytes,
+			OldLines: oldLines, NewLines: newLines, Expected: expected,
+		})
+	}
+	return fixtures
+}
+
+// --- Pipeline runners ---
+
+func runBatchPipeline(oldLines, newLines []string, params fixtureParams) []map[string]any {
+	oldText := JoinLines(oldLines)
+	newText := JoinLines(newLines)
+	diff := ComputeDiff(oldText, newText)
+
+	result := CreateStages(&StagingParams{
+		Diff:               diff,
+		CursorRow:          params.CursorRow,
+		CursorCol:          params.CursorCol,
+		ViewportTop:        params.ViewportTop,
+		ViewportBottom:     params.ViewportBottom,
+		BaseLineOffset:     1,
+		ProximityThreshold: 10,
+		NewLines:           newLines,
+		OldLines:           oldLines,
+		FilePath:           "test.txt",
+	})
+
+	var lua []map[string]any
+	if result != nil {
+		for _, stage := range result.Stages {
+			lua = append(lua, ToLuaFormat(stage, stage.BufferStart))
+		}
+	}
+	return lua
+}
+
+func runIncrementalPipeline(oldLines, newLines []string, params fixtureParams) []map[string]any {
+	builder := NewIncrementalStageBuilder(
+		oldLines,
+		1,
+		10,
+		0,
+		params.ViewportTop, params.ViewportBottom,
+		params.CursorRow, params.CursorCol,
+		"test.txt",
+		0,
+	)
+	for _, line := range newLines {
+		builder.AddLine(line)
+	}
+	result := builder.Finalize()
+
+	var lua []map[string]any
+	if result != nil {
+		for _, stage := range result.Stages {
+			lua = append(lua, ToLuaFormat(stage, stage.BufferStart))
+		}
+	}
+	return lua
+}
+
+// --- Tests ---
+
+func TestBatchPipeline(t *testing.T) {
+	for _, f := range loadFixtures(t, "testdata") {
+		t.Run(f.Name, func(t *testing.T) {
+			if f.Params.CursorRow < 1 || f.Params.CursorRow > len(f.OldLines) {
+				t.Fatalf("cursorRow %d out of bounds (%d lines)", f.Params.CursorRow, len(f.OldLines))
+			}
+
+			actual := runBatchPipeline(f.OldLines, f.NewLines, f.Params)
+			assert.Equal(t, toJSON(t, f.Expected), toJSON(t, actual), "batch output mismatch")
+		})
+	}
+}
+
+func TestIncrementalPipeline(t *testing.T) {
+	for _, f := range loadFixtures(t, "testdata") {
+		t.Run(f.Name, func(t *testing.T) {
+			if f.Params.CursorRow < 1 || f.Params.CursorRow > len(f.OldLines) {
+				t.Fatalf("cursorRow %d out of bounds (%d lines)", f.Params.CursorRow, len(f.OldLines))
+			}
+
+			actual := runIncrementalPipeline(f.OldLines, f.NewLines, f.Params)
+			assert.Equal(t, toJSON(t, f.Expected), toJSON(t, actual), "incremental output mismatch")
+		})
+	}
+}
+
+func TestApplyWithMaxLines(t *testing.T) {
+	maxLinesValues := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 1000}
+
+	for _, f := range loadFixtures(t, "testdata") {
+		t.Run(f.Name, func(t *testing.T) {
+			if f.Params.CursorRow < 1 || f.Params.CursorRow > len(f.OldLines) {
+				t.Fatalf("cursorRow %d out of bounds (%d lines)", f.Params.CursorRow, len(f.OldLines))
+			}
+
+			for _, maxLines := range maxLinesValues {
+				verifyApplyWithMaxLines(t, f.OldLines, f.NewLines,
+					JoinLines(f.OldLines), JoinLines(f.NewLines), f.Params, maxLines)
+			}
+		})
+	}
+}
+
+func TestUpdateExpected(t *testing.T) {
+	if !*updateAll && len(update) == 0 {
+		t.Skip("no -update or -update-only flag")
+	}
+
+	for _, f := range loadFixtures(t, "testdata") {
+		if !*updateAll && !update.contains(f.Name) {
+			continue
+		}
+		t.Run(f.Name, func(t *testing.T) {
+			actual := runBatchPipeline(f.OldLines, f.NewLines, f.Params)
+			newDSL := formatExpected(actual)
+			oldDSL := formatExpected(f.Expected)
+			if newDSL == oldDSL {
+				t.Logf("skipped %s (unchanged)", f.Path)
+				return
+			}
+			assert.NoError(t, writeTxtarFixture(f.Path, f.Params, f.Old, f.New, actual), "write fixture")
+			t.Logf("updated %s", f.Path)
+		})
+	}
+}
+
+func TestE2EReport(t *testing.T) {
+	e2eDir := "testdata"
+	var fixtures []fixtureResult
+
+	for _, f := range loadFixtures(t, e2eDir) {
+		if f.Params.CursorRow < 1 || f.Params.CursorRow > len(f.OldLines) {
+			continue
+		}
+
+		batchLua := runBatchPipeline(f.OldLines, f.NewLines, f.Params)
+		incLua := runIncrementalPipeline(f.OldLines, f.NewLines, f.Params)
+
+		batchJSON := toJSON(t, batchLua)
+		incJSON := toJSON(t, incLua)
+		expectedJSON := toJSON(t, f.Expected)
+
+		maxLinesValues := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 1000}
+		var mlResults []maxLinesResult
+		for _, ml := range maxLinesValues {
+			mlResults = append(mlResults, verifyApplyWithMaxLines(t,
+				f.OldLines, f.NewLines,
+				JoinLines(f.OldLines), JoinLines(f.NewLines),
+				f.Params, ml))
+		}
+
+		fixtures = append(fixtures, fixtureResult{
+			Name:              f.Name,
+			OldText:           string(f.Old),
+			NewText:           string(f.New),
+			Params:            f.Params,
+			Expected:          f.Expected,
+			BatchActual:       batchLua,
+			IncrementalActual: incLua,
+			BatchPass:         batchJSON == expectedJSON,
+			IncrementalPass:   incJSON == expectedJSON,
+			MaxLinesResults:   mlResults,
+		})
+	}
+
+	reportPath := filepath.Join(e2eDir, "report.html")
+	if err := generateReport(fixtures, reportPath); err != nil {
+		t.Logf("failed to generate report: %v", err)
+	} else {
+		t.Logf("report: %s", reportPath)
+	}
 }
 
 // verifyApplyWithMaxLines runs apply and partial-accept verification for a given MaxLines value.
@@ -582,23 +589,4 @@ func verifyApplyWithMaxLines(t *testing.T, oldLines, newLines []string, oldText,
 	}
 
 	return mlr
-}
-
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func toJSON(t *testing.T, v any) string {
-	t.Helper()
-	data, err := json.MarshalIndent(v, "", "  ")
-	assert.NoError(t, err, "marshal json")
-	return string(data)
 }

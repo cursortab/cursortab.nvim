@@ -1,0 +1,66 @@
+User refactored if-let to match, completed the Ok arm; cursor is at the closing brace. Model should add the Err arm. From Zed edit_prediction_cli: tree-sitter--if-let-to-match.
+id: rust-add-match-arm
+language: rust
+file: crates/loader/src/loader.rs
+row: 11
+col: 24
+viewportTop: 1
+viewportBottom: 20
+fim-row: 12
+fim-col: 12
+-- buffer.txt --
+                        if let Some(parser_dir_name) = entry.file_name().to_str() {
+                            if parser_dir_name.starts_with("tree-sitter-") {
+                                self.find_language_configurations_at_path(
+                                    &parser_container_dir.join(parser_dir_name),
+                                    false,
+                                )
+                                .ok();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+-- history --
+<|file|> crates/loader/src/loader.rs
+<|old|>
+            if let Ok(entries) = fs::read_dir(parser_container_dir) {
+                for entry in entries {
+                    let entry = entry.map_err(|e| LoaderError::IO(IoError::new(e, None)))?;
+                    if let Some(parser_dir_name) = entry.file_name().to_str() {
+                        if parser_dir_name.starts_with("tree-sitter-") {
+                            self.find_language_configurations_at_path(
+                                &parser_container_dir.join(parser_dir_name),
+                                false,
+                            )
+                            .ok();
+<|new|>
+            match fs::read_dir(parser_container_dir) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let entry = entry.map_err(|e| LoaderError::IO(IoError::new(e, None)))?;
+                        if let Some(parser_dir_name) = entry.file_name().to_str() {
+                            if parser_dir_name.starts_with("tree-sitter-") {
+                                self.find_language_configurations_at_path(
+                                    &parser_container_dir.join(parser_dir_name),
+                                    false,
+                                )
+                                .ok();
+-- steps --
+request-completion manual
+-- expected --
+                        if let Some(parser_dir_name) = entry.file_name().to_str() {
+                            if parser_dir_name.starts_with("tree-sitter-") {
+                                self.find_language_configurations_at_path(
+                                    &parser_container_dir.join(parser_dir_name),
+                                    false,
+                                )
+                                .ok();
+                            }
+                        }
+                    }
+                }
+                Err(error) => {}
+            }
+        }

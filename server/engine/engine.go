@@ -167,7 +167,10 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 	}
 
 	// Initialize metrics: combine provider sender + community sender if available
-	providerSender, _ := provider.(metrics.Sender)
+	var providerSender metrics.Sender
+	if !config.DisableProviderMetrics {
+		providerSender, _ = provider.(metrics.Sender)
+	}
 	switch {
 	case providerSender != nil && communitySender != nil:
 		e.metricSender = metrics.NewMultiSender(providerSender, communitySender)
@@ -227,12 +230,19 @@ func (e *Engine) Stop() {
 		e.prefetchedCursorTarget = nil
 		e.prefetchState = prefetchNone
 		e.completionOriginalLines = nil
+		// Cancel the main context BEFORE closing channels. In-flight
+		// goroutines (e.g. the prefetch sender at request.go:206) select on
+		// mainCtx.Done() vs eventChan <- …; if we closed the channel first
+		// they'd panic on a send-to-closed-channel. Canceling first gives
+		// them a chance to exit via the Done branch. We still close the
+		// channels afterward so the event loop's `<-eventChan` path and
+		// metricsWorker's `for range` exit cleanly.
+		if e.mainCancel != nil {
+			e.mainCancel()
+		}
 		close(e.eventChan)
 		if e.metricsCh != nil {
 			close(e.metricsCh)
-		}
-		if e.mainCancel != nil {
-			e.mainCancel()
 		}
 
 		logger.Info("engine stopped")

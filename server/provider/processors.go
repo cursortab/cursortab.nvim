@@ -261,6 +261,65 @@ func DropLastLineIfTruncated() Postprocessor {
 	}
 }
 
+// StripRepetition detects when the model gets stuck in a repetition loop
+// and truncates the output at the first repeated block. A line is considered
+// repeated when 3 consecutive identical lines appear. The completion is
+// truncated to just before the repetition starts.
+func StripRepetition() Postprocessor {
+	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+		lines := strings.Split(ctx.Result.Text, "\n")
+		cutIdx := -1
+		for i := 2; i < len(lines); i++ {
+			if lines[i] == lines[i-1] && lines[i] == lines[i-2] && strings.TrimSpace(lines[i]) != "" {
+				cutIdx = i - 2
+				break
+			}
+		}
+		if cutIdx < 0 {
+			return nil, false
+		}
+		if cutIdx == 0 {
+			return p.EmptyResponse(), true
+		}
+		ctx.Result.Text = strings.Join(lines[:cutIdx], "\n")
+		return nil, false
+	}
+}
+
+// RejectLeadingNewlineWithSuffix rejects completions that start by inserting a
+// new line below the cursor when there is already non-empty suffix text in the
+// file. This is useful for insert-at-cursor providers where a leading newline
+// commonly means the model is hallucinating extra lines instead of filling the
+// gap at the cursor.
+func RejectLeadingNewlineWithSuffix() Postprocessor {
+	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+		req := ctx.Request
+		if req.CursorRow < 1 || req.CursorRow > len(req.Lines) {
+			return nil, false
+		}
+
+		currentLine := req.Lines[req.CursorRow-1]
+		cursorCol := min(req.CursorCol, len(currentLine))
+		atEOL := cursorCol >= len(strings.TrimRight(currentLine, " \t"))
+		if !atEOL || !strings.HasPrefix(ctx.Result.Text, "\n") {
+			return nil, false
+		}
+
+		afterCursor := currentLine[cursorCol:]
+		var suffixBuilder strings.Builder
+		suffixBuilder.WriteString(afterCursor)
+		for i := req.CursorRow; i < len(req.Lines); i++ {
+			suffixBuilder.WriteString("\n")
+			suffixBuilder.WriteString(req.Lines[i])
+		}
+		if strings.TrimSpace(suffixBuilder.String()) == "" {
+			return nil, false
+		}
+
+		return p.EmptyResponse(), true
+	}
+}
+
 // AnchorTruncation returns a postprocessor that handles truncation with anchor matching.
 // Sets ctx.EndLineInc for use by subsequent postprocessors.
 func AnchorTruncation(threshold float64) Postprocessor {

@@ -24,6 +24,7 @@ package sweepapi
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -219,6 +220,12 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 			MaxInputBytes: 10_000_000,
 		},
 	}
+}
+
+// SetHTTPTransport forwards the transport override to the underlying client.
+// Used by the eval harness for cassette record/replay.
+func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
+	p.client.SetHTTPTransport(rt)
 }
 
 // SendMetric implements metrics.Sender

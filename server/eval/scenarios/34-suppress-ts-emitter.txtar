@@ -1,0 +1,31 @@
+Correct TypeScript generic event emitter class — no edits needed at any cursor position.
+id: suppress-ts-emitter
+language: typescript
+file: events.ts
+row: 5
+col: 52
+viewportTop: 1
+viewportBottom: 25
+modified: true
+cursor-positions: 13:19
+-- buffer.txt --
+export class EventEmitter<T> {
+  private listeners: Map<string, Array<(data: T) => void>> = new Map();
+
+  on(event: string, listener: (data: T) => void): void {
+    const existing = this.listeners.get(event) ?? [];
+    existing.push(listener);
+    this.listeners.set(event, existing);
+  }
+
+  emit(event: string, data: T): void {
+    const listeners = this.listeners.get(event) ?? [];
+    for (const listener of listeners) {
+      listener(data);
+    }
+  }
+}
+-- steps --
+request-completion manual
+  expect !shown
+

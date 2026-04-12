@@ -1,0 +1,42 @@
+User renamed groupByStatus to groupByCat. Model should complete the rename to groupByCategory and update internal references from item.status to item.category. From Zed edit_prediction_cli: hello-world--rename-accepted-group-by.
+id: js-rename-group-by-function
+language: javascript
+file: utils.js
+row: 5
+col: 18
+viewportTop: 1
+viewportBottom: 20
+fim-row: 5
+fim-col: 19
+-- buffer.txt --
+function filterByStatus(items, status) {
+    return items.filter(item => item.status === status);
+}
+
+function groupByCat(items) {
+    return items.reduce((groups, item) => {
+        const key = item.status;
+        (groups[key] = groups[key] || []).push(item);
+        return groups;
+    }, {});
+}
+-- history --
+<|file|> README
+<|old|>
+function groupByStatus(items) {
+<|new|>
+function groupByCat(items) {
+-- steps --
+request-completion manual
+-- expected --
+function filterByStatus(items, status) {
+    return items.filter(item => item.status === status);
+}
+
+function groupByCategory(items) {
+    return items.reduce((groups, item) => {
+        const key = item.category;
+        (groups[key] = groups[key] || []).push(item);
+        return groups;
+    }, {});
+}

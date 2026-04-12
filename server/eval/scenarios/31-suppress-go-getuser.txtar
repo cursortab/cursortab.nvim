@@ -1,0 +1,33 @@
+Correct Go database query with proper error handling — no edits needed at any cursor position.
+id: suppress-go-getuser
+language: go
+file: db/user.go
+row: 9
+col: 73
+viewportTop: 1
+viewportBottom: 25
+modified: true
+cursor-positions: 13:50, 17:16
+-- buffer.txt --
+package db
+
+import (
+    "database/sql"
+    "fmt"
+)
+
+func GetUser(db *sql.DB, id int64) (*User, error) {
+    row := db.QueryRow("SELECT id, name, email FROM users WHERE id = $1", id)
+    var u User
+    if err := row.Scan(&u.ID, &u.Name, &u.Email); err != nil {
+        if err == sql.ErrNoRows {
+            return nil, fmt.Errorf("user %d not found", id)
+        }
+        return nil, fmt.Errorf("scan user %d: %w", id, err)
+    }
+    return &u, nil
+}
+-- steps --
+request-completion manual
+  expect !shown
+

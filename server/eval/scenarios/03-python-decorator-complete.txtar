@@ -1,0 +1,25 @@
+Python decorator scenario: user typed `@` and we expect the provider to complete a common decorator. Tests cross-language prompt handling and quality scoring on a multi-character insertion.
+id: python-decorator-complete
+language: python
+file: app.py
+row: 4
+col: 1
+viewportTop: 1
+viewportBottom: 20
+fim-row: 3
+fim-col: 1
+-- buffer.txt --
+from functools import cache
+
+@
+def slow_computation(x, y):
+    return x * y
+-- steps --
+request-completion manual
+-- expected --
+from functools import cache
+
+@cache
+def slow_computation(x, y):
+    return x * y
+

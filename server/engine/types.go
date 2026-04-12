@@ -294,4 +294,5 @@ type EngineConfig struct {
 	CompleteInInsert       bool // Show completions in insert mode
 	CompleteInNormal       bool // Show completions in normal mode
 	EditCompletionProvider bool // True for edit-prediction providers (sweep, zeta, zeta-2, mercury, copilot NES)
+	DisableProviderMetrics bool // Skip wiring provider as metrics.Sender (eval harness sets this)
 }

@@ -1,0 +1,55 @@
+User widened `Send(msg Message)` to `Send(msgs []Message)`. The function body still references msg as a scalar and needs to loop. History has the signature change; the body is now broken.
+id: go-single-to-slice-arg
+language: go
+file: queue.go
+row: 11
+col: 26
+viewportTop: 1
+viewportBottom: 40
+fim-row: 11
+fim-col: 1
+-- buffer.txt --
+package queue
+
+import "fmt"
+
+type Message struct {
+	ID   string
+	Body []byte
+}
+
+func (q *Queue) Send(msgs []Message) error {
+	if err := q.conn.Publish(msg.Body); err != nil {
+		return fmt.Errorf("publish %s: %w", msg.ID, err)
+	}
+	q.sent++
+	return nil
+}
+-- history --
+<|file|> queue.go
+<|old|>
+func (q *Queue) Send(msg Message) error {
+<|new|>
+func (q *Queue) Send(msgs []Message) error {
+-- steps --
+request-completion manual
+-- expected --
+package queue
+
+import "fmt"
+
+type Message struct {
+	ID   string
+	Body []byte
+}
+
+func (q *Queue) Send(msgs []Message) error {
+	for _, msg := range msgs {
+		if err := q.conn.Publish(msg.Body); err != nil {
+			return fmt.Errorf("publish %s: %w", msg.ID, err)
+		}
+		q.sent++
+	}
+	return nil
+}
+

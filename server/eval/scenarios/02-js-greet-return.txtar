@@ -1,0 +1,21 @@
+Single-line return-value rewrite: fix a greeting to interpolate the name parameter. Exercises the happy-path completion flow and quality scoring.
+id: js-greet-return
+language: javascript
+file: greet.js
+row: 2
+col: 16
+viewportTop: 1
+viewportBottom: 20
+fim-row: 2
+fim-col: 15
+-- buffer.txt --
+function greet(name) {
+  return "hello";
+}
+-- steps --
+request-completion manual
+-- expected --
+function greet(name) {
+  return "hello, " + name;
+}
+

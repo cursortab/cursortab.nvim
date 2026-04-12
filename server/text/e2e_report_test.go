@@ -37,46 +37,18 @@ func renderJSONSection(b *strings.Builder, batchData, incData []map[string]any, 
 func generateReport(fixtures []fixtureResult, outputPath string) error {
 	var b strings.Builder
 
-	b.WriteString(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>E2E Report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-<style>
-`)
-	b.WriteString(e2e.BaseCSS)
-	b.WriteString("\n</style>\n</head>\n<body>\n")
-
-	var totalFixtures, passCount, statusFailed, statusUnverified int
+	var totalFixtures, passCount, failCount int
 	for _, f := range fixtures {
 		totalFixtures++
 		if !f.BatchPass || !f.IncrementalPass || !allMaxLinesPass(f) {
-			statusFailed++
-		} else if !f.Verified {
-			statusUnverified++
+			failCount++
 		} else {
 			passCount++
 		}
 	}
-	fmt.Fprintf(&b, `<h1>E2E Pipeline Report <span class="stats"><span class="meta">%d fixtures</span>`, totalFixtures)
-	fmt.Fprintf(&b, `<span class="pass">%d pass</span>`, passCount)
-	if statusFailed > 0 {
-		fmt.Fprintf(&b, `<span class="fail">%d fail</span>`, statusFailed)
-	}
-	if statusUnverified > 0 {
-		fmt.Fprintf(&b, `<span class="unverified">%d unverified</span>`, statusUnverified)
-	}
-	b.WriteString("</span></h1>\n")
 
-	b.WriteString("<div class=\"filters\">\n")
-	fmt.Fprintf(&b, "<button class=\"filter-btn active\" data-filter=\"all\">All (%d)</button>\n", totalFixtures)
-	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"passed\">Passed (%d)</button>\n", passCount)
-	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"failed\">Failed (%d)</button>\n", statusFailed)
-	fmt.Fprintf(&b, "<button class=\"filter-btn\" data-filter=\"unverified\">Unverified (%d)</button>\n", statusUnverified)
-	b.WriteString("</div>\n")
+	e2e.ReportHeader(&b, "E2E Report")
+	e2e.ReportStats(&b, "E2E Pipeline Report", totalFixtures, passCount, failCount)
 
 	for _, f := range fixtures {
 		batchStages := e2e.ParseStages(f.BatchActual)
@@ -107,28 +79,22 @@ func generateReport(fixtures []fixtureResult, outputPath string) error {
 				applyStatuses += fmt.Sprintf(` <span class="fail">partial(%s):FAIL</span>`, label)
 			}
 		}
-		vStatus := `<span class="pass">verified</span>`
-		if !f.Verified {
-			vStatus = `<span class="unverified">unverified</span>`
-		}
 
 		mlPass := allMaxLinesPass(f)
-		allPass := f.BatchPass && f.IncrementalPass && mlPass && f.Verified
+		allPass := f.BatchPass && f.IncrementalPass && mlPass
 		escapedName := html.EscapeString(f.Name)
 		status := "passed"
-		if !f.BatchPass || !f.IncrementalPass || !mlPass {
+		if !allPass {
 			status = "failed"
-		} else if !f.Verified {
-			status = "unverified"
 		}
-		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\" open>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button><span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span><span class=\"hdr-statuses\">%s %s %s%s</span></summary>\n",
+		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\" open>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button><span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span><span class=\"hdr-statuses\">%s %s%s</span></summary>\n",
 			status, escapedName, escapedName,
 			f.Params.CursorRow, f.Params.CursorCol,
 			f.Params.ViewportTop, f.Params.ViewportBottom,
-			vStatus, bStatus, iStatus, applyStatuses)
+			bStatus, iStatus, applyStatuses)
 
 		var expectedStages []e2e.StageInfo
-		if f.Verified && (!f.BatchPass || !f.IncrementalPass) {
+		if !f.BatchPass || !f.IncrementalPass {
 			expectedStages = e2e.ParseStages(f.Expected)
 		}
 		b.WriteString("<div class=\"pipelines\">\n")
@@ -173,7 +139,6 @@ func generateReport(fixtures []fixtureResult, outputPath string) error {
 		b.WriteString("</details>\n")
 	}
 
-	b.WriteString(e2e.FilterJS)
-	b.WriteString("\n</body></html>")
+	e2e.ReportFooter(&b)
 	return os.WriteFile(outputPath, []byte(b.String()), 0644)
 }

@@ -1,0 +1,29 @@
+Correct Python logging decorator — no edits needed at any cursor position.
+id: suppress-python-decorator
+language: python
+file: decorators.py
+row: 9
+col: 35
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 13:21
+-- buffer.txt --
+import logging
+from functools import wraps
+
+logger = logging.getLogger(__name__)
+
+
+def log_calls(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        logger.info("calling %s", func.__name__)
+        result = func(*args, **kwargs)
+        logger.info("%s returned %r", func.__name__, result)
+        return result
+    return wrapper
+-- steps --
+request-completion manual
+  expect !shown
+

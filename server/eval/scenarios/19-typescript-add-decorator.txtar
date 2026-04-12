@@ -1,0 +1,56 @@
+Propagate a class decorator: user added @es5ClassCompat to several classes, cursor is on the next class that needs it. From Zed edit_prediction_cli: vscode--add-class-decorator.
+id: typescript-add-decorator
+language: typescript
+file: src/vs/workbench/api/common/extHostTypes.ts
+row: 4
+col: 0
+viewportTop: 1
+viewportBottom: 20
+fim-row: 4
+fim-col: 0
+-- buffer.txt --
+	Prepend = 3
+}
+
+export class TextEdit {
+
+	static isTextEdit(thing: any): thing is TextEdit {
+		if (thing instanceof TextEdit) {
+			return true;
+		}
+	}
+}
+-- history --
+<|file|> src/vs/workbench/api/common/extHostTypes.ts
+<|old|>
+export class Disposable {
+<|new|>
+@es5ClassCompat
+export class Disposable {
+<|file|> src/vs/workbench/api/common/extHostTypes.ts
+<|old|>
+export class Position {
+<|new|>
+@es5ClassCompat
+export class Position {
+<|file|> src/vs/workbench/api/common/extHostTypes.ts
+<|old|>
+export class Range {
+<|new|>
+@es5ClassCompat
+export class Range {
+-- steps --
+request-completion manual
+-- expected --
+	Prepend = 3
+}
+
+@es5ClassCompat
+export class TextEdit {
+
+	static isTextEdit(thing: any): thing is TextEdit {
+		if (thing instanceof TextEdit) {
+			return true;
+		}
+	}
+}

@@ -1,0 +1,70 @@
+User changed users storage from `User[]` to `Record<string, User>` keyed by id for O(1) lookup. Multi-step scenario: first request fixes the lookup by iteration, accept it, second request fixes the add method. Tests sequential edits where history grows.
+id: typescript-list-to-dict
+language: typescript
+file: userStore.ts
+row: 13
+col: 28
+viewportTop: 1
+viewportBottom: 40
+fim-row: 11
+fim-col: 14
+-- buffer.txt --
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export class UserStore {
+  private users: Record<string, User> = {};
+
+  add(user: User): void {
+    this.users.push(user);
+  }
+
+  findById(id: string): User | undefined {
+    return this.users.find((u) => u.id === id);
+  }
+
+  remove(id: string): boolean {
+    const before = this.users.length;
+    this.users = this.users.filter((u) => u.id !== id);
+    return this.users.length < before;
+  }
+}
+-- history --
+<|file|> userStore.ts
+<|old|>
+  private users: User[] = [];
+<|new|>
+  private users: Record<string, User> = {};
+-- steps --
+request-completion manual
+accept
+
+request-completion manual
+-- expected --
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export class UserStore {
+  private users: Record<string, User> = {};
+
+  add(user: User): void {
+    this.users[user.id] = user;
+  }
+
+  findById(id: string): User | undefined {
+    return this.users[id];
+  }
+
+  remove(id: string): boolean {
+    if (!(id in this.users)) return false;
+    delete this.users[id];
+    return true;
+  }
+}
+

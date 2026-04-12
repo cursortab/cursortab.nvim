@@ -8,8 +8,15 @@ import (
 	"cursortab/types"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
+
+// HTTPTransportSetter is implemented by clients that allow their outgoing
+// HTTP transport to be replaced. Used by the eval harness for record/replay.
+type HTTPTransportSetter interface {
+	SetHTTPTransport(rt http.RoundTripper)
+}
 
 // StreamingType defines how completion content is streamed
 type StreamingType int
@@ -169,6 +176,14 @@ type Provider struct {
 // GetContextLimits implements engine.Provider
 func (p *Provider) GetContextLimits() engine.ContextLimits {
 	return p.ContextLimits.WithDefaults()
+}
+
+// SetHTTPTransport forwards the transport override to the underlying client
+// if it supports it. Used by the eval harness.
+func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
+	if setter, ok := p.Client.(HTTPTransportSetter); ok {
+		setter.SetHTTPTransport(rt)
+	}
 }
 
 // GetCompletion implements engine.Provider

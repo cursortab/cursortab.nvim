@@ -65,6 +65,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		PromptBuilder: buildPrompt,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
+			provider.StripRepetition(),
 			provider.ValidateAnchorPosition(0.25),
 			provider.AnchorTruncation(0.75),
 			parseCompletion,

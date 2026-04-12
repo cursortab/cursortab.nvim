@@ -115,6 +115,15 @@ func NewClient(url, completionPath, apiKey string) *Client {
 	}
 }
 
+// SetHTTPTransport replaces the transport used for all outgoing requests.
+// Used by the eval harness to intercept calls via a cassette transport.
+func (c *Client) SetHTTPTransport(rt http.RoundTripper) {
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	c.HTTPClient.Transport = rt
+}
+
 // DoCompletion sends a non-streaming completion request
 func (c *Client) DoCompletion(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
 	defer logger.Trace("openai.DoCompletion")()

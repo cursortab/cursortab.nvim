@@ -1,0 +1,26 @@
+Correct Go HTTP handler — no edits needed at any cursor position.
+id: suppress-go-handler
+language: go
+file: api/health.go
+row: 8
+col: 60
+viewportTop: 1
+viewportBottom: 20
+modified: true
+cursor-positions: 10:63, 11:1
+-- buffer.txt --
+package api
+
+import (
+    "encoding/json"
+    "net/http"
+)
+
+func HealthHandler(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+-- steps --
+request-completion manual
+  expect !shown
+

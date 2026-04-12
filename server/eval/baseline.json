@@ -1,0 +1,74 @@
+{
+  "copilot": {
+    "score": 0.12723002762832217,
+    "deltaChrF": 22.265254834956377,
+    "showRate": 0.4,
+    "quietRate": 1
+  },
+  "mercuryapi": {
+    "score": 0.57543847751069,
+    "deltaChrF": 64.39430581667246,
+    "showRate": 1,
+    "quietRate": 0.8076923076923077
+  },
+  "qwen3.5-0.8B": {
+    "score": 0.18116318116953042,
+    "deltaChrF": 31.37024782156371,
+    "showRate": 0.84,
+    "quietRate": 0.44
+  },
+  "qwen3.5-27B": {
+    "score": 0.23137298498001063,
+    "deltaChrF": 32.23462639040395,
+    "showRate": 0.76,
+    "quietRate": 0.68
+  },
+  "qwen3.5-2B": {
+    "score": 0.16982703204128669,
+    "deltaChrF": 29.40727827554748,
+    "showRate": 0.84,
+    "quietRate": 0.44
+  },
+  "qwen3.5-4B": {
+    "score": 0.1815442717732082,
+    "deltaChrF": 27.072391404776663,
+    "showRate": 0.76,
+    "quietRate": 0.6
+  },
+  "sweep-next-edit-0.5B": {
+    "score": 0.10422376756540595,
+    "deltaChrF": 23.04948705773401,
+    "showRate": 0.52,
+    "quietRate": 0.4
+  },
+  "sweep-next-edit-1.5B": {
+    "score": 0.1973187147840795,
+    "deltaChrF": 41.914106081585516,
+    "showRate": 0.68,
+    "quietRate": 0.36
+  },
+  "sweep-next-edit-7B": {
+    "score": 0.22251010603182542,
+    "deltaChrF": 45.19736528771454,
+    "showRate": 0.64,
+    "quietRate": 0.4
+  },
+  "sweepapi": {
+    "score": 0.07974634596198271,
+    "deltaChrF": 16.447683854658933,
+    "showRate": 0.32,
+    "quietRate": 1
+  },
+  "zeta": {
+    "score": 0.547976926973851,
+    "deltaChrF": 60.916407395808534,
+    "showRate": 0.88,
+    "quietRate": 0.92
+  },
+  "zeta-2": {
+    "score": 0.5644697032220446,
+    "deltaChrF": 61.47160593800675,
+    "showRate": 0.88,
+    "quietRate": 0.96
+  }
+}

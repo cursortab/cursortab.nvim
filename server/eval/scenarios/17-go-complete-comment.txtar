@@ -1,0 +1,75 @@
+User typed "/" to start a comment above a loop that filters action instances. Model should complete the comment. From Zed edit_prediction_cli: terraform--add-comment.
+id: go-complete-comment
+language: go
+file: internal/actions/actions.go
+row: 16
+col: 2
+viewportTop: 1
+viewportBottom: 40
+fim-row: 16
+fim-col: 2
+-- buffer.txt --
+	defer a.mu.Unlock()
+
+	data, ok := a.actionInstances.GetOk(addr)
+
+	if !ok {
+		return nil, false
+	}
+
+	return &data, true
+}
+
+func (a *Actions) GetActionInstanceKeys(addr addrs.AbsAction) []addrs.AbsActionInstance {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	/
+	result := []addrs.AbsActionInstance{}
+	for _, data := range a.actionInstances.Elements() {
+		if data.Key.ContainingAction().Equal(addr) {
+			result = append(result, data.Key)
+		}
+	}
+
+	return result
+}
+-- history --
+<|file|> internal/actions/actions.go
+<|old|>
+	defer a.mu.Unlock()
+
+	result := []addrs.AbsActionInstance{}
+<|new|>
+	defer a.mu.Unlock()
+
+	/
+	result := []addrs.AbsActionInstance{}
+-- steps --
+request-completion manual
+-- expected --
+	defer a.mu.Unlock()
+
+	data, ok := a.actionInstances.GetOk(addr)
+
+	if !ok {
+		return nil, false
+	}
+
+	return &data, true
+}
+
+func (a *Actions) GetActionInstanceKeys(addr addrs.AbsAction) []addrs.AbsActionInstance {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Filter action instances by the given action.
+	result := []addrs.AbsActionInstance{}
+	for _, data := range a.actionInstances.Elements() {
+		if data.Key.ContainingAction().Equal(addr) {
+			result = append(result, data.Key)
+		}
+	}
+
+	return result
+}

@@ -124,6 +124,9 @@ See [Providers](#providers) for all available options.
 
 ## Configuration
 
+<details>
+<summary>Full config</summary>
+
 ```lua
 require("cursortab").setup({
   enabled = true,
@@ -212,7 +215,9 @@ require("cursortab").setup({
 })
 ```
 
-For detailed configuration documentation, see `:help cursortab-config`.
+</details>
+
+You can also run `:help cursortab-config` to see the configuration.
 
 ### Highlight Groups
 

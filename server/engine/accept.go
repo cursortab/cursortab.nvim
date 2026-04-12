@@ -10,10 +10,6 @@ import (
 
 // reject clears all state and returns to idle.
 func (e *Engine) reject() {
-	// Update contextual filter: explicit rejection breaks "show" momentum
-	e.filterState.lastShown = false
-	e.filterState.lastDecisionTime = e.clock.Now()
-
 	e.clearState(ClearOptions{
 		CancelCurrent:     true,
 		CancelPrefetch:    true,
@@ -49,10 +45,6 @@ func (e *Engine) acceptCompletion() {
 
 	// Send accept metric
 	e.sendMetric(metrics.EventAccepted)
-
-	// Update contextual filter: acceptance reinforces "show" momentum
-	e.filterState.lastShown = true
-	e.filterState.lastDecisionTime = e.clock.Now()
 
 	// Sync the current staged completion with what was actually rendered.
 	// When streaming renders a stage incrementally, Finalize() recomputes stages

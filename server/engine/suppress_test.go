@@ -1,12 +1,9 @@
 package engine
 
 import (
-	"fmt"
 	"testing"
-	"time"
 
 	"cursortab/assert"
-	"cursortab/contextfilter"
 	"cursortab/types"
 )
 
@@ -158,76 +155,4 @@ func TestSuppressForMidLine(t *testing.T) {
 		},
 	}
 	assert.False(t, e.suppressForMidLine(), "closing paren + semicolon")
-}
-
-func TestSuppressForContextualFilter(t *testing.T) {
-	e := &Engine{
-		clock: newMockClock(),
-		buffer: &mockBuffer{
-			lines: []string{"result = "},
-			row:   1,
-			col:   9,
-			path:  "main.go",
-		},
-	}
-	assert.False(t, e.suppressForContextualFilter(), "good context should pass")
-	assert.True(t, e.filterState.lastShown, "lastShown should be true after pass")
-}
-
-func TestSuppressForContextualFilter_UpdatesState(t *testing.T) {
-	clock := newMockClock()
-	e := &Engine{
-		clock: clock,
-		buffer: &mockBuffer{
-			lines: []string{"x = "},
-			row:   1,
-			col:   4,
-			path:  "main.go",
-		},
-	}
-
-	e.suppressForContextualFilter()
-	assert.False(t, e.filterState.lastDecisionTime.IsZero(),
-		"lastDecisionTime should be set after filter call")
-}
-
-func TestSuppressForContextualFilter_Momentum(t *testing.T) {
-	clock := newMockClock()
-	base := &Engine{
-		clock: clock,
-		buffer: &mockBuffer{
-			lines: []string{"x := "},
-			row:   1,
-			col:   5,
-			path:  "main.go",
-		},
-		filterState: contextualFilterState{
-			lastShown:        true,
-			lastDecisionTime: clock.Now().Add(-1 * time.Second),
-		},
-	}
-
-	// With momentum, score should be higher
-	scoreWith := contextfilter.Score(contextfilter.Input{
-		Lines:         base.buffer.Lines(),
-		Row:           base.buffer.Row(),
-		Col:           base.buffer.Col(),
-		FileExtension: ".go",
-		PreviousLabel: true,
-		LastDecision:  clock.Now().Add(-1 * time.Second),
-		Now:           clock.Now(),
-	})
-	scoreWithout := contextfilter.Score(contextfilter.Input{
-		Lines:         base.buffer.Lines(),
-		Row:           base.buffer.Row(),
-		Col:           base.buffer.Col(),
-		FileExtension: ".go",
-		PreviousLabel: false,
-		LastDecision:  clock.Now().Add(-1 * time.Second),
-		Now:           clock.Now(),
-	})
-
-	assert.True(t, scoreWith > scoreWithout,
-		fmt.Sprintf("momentum should increase score: with=%.3f, without=%.3f",
-			scoreWith, scoreWithout))
 }

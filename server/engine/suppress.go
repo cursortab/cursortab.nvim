@@ -1,13 +1,8 @@
 package engine
 
 import (
-	"path/filepath"
 	"regexp"
-	"strings"
-	"time"
 
-	"cursortab/contextfilter"
-	"cursortab/logger"
 	"cursortab/types"
 )
 
@@ -82,38 +77,4 @@ func (e *Engine) suppressForNoEdits() bool {
 
 func isDeletion(action types.UserActionType) bool {
 	return action == types.ActionDeleteChar || action == types.ActionDeleteSelection
-}
-
-type contextualFilterState struct {
-	lastShown        bool
-	lastDecisionTime time.Time
-	lastScore        float64
-}
-
-// suppressForContextualFilter returns true if the contextual filter score is
-// below the acceptance threshold. Updates filter state as a side effect.
-func (e *Engine) suppressForContextualFilter() bool {
-	score := contextfilter.Score(contextfilter.Input{
-		Lines:         e.buffer.Lines(),
-		Row:           e.buffer.Row(),
-		Col:           e.buffer.Col(),
-		FileExtension: strings.ToLower(filepath.Ext(e.buffer.Path())),
-		PreviousLabel: e.filterState.lastShown,
-		LastDecision:  e.filterState.lastDecisionTime,
-		Now:           e.clock.Now(),
-	})
-
-	suppress := contextfilter.ShouldSuppress(score)
-
-	e.filterState.lastScore = score
-	e.filterState.lastShown = !suppress
-	e.filterState.lastDecisionTime = e.clock.Now()
-
-	if suppress {
-		logger.Debug("contextual filter suppressed (score=%.3f, threshold=%.3f)", score, contextfilter.Threshold)
-	} else {
-		logger.Debug("contextual filter passed (score=%.3f)", score)
-	}
-
-	return suppress
 }

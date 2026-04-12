@@ -27,36 +27,33 @@ type CompletionInfo struct {
 // Snapshot captures engine state at the time a completion is shown.
 // Used by the community sender to collect anonymous training data.
 type Snapshot struct {
-	FileExt                 string   `json:"file_ext"`
-	Language                string   `json:"language"`
-	PrefixLength            int      `json:"prefix_length"`
-	TrimmedPrefixLength     int      `json:"trimmed_prefix_length"`
-	LineCount               int      `json:"line_count"`
-	RelativePosition        float64  `json:"relative_position"`
-	AfterCursorWS           bool     `json:"after_cursor_ws"`
-	LastChar                string   `json:"last_char"`
-	LastNonWSChar           string   `json:"last_nonws_char"`
-	IndentationLevel        int      `json:"indentation_level"`
-	PrevFilterShown         bool     `json:"prev_filter_shown"`
-	FilterScore             float64  `json:"filter_score"`
-	CompletionLines         int      `json:"completion_lines"`
-	CompletionAdditions     int      `json:"completion_additions"`
-	CompletionDeletions     int      `json:"completion_deletions"`
-	CompletionSource        string   `json:"completion_source"`
-	ManuallyTriggered       bool     `json:"manually_triggered"`
-	Provider                string   `json:"provider"`
-	StageIndex              int      `json:"stage_index"`
-	CursorTargetDistance    int      `json:"cursor_target_distance"`
-	IsPrefetched            bool     `json:"is_prefetched"`
-	TimeSinceLastDecisionMs int      `json:"time_since_last_decision_ms"`
-	TimeSinceLastEditMs     int      `json:"time_since_last_edit_ms"`
-	TypingSpeed             float64  `json:"typing_speed"`
-	RecentActions           []string `json:"recent_actions"`
-	HasDiagnostics          bool     `json:"has_diagnostics"`
-	TreesitterScope         string   `json:"treesitter_scope"`
-	EditCount               int      `json:"edit_count"`
-	PredictedEditRatio      float64  `json:"predicted_edit_ratio"`
-	CompletionsSinceAccept  int      `json:"completions_since_accept"`
+	FileExt                string   `json:"file_ext"`
+	Language               string   `json:"language"`
+	PrefixLength           int      `json:"prefix_length"`
+	TrimmedPrefixLength    int      `json:"trimmed_prefix_length"`
+	LineCount              int      `json:"line_count"`
+	RelativePosition       float64  `json:"relative_position"`
+	AfterCursorWS          bool     `json:"after_cursor_ws"`
+	LastChar               string   `json:"last_char"`
+	LastNonWSChar          string   `json:"last_nonws_char"`
+	IndentationLevel       int      `json:"indentation_level"`
+	CompletionLines        int      `json:"completion_lines"`
+	CompletionAdditions    int      `json:"completion_additions"`
+	CompletionDeletions    int      `json:"completion_deletions"`
+	CompletionSource       string   `json:"completion_source"`
+	ManuallyTriggered      bool     `json:"manually_triggered"`
+	Provider               string   `json:"provider"`
+	StageIndex             int      `json:"stage_index"`
+	CursorTargetDistance   int      `json:"cursor_target_distance"`
+	IsPrefetched           bool     `json:"is_prefetched"`
+	TimeSinceLastEditMs    int      `json:"time_since_last_edit_ms"`
+	TypingSpeed            float64  `json:"typing_speed"`
+	RecentActions          []string `json:"recent_actions"`
+	HasDiagnostics         bool     `json:"has_diagnostics"`
+	TreesitterScope        string   `json:"treesitter_scope"`
+	EditCount              int      `json:"edit_count"`
+	PredictedEditRatio     float64  `json:"predicted_edit_ratio"`
+	CompletionsSinceAccept int      `json:"completions_since_accept"`
 }
 
 // Event represents a metrics event with type and completion info

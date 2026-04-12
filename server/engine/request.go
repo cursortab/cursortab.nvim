@@ -53,12 +53,6 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		return
 	}
 
-	// Contextual filter: predict acceptance probability from cursor context.
-	// Suppresses low-value requests before they reach the provider.
-	if !e.manuallyTriggered && e.suppressForContextualFilter() {
-		return
-	}
-
 	e.lastCompletionSource = source
 
 	req := &types.CompletionRequest{

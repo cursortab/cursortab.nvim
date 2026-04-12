@@ -1,3 +1,74 @@
+// Package windsurf implements the Windsurf (Codeium) completion provider.
+//
+// This provider communicates with the Windsurf/Codeium local language server
+// over HTTP. The port is assigned randomly at runtime when the Neovim Codeium
+// extension starts; we discover it via lua/cursortab/lsp.lua which probes the
+// extension's internal state (codeium.s.port, codeium.s.healthy, api_key).
+//
+// The server exposes a JSON API endpoint:
+//
+//	POST http://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/GetCompletions
+//
+// Example request:
+//
+//	{
+//	  "metadata": {
+//	    "api_key": "<api_key>",
+//	    "ide_name": "neovim",
+//	    "ide_version": "0.10.0",
+//	    "extension_name": "neovim",
+//	    "extension_version": "1.20.9",
+//	    "request_id": 1
+//	  },
+//	  "editor_options": { "tab_size": 4, "insert_spaces": true },
+//	  "document": {
+//	    "text": "package main\n\nfunc main() {\n\tfmt.Println(",
+//	    "editor_language": "go",
+//	    "language": 9,
+//	    "cursor_position": { "row": 3, "col": 13 },
+//	    "absolute_uri": "file:///tmp/main.go",
+//	    "workspace_uri": "file:///tmp",
+//	    "line_ending": "\n"
+//	  }
+//	}
+//
+// Example response:
+//
+//	{
+//	  "state": { "state": "CODEIUM_STATE_SUCCESS", "message": "Generated 3 completions" },
+//	  "completionItems": [{
+//	    "completion": {
+//	      "completionId": "7decfce5-...",
+//	      "text": "\tfmt.Println(\"Hello, World!\")",
+//	      "stop": "\n",
+//	      "score": -0.97,
+//	      "tokens": ["1","9906","11","4435","23849"],
+//	      "decodedTokens": ["\"","Hello",","," World","!\")\n"],
+//	      "probabilities": [0.85,0.60,0.46,0.70,0.66],
+//	      "adjustedProbabilities": [0,0,0,0,0],
+//	      "generatedLength": "5",
+//	      "stopReason": "STOP_REASON_STOP_PATTERN",
+//	      "originalText": "\"Hello, World!\")\n"
+//	    },
+//	    "range": {
+//	      "startOffset": "28",
+//	      "endOffset": "41",
+//	      "startPosition": { "row": "3" },
+//	      "endPosition": { "row": "3", "col": "13" }
+//	    },
+//	    "source": "COMPLETION_SOURCE_TYPING_AS_SUGGESTED",
+//	    "completionParts": [{
+//	      "text": "\"Hello, World!\")",
+//	      "offset": "41",
+//	      "type": "COMPLETION_PART_TYPE_INLINE",
+//	      "prefix": "\tfmt.Println(",
+//	      "line": "3"
+//	    }]
+//	  }],
+//	  "filteredCompletionItems": [...],
+//	  "promptId": "8418cdd3-...",
+//	  "codeRanges": [{ "source": "CODE_SOURCE_BASE", "endOffset": "42" }]
+//	}
 package windsurf
 
 import (

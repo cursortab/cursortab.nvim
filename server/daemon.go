@@ -59,6 +59,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		APIKey:              apiKey,
 		ProviderModel:       config.Provider.Model,
 		ProviderTemperature: config.Provider.Temperature,
+		ProviderContextSize: config.Provider.ContextSize,
 		ProviderMaxTokens:   config.Provider.MaxTokens,
 		ProviderTopK:        config.Provider.TopK,
 		CompletionPath:      config.Provider.CompletionPath,

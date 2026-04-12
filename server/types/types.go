@@ -239,7 +239,8 @@ type ProviderConfig struct {
 	APIKey              string         // Resolved API key for authenticated requests
 	ProviderModel       string         // Model name
 	ProviderTemperature float64        // Sampling temperature
-	ProviderMaxTokens   int            // Max tokens to generate (also drives input trimming)
+	ProviderContextSize int            // Max input context size in tokens (0 = use ProviderMaxTokens)
+	ProviderMaxTokens   int            // Max tokens to generate
 	ProviderTopK        int            // Top-k sampling (used by some providers)
 	CompletionPath      string         // API endpoint path (e.g., "/v1/completions")
 	FIMTokens           FIMTokenConfig // FIM tokens configuration

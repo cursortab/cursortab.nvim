@@ -167,11 +167,15 @@ func TrimContent() Preprocessor {
 		if ts := ctx.Request.GetTreesitter(); ts != nil {
 			syntaxRanges = ts.SyntaxRanges
 		}
+		contextSize := p.Config.ProviderContextSize
+		if contextSize == 0 {
+			contextSize = p.Config.ProviderMaxTokens
+		}
 		trimmedLines, newCursorLine, _, trimOffset, didTrim := utils.TrimContentAroundCursor(
 			ctx.Request.Lines,
 			cursorLine,
 			ctx.Request.CursorCol,
-			p.Config.ProviderMaxTokens,
+			contextSize,
 			syntaxRanges,
 		)
 		ctx.TrimmedLines = trimmedLines

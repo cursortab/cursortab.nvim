@@ -44,7 +44,8 @@ type ProviderConfig struct {
 	ApiKeyEnv            string          `json:"api_key_env"` // Environment variable name for API key
 	Model                string          `json:"model"`
 	Temperature          float64         `json:"temperature"`
-	MaxTokens            int             `json:"max_tokens"` // Max tokens to generate (also drives input trimming)
+	ContextSize          int             `json:"context_size"` // Max input context size in tokens (0 = use max_tokens)
+	MaxTokens            int             `json:"max_tokens"`   // Max tokens to generate
 	TopK                 int             `json:"top_k"`
 	CompletionTimeout    int             `json:"completion_timeout"` // in milliseconds
 	MaxDiffHistoryTokens int             `json:"max_diff_history_tokens"`
@@ -98,6 +99,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Behavior.MaxVisibleLines < 0 {
 		return fmt.Errorf("invalid behavior.max_visible_lines %d: must be >= 0", c.Behavior.MaxVisibleLines)
+	}
+	if c.Provider.ContextSize < 0 {
+		return fmt.Errorf("invalid provider.context_size %d: must be >= 0", c.Provider.ContextSize)
 	}
 	if c.Provider.MaxTokens < 0 {
 		return fmt.Errorf("invalid provider.max_tokens %d: must be >= 0", c.Provider.MaxTokens)

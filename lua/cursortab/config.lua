@@ -39,7 +39,8 @@
 ---@field api_key_env string|nil Environment variable name containing the API key (e.g., "OPENAI_API_KEY")
 ---@field model string
 ---@field temperature number
----@field max_tokens integer Max tokens to generate (also used to derive input context size)
+---@field context_size integer Max input context size in tokens (used for input trimming; 0 = use max_tokens)
+---@field max_tokens integer Max tokens to generate
 ---@field top_k integer
 ---@field completion_timeout integer
 ---@field max_diff_history_tokens integer
@@ -136,6 +137,7 @@ local default_config = {
 		api_key_env = "", -- Environment variable name for API key (e.g., "OPENAI_API_KEY")
 		model = "", -- Model name
 		temperature = 0.0, -- Sampling temperature
+		context_size = 0, -- Max input context size in tokens (0 = use max_tokens)
 		max_tokens = 512, -- Max tokens to generate
 		top_k = 50, -- Top-k sampling
 		completion_timeout = 5000, -- Timeout in ms for completion requests
@@ -393,6 +395,9 @@ local function validate_config(cfg)
 	end
 
 	if cfg.provider then
+		if cfg.provider.context_size and cfg.provider.context_size < 0 then
+			error("[cursortab.nvim] provider.context_size must be >= 0")
+		end
 		if cfg.provider.max_tokens and cfg.provider.max_tokens < 0 then
 			error("[cursortab.nvim] provider.max_tokens must be >= 0")
 		end
@@ -441,6 +446,23 @@ function config.setup(user_config)
 	local migrated = migrate_deprecated_config(user_config or {})
 	validate_config(migrated)
 	current_config = vim.tbl_deep_extend("force", vim.deepcopy(default_config), migrated)
+
+	-- Apply per-provider defaults when the user hasn't explicitly set them
+	local p = current_config.provider
+	local user_p = migrated.provider or {}
+	local provider_defaults = {
+		inline = { context_size = 1024, max_tokens = 128 },
+		fim = { context_size = 1024, max_tokens = 256 },
+	}
+	local defaults = provider_defaults[p.type]
+	if defaults then
+		for key, value in pairs(defaults) do
+			if user_p[key] == nil then
+				p[key] = value
+			end
+		end
+	end
+
 	return current_config
 end
 

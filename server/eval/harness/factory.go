@@ -57,6 +57,9 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 		p.SetHTTPTransport(transport)
 		return p, nil
 	case "fim":
+		if cfg.ProviderContextSize == 0 {
+			cfg.ProviderContextSize = 1024
+		}
 		if cfg.ProviderMaxTokens == 0 || cfg.ProviderMaxTokens > 256 {
 			cfg.ProviderMaxTokens = 256
 		}

@@ -206,7 +206,8 @@ require("cursortab").setup({
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
     temperature = 0.0,                    -- Sampling temperature
-    max_tokens = 512,                     -- Max tokens to generate
+    context_size = 0,                     -- Max input context in tokens (0 = use max_tokens; inline/fim default: 1024)
+    max_tokens = 512,                     -- Max tokens to generate (inline default: 128, fim default: 256)
     top_k = 50,                           -- Top-k sampling
     completion_timeout = 5000,            -- Timeout in ms for completion requests
     max_diff_history_tokens = 512,        -- Max tokens for diff history (0 = no limit)
@@ -570,8 +571,8 @@ For E2E tests, eval harness, and detailed development instructions, see
 <summary>Why are completions slow?</summary>
 
 1. Use a smaller or more heavily quantized model (e.g., Q4 instead of Q8)
-2. Decrease `provider.max_tokens` to reduce output length (also limits input
-   context)
+2. Decrease `provider.max_tokens` to reduce output length
+3. Decrease `provider.context_size` to reduce input context sent to the model
 
 The `copilot` provider is known to be slower than the rest.
 
@@ -584,7 +585,7 @@ The `copilot` provider is known to be slower than the rest.
    `:CursortabRestart`
 2. Increase `provider.completion_timeout` (default: 5000ms) to 10000 or more if
    your model is slow
-3. Increase `provider.max_tokens` to give the model more surrounding context
+3. Increase `provider.context_size` to give the model more surrounding context
    (trade-off: slower completions)
 
 </details>

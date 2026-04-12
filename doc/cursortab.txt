@@ -106,7 +106,8 @@ Full configuration with defaults: >lua
       api_key_env = "",             -- Env var name for API key
       model = "",
       temperature = 0.0,
-      max_tokens = 512,
+      context_size = 0,               -- 0 = use max_tokens (inline/fim default: 1024)
+      max_tokens = 512,               -- inline default: 128, fim default: 256
       top_k = 50,
       completion_timeout = 5000,    -- ms
       max_diff_history_tokens = 512,

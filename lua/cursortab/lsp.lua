@@ -98,4 +98,31 @@ function M.send_nes_request(client_names, params)
 	end)
 end
 
+function M.windsurf_get_info()
+	local ok, codeium = pcall(require, 'codeium')
+	if not ok or not codeium.s then
+		return { healthy = false }
+	end
+	local server = codeium.s
+	if not server.healthy or not server.port then
+		return { healthy = false }
+	end
+	local api_key = ""
+	local ok_cfg, cfg = pcall(require, 'codeium.config')
+	if ok_cfg and cfg and cfg.options and cfg.options.config_path then
+		local config_path = cfg.options.config_path
+		if vim.fn.filereadable(config_path) == 1 then
+			local ok_json, config_data = pcall(vim.json.decode, table.concat(vim.fn.readfile(config_path), "\n"))
+			if ok_json and config_data then
+				api_key = config_data.api_key or ""
+			end
+		end
+	end
+	return {
+		healthy = true,
+		port = server.port,
+		api_key = api_key,
+	}
+end
+
 return M

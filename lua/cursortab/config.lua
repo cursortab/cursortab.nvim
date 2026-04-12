@@ -134,7 +134,7 @@ local default_config = {
 	},
 
 	provider = {
-type = "inline", -- "inline", "fim", "sweep", "sweepapi", "zeta-2", "zeta", "copilot", "mercuryapi", or "windsurf"
+		type = "inline", -- "inline", "fim", "sweep", "sweepapi", "zeta-2", "zeta", "copilot", "mercuryapi", or "windsurf"
 		url = "http://localhost:8000", -- URL of the provider server
 		api_key_env = "", -- Environment variable name for API key (e.g., "OPENAI_API_KEY")
 		model = "", -- Model name
@@ -313,7 +313,7 @@ local function validate_config(cfg)
 	if cfg.provider and cfg.provider.type then
 		if not valid_provider_types[cfg.provider.type] then
 			error(string.format(
-"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, sweepapi, zeta-2, zeta, copilot, mercuryapi, windsurf",
+				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, sweepapi, zeta-2, zeta, copilot, mercuryapi, windsurf",
 				cfg.provider.type
 			))
 		end

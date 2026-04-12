@@ -43,7 +43,7 @@ end
 -- Send request to LSP client
 ---@param client_names string[] List of client names (if more than one plugin registers the same name, but same underlying LSP client)
 ---@param params { chanID: number, reqID: number, uri: string }
-function M.send_nes_request(client_names, params)
+function M.send_copilot_nes_request(client_names, params)
 	local chanID = params.chanID
 	local reqID = params.reqID
 	local uri = params.uri

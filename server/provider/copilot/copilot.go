@@ -115,7 +115,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	defer logger.Trace("copilot.GetCompletion")()
 
 	// Check if Copilot client is available
-	clientInfo, err := p.buffer.GetLspClient()
+	clientInfo, err := p.buffer.GetCopilotClient()
 	if err != nil {
 		logger.Error("failed to check copilot client: %v", err)
 		return p.emptyResponse(), nil
@@ -145,7 +145,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	p.mu.Lock()
 	// Send didFocus if URI changed
 	if uri != p.lastFocusedURI {
-		if err := p.buffer.SendLspDidFocus(uri); err != nil {
+		if err := p.buffer.SendCopilotDidFocus(uri); err != nil {
 			logger.Warn("failed to send didFocus: %v", err)
 		}
 		p.lastFocusedURI = uri
@@ -161,7 +161,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	logger.Debug("copilot request:\n  ReqID: %d\n  URI: %s\n  CursorRow: %d\n  CursorCol: %d",
 		reqID, uri, req.CursorRow, req.CursorCol)
-	if err := p.buffer.SendLspNESRequest(reqID, uri); err != nil {
+	if err := p.buffer.SendCopilotNESRequest(reqID, uri); err != nil {
 		logger.Error("failed to send NES request: %v", err)
 		return p.emptyResponse(), nil
 	}
@@ -225,7 +225,7 @@ func (p *Provider) ensureHandlerRegistered(clientID int) error {
 		return nil
 	}
 
-	if err := p.buffer.RegisterLspHandler(p.HandleNESResponse); err != nil {
+	if err := p.buffer.RegisterCopilotHandler(p.HandleNESResponse); err != nil {
 		return err
 	}
 	p.handlerRegistered = true

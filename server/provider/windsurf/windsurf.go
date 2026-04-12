@@ -2,7 +2,7 @@
 //
 // This provider communicates with the Windsurf/Codeium local language server
 // over HTTP. The port is assigned randomly at runtime when the Neovim Codeium
-// extension starts; we discover it via lua/cursortab/lsp.lua which probes the
+// extension starts; we discover it via lua/cursortab/bridge.lua which probes the
 // extension's internal state (codeium.s.port, codeium.s.healthy, api_key).
 //
 // The server exposes a JSON API endpoint:

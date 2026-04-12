@@ -1,102 +1,178 @@
-// Package copilot implements the GitHub Copilot NES (Next-Edit Suggestion) provider.
-//
-// This provider delegates to the Copilot LSP server already running in Neovim.
-// No prompt is built in Go — instead, a textDocument/copilotInlineEdit LSP request
-// is sent via Neovim RPC:
-//
-//	{
-//	  "textDocument": {"uri": "file:///path/to/file.go", "version": 5},
-//	  "position":     {"line": 9, "character": 12},     // 0-indexed, UTF-16
-//	  "context":      {"triggerKind": 2}
-//	}
-//
-// The Copilot LSP responds with an array of edits (LSP TextEdit format with
-// UTF-16 character offsets), which are converted to line-based completions.
 package windsurf
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
-	"sync"
-	"sync/atomic"
-	"unicode/utf16"
-	"unicode/utf8"
+	"time"
 
 	"cursortab/buffer"
 	"cursortab/engine"
 	"cursortab/logger"
+	"cursortab/metrics"
 	"cursortab/types"
 )
 
-// CopilotEdit represents a single edit from Copilot NES response
-type CopilotEdit struct {
-	Text    string       `json:"text"`
-	Range   CopilotRange `json:"range"`
-	Command *CopilotCmd  `json:"command,omitempty"`
-	TextDoc CopilotDoc   `json:"textDocument"`
+var languageEnum = map[string]int{
+	"unspecified":  0,
+	"c":            1,
+	"clojure":      2,
+	"coffeescript": 3,
+	"cpp":          4,
+	"csharp":       5,
+	"css":          6,
+	"cudacpp":      7,
+	"dockerfile":   8,
+	"go":           9,
+	"groovy":       10,
+	"handlebars":   11,
+	"haskell":      12,
+	"hcl":          13,
+	"html":         14,
+	"ini":          15,
+	"java":         16,
+	"javascript":   17,
+	"json":         18,
+	"julia":        19,
+	"kotlin":       20,
+	"latex":        21,
+	"less":         22,
+	"lua":          23,
+	"makefile":     24,
+	"markdown":     25,
+	"objectivec":   26,
+	"objectivecpp": 27,
+	"perl":         28,
+	"php":          29,
+	"plaintext":    30,
+	"protobuf":     31,
+	"pbtxt":        32,
+	"python":       33,
+	"r":            34,
+	"ruby":         35,
+	"rust":         36,
+	"sass":         37,
+	"scala":        38,
+	"scss":         39,
+	"shell":        40,
+	"sql":          41,
+	"starlark":     42,
+	"swift":        43,
+	"tsx":          44,
+	"typescript":   45,
+	"visualbasic":  46,
+	"vue":          47,
+	"xml":          48,
+	"xsl":          49,
+	"yaml":         50,
+	"svelte":       51,
 }
 
-// CopilotRange represents an LSP range (0-indexed)
-type CopilotRange struct {
-	Start CopilotPos `json:"start"`
-	End   CopilotPos `json:"end"`
+var filetypeAliases = map[string]string{
+	"bash":   "shell",
+	"coffee": "coffeescript",
+	"cs":     "csharp",
+	"cuda":   "cudacpp",
+	"dosini": "ini",
+	"make":   "makefile",
+	"objc":   "objectivec",
+	"objcpp": "objectivecpp",
+	"proto":  "protobuf",
+	"raku":   "perl",
+	"sh":     "shell",
+	"text":   "plaintext",
 }
 
-// CopilotPos represents an LSP position (0-indexed)
-type CopilotPos struct {
-	Line      int `json:"line"`
-	Character int `json:"character"`
+type windsurfPos struct {
+	Row int `json:"row"`
+	Col int `json:"col"`
 }
 
-// CopilotCmd represents a command to execute (for telemetry)
-type CopilotCmd struct {
-	Command   string `json:"command"`
-	Arguments []any  `json:"arguments"`
+type windsurfRange struct {
+	StartPosition windsurfPos `json:"startPosition"`
+	EndPosition   windsurfPos `json:"endPosition"`
 }
 
-// CopilotDoc represents a text document identifier
-type CopilotDoc struct {
-	URI     string `json:"uri"`
-	Version int    `json:"version"`
+type windsurfSuffix struct {
+	Text              string `json:"text"`
+	DeltaCursorOffset int    `json:"deltaCursorOffset"`
 }
 
-// CopilotResult holds the result of a Copilot NES request
-type CopilotResult struct {
-	Edits []CopilotEdit
-	Error error
+type windsurfCompletion struct {
+	CompletionID string `json:"completionId"`
+	Text         string `json:"text"`
 }
 
-// Provider implements engine.Provider for Copilot NES
+type windsurfCompletionItem struct {
+	Completion windsurfCompletion `json:"completion"`
+	Range      windsurfRange      `json:"range"`
+	Suffix     windsurfSuffix     `json:"suffix"`
+}
+
+type windsurfState struct {
+	State string `json:"state"`
+}
+
+type windsurfResponse struct {
+	State           *windsurfState           `json:"state"`
+	CompletionItems []windsurfCompletionItem `json:"completionItems"`
+}
+
+type windsurfMetadata struct {
+	APIKey           string `json:"api_key"`
+	IDEName          string `json:"ide_name"`
+	IDEVersion       string `json:"ide_version"`
+	ExtensionName    string `json:"extension_name"`
+	ExtensionVersion string `json:"extension_version"`
+	RequestID        int    `json:"request_id"`
+}
+
+type windsurfEditorOptions struct {
+	TabSize      int  `json:"tab_size"`
+	InsertSpaces bool `json:"insert_spaces"`
+}
+
+type windsurfDocument struct {
+	Text           string      `json:"text"`
+	EditorLanguage string      `json:"editor_language"`
+	Language       int         `json:"language"`
+	CursorPosition windsurfPos `json:"cursor_position"`
+	AbsoluteURI    string      `json:"absolute_uri"`
+	WorkspaceURI   string      `json:"workspace_uri"`
+	LineEnding     string      `json:"line_ending"`
+}
+
+type windsurfRequest struct {
+	Metadata      windsurfMetadata      `json:"metadata"`
+	EditorOptions windsurfEditorOptions `json:"editor_options"`
+	Document      windsurfDocument      `json:"document"`
+}
+
+type windsurfAcceptRequest struct {
+	Metadata     windsurfMetadata `json:"metadata"`
+	CompletionID string           `json:"completion_id"`
+}
+
 type Provider struct {
-	buffer *buffer.NvimBuffer
-
-	// Async request state
-	mu            sync.Mutex
-	reqIDCounter  int64
-	pendingReqID  int64
-	pendingResult chan *CopilotResult
-
-	// Track last focused URI to avoid redundant didFocus notifications
-	lastFocusedURI string
-
-	// Handler registration tracking
-	handlerRegistered bool
-	lastClientID      int // Track client ID to detect reconnection
+	buffer     *buffer.NvimBuffer
+	httpClient *http.Client
+	reqCounter int
 }
 
-// NewProvider creates a new Copilot provider
 func NewProvider(buf *buffer.NvimBuffer) *Provider {
 	return &Provider{
-		buffer:        buf,
-		pendingResult: make(chan *CopilotResult, 1),
+		buffer: buf,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
 	}
 }
 
-// GetContextLimits implements engine.Provider.
-// Copilot delegates all context gathering to its LSP server.
 func (p *Provider) GetContextLimits() engine.ContextLimits {
 	return engine.ContextLimits{
 		MaxUserActions:     -1,
@@ -110,161 +186,163 @@ func (p *Provider) GetContextLimits() engine.ContextLimits {
 	}
 }
 
-// GetCompletion implements engine.Provider
 func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	defer logger.Trace("copilot.GetCompletion")()
+	defer logger.Trace("windsurf.GetCompletion")()
 
-	// Check if Copilot client is available
-	clientInfo, err := p.buffer.GetLspClient()
+	info, err := p.buffer.GetWindsurfInfo()
 	if err != nil {
-		logger.Error("failed to check copilot client: %v", err)
+		logger.Error("failed to get windsurf info: %v", err)
 		return p.emptyResponse(), nil
 	}
-	if clientInfo == nil {
-		logger.Debug("copilot: no client attached")
-		return p.emptyResponse(), nil
-	}
-
-	// Ensure handler is registered (and re-register on reconnection)
-	if err := p.ensureHandlerRegistered(clientInfo.ID); err != nil {
-		logger.Error("failed to register copilot handler: %v", err)
+	if info == nil || !info.Healthy {
+		logger.Debug("windsurf: server not healthy")
 		return p.emptyResponse(), nil
 	}
 
-	// Build URI from file path
-	uri := "file://" + req.FilePath
-	if !strings.HasPrefix(req.FilePath, "/") {
-		// Relative path - prepend workspace
-		uri = "file://" + req.WorkspacePath + "/" + req.FilePath
+	lineEnding := "\n"
+	language := resolveLanguage(req.FilePath)
+
+	text := strings.Join(req.Lines, lineEnding)
+	if len(req.Lines) > 0 {
+		text += lineEnding
 	}
 
-	// Generate unique request ID
-	reqID := atomic.AddInt64(&p.reqIDCounter, 1)
-
-	// Set up pending request (mutex protects all shared state)
-	p.mu.Lock()
-	// Send didFocus if URI changed
-	if uri != p.lastFocusedURI {
-		if err := p.buffer.SendLspDidFocus(uri); err != nil {
-			logger.Warn("failed to send didFocus: %v", err)
-		}
-		p.lastFocusedURI = uri
+	p.reqCounter++
+	wsReq := windsurfRequest{
+		Metadata: windsurfMetadata{
+			APIKey:           info.APIKey,
+			IDEName:          "neovim",
+			IDEVersion:       "0.10.0",
+			ExtensionName:    "neovim",
+			ExtensionVersion: "1.0.0",
+			RequestID:        p.reqCounter,
+		},
+		EditorOptions: windsurfEditorOptions{
+			TabSize:      4,
+			InsertSpaces: true,
+		},
+		Document: windsurfDocument{
+			Text:           text,
+			EditorLanguage: language,
+			Language:       languageEnum[language],
+			CursorPosition: windsurfPos{
+				Row: req.CursorRow - 1,
+				Col: req.CursorCol,
+			},
+			AbsoluteURI:  "file://" + req.FilePath,
+			WorkspaceURI: "file://" + req.WorkspacePath,
+			LineEnding:   lineEnding,
+		},
 	}
 
-	p.pendingReqID = reqID
-	// Drain any stale results
-	select {
-	case <-p.pendingResult:
-	default:
-	}
-	p.mu.Unlock()
-
-	logger.Debug("copilot request:\n  ReqID: %d\n  URI: %s\n  CursorRow: %d\n  CursorCol: %d",
-		reqID, uri, req.CursorRow, req.CursorCol)
-	if err := p.buffer.SendLspNESRequest(reqID, uri); err != nil {
-		logger.Error("failed to send NES request: %v", err)
+	body, err := json.Marshal(wsReq)
+	if err != nil {
+		logger.Error("windsurf: failed to marshal request: %v", err)
 		return p.emptyResponse(), nil
 	}
 
-	// Wait for response with context timeout
-	select {
-	case <-ctx.Done():
-		logger.Debug("copilot: request cancelled")
-		return p.emptyResponse(), nil
-	case result := <-p.pendingResult:
-		if result.Error != nil {
-			logger.Warn("copilot: NES request failed: %v", result.Error)
-			return p.emptyResponse(), nil
-		}
+	url := fmt.Sprintf("http://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCompletions", info.Port)
 
-		p.logResponse(result.Edits)
-		return p.convertEdits(result.Edits, req)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		logger.Error("windsurf: failed to create request: %v", err)
+		return p.emptyResponse(), nil
 	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		logger.Debug("windsurf: request failed: %v", err)
+		return p.emptyResponse(), nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		logger.Debug("windsurf: non-200 response %d: %s", resp.StatusCode, string(respBody))
+		return p.emptyResponse(), nil
+	}
+
+	var wsResp windsurfResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wsResp); err != nil {
+		logger.Error("windsurf: failed to decode response: %v", err)
+		return p.emptyResponse(), nil
+	}
+
+	if wsResp.State == nil || wsResp.State.State != "CODEIUM_STATE_SUCCESS" {
+		logger.Debug("windsurf: non-success state: %v", wsResp.State)
+		return p.emptyResponse(), nil
+	}
+
+	return p.convertResponse(&wsResp, req)
 }
 
-// HandleNESResponse is called by the RPC handler when Copilot responds
-func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if reqID != p.pendingReqID {
-		logger.Debug("copilot: ignoring stale response reqID=%d (pending=%d)", reqID, p.pendingReqID)
+func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
+	if event.Type != metrics.EventAccepted {
+		return
+	}
+	if event.Info.ID == "" {
 		return
 	}
 
-	result := &CopilotResult{}
-
-	if errMsg != "" {
-		result.Error = fmt.Errorf("copilot error: %s", errMsg)
-	} else {
-		var edits []CopilotEdit
-		if err := json.Unmarshal([]byte(editsJSON), &edits); err != nil {
-			result.Error = fmt.Errorf("failed to parse edits: %w", err)
-		} else {
-			result.Edits = edits
-		}
+	info, err := p.buffer.GetWindsurfInfo()
+	if err != nil || info == nil || !info.Healthy {
+		return
 	}
 
-	// Non-blocking send to avoid deadlock if no one is waiting
-	// Safe to send while holding mutex since GetCompletion releases lock before receiving
-	select {
-	case p.pendingResult <- result:
-	default:
-		logger.Debug("copilot: result channel full, dropping response")
+	p.reqCounter++
+	acceptReq := windsurfAcceptRequest{
+		Metadata: windsurfMetadata{
+			APIKey:           info.APIKey,
+			IDEName:          "neovim",
+			IDEVersion:       "0.10.0",
+			ExtensionName:    "neovim",
+			ExtensionVersion: "1.0.0",
+			RequestID:        p.reqCounter,
+		},
+		CompletionID: event.Info.ID,
 	}
+
+	body, err := json.Marshal(acceptReq)
+	if err != nil {
+		logger.Debug("windsurf: failed to marshal accept request: %v", err)
+		return
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/AcceptCompletion", info.Port)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		logger.Debug("windsurf: failed to create accept request: %v", err)
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		logger.Debug("windsurf: accept request failed: %v", err)
+		return
+	}
+	resp.Body.Close()
 }
 
-// ensureHandlerRegistered registers the RPC handler for Copilot responses.
-// Re-registers if the client ID changed (indicating a reconnection).
-func (p *Provider) ensureHandlerRegistered(clientID int) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Re-register if client changed (reconnection) or not yet registered
-	if p.handlerRegistered && p.lastClientID == clientID {
-		return nil
-	}
-
-	if err := p.buffer.RegisterLspHandler(p.HandleNESResponse); err != nil {
-		return err
-	}
-	p.handlerRegistered = true
-	p.lastClientID = clientID
-	return nil
-}
-
-func (p *Provider) logResponse(edits []CopilotEdit) {
-	var sb strings.Builder
-	for i, edit := range edits {
-		fmt.Fprintf(&sb, "  Edit %d: range=[%d:%d-%d:%d] version=%d textLen=%d\n    Text:\n%s\n",
-			i,
-			edit.Range.Start.Line, edit.Range.Start.Character,
-			edit.Range.End.Line, edit.Range.End.Character,
-			edit.TextDoc.Version,
-			len(edit.Text),
-			edit.Text)
-	}
-	logger.Debug("copilot response: %d edits\n%s", len(edits), sb.String())
-}
-
-// convertEdits transforms Copilot LSP edits to cursortab's CompletionResponse format.
-// Processes all edits and returns multiple completions for staging to handle.
-func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	if len(edits) == 0 {
+func (p *Provider) convertResponse(wsResp *windsurfResponse, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+	if len(wsResp.CompletionItems) == 0 {
 		return p.emptyResponse(), nil
 	}
 
 	var completions []*types.Completion
+	var metricsInfo *types.MetricsInfo
 
-	for i, edit := range edits {
-		// Store command for telemetry
-		if edit.Command != nil {
-			logger.Debug("copilot: edit %d has command: %s", i, edit.Command.Command)
-		}
-
-		completion := p.convertSingleEdit(edit, req, i)
+	for i, item := range wsResp.CompletionItems {
+		completion := p.convertSingleItem(item, req, i)
 		if completion != nil {
 			completions = append(completions, completion)
+			if metricsInfo == nil && item.Completion.CompletionID != "" {
+				metricsInfo = &types.MetricsInfo{
+					ID: item.Completion.CompletionID,
+				}
+			}
 		}
 	}
 
@@ -272,26 +350,21 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 		return p.emptyResponse(), nil
 	}
 
-	logger.Debug("copilot: converted %d edits to %d completions", len(edits), len(completions))
-
 	return &types.CompletionResponse{
 		Completions: completions,
+		MetricsInfo: metricsInfo,
 	}, nil
 }
 
-// convertSingleEdit converts a single Copilot edit to a Completion
-func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequest, editIdx int) *types.Completion {
-	// Convert 0-indexed LSP range to 1-indexed buffer lines
-	startLine := edit.Range.Start.Line + 1
-	endLine := edit.Range.End.Line + 1
+func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.CompletionRequest, idx int) *types.Completion {
+	startLine := item.Range.StartPosition.Row + 1
+	endLine := item.Range.EndPosition.Row + 1
 
-	// Bounds check
 	if startLine < 1 || startLine > len(req.Lines)+1 {
-		logger.Debug("copilot: edit %d start line %d out of bounds", editIdx, startLine)
+		logger.Debug("windsurf: item %d start line %d out of bounds", idx, startLine)
 		return nil
 	}
 
-	// Handle case where end line is beyond buffer (insertion at end)
 	if endLine > len(req.Lines) {
 		endLine = len(req.Lines)
 	}
@@ -299,27 +372,53 @@ func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequ
 		endLine = startLine
 	}
 
-	// Get original lines being replaced (0-indexed slice)
-	var origLines []string
-	if edit.Range.Start.Line < len(req.Lines) {
-		endIdx := min(edit.Range.End.Line+1, len(req.Lines))
-		origLines = req.Lines[edit.Range.Start.Line:endIdx]
+	startIdx := item.Range.StartPosition.Row
+	if startIdx >= len(req.Lines) {
+		startIdx = len(req.Lines) - 1
 	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	endIdx := item.Range.EndPosition.Row
+	if endIdx >= len(req.Lines) {
+		endIdx = len(req.Lines) - 1
+	}
+	if endIdx < startIdx {
+		endIdx = startIdx
+	}
+
+	origLines := req.Lines[startIdx : endIdx+1]
+
+	completionText := item.Completion.Text
+	suffixText := item.Suffix.Text
+
 	if len(origLines) == 0 {
 		origLines = []string{""}
 	}
 
-	// Apply character-level edit to get new text
-	newText := p.applyCharacterEdit(origLines, edit)
+	firstLine := origLines[0]
+	startCol := item.Range.StartPosition.Col
+	if startCol > len(firstLine) {
+		startCol = len(firstLine)
+	}
+	prefix := firstLine[:startCol]
+
+	lastLine := origLines[len(origLines)-1]
+	endCol := item.Range.EndPosition.Col
+	if endCol > len(lastLine) {
+		endCol = len(lastLine)
+	}
+	lineSuffix := lastLine[endCol:]
+
+	newText := prefix + completionText + lineSuffix + suffixText
 	newLines := strings.Split(newText, "\n")
 
-	// Check if this is actually a change
 	if slices.Equal(newLines, origLines) {
-		logger.Debug("copilot: edit %d is no-op", editIdx)
+		logger.Debug("windsurf: item %d is no-op", idx)
 		return nil
 	}
 
-	logger.Debug("copilot: converted edit %d startLine=%d endLine=%d newLines=%d", editIdx, startLine, endLine, len(newLines))
+	logger.Debug("windsurf: converted item %d startLine=%d endLine=%d newLines=%d", idx, startLine, endLine, len(newLines))
 
 	return &types.Completion{
 		StartLine:  startLine,
@@ -328,67 +427,46 @@ func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequ
 	}
 }
 
-// applyCharacterEdit applies an LSP edit with character positions to original lines.
-// LSP uses UTF-16 code units for character positions, so we convert to byte offsets.
-func (p *Provider) applyCharacterEdit(origLines []string, edit CopilotEdit) string {
-	if len(origLines) == 0 {
-		return edit.Text
+func resolveLanguage(filePath string) string {
+	parts := strings.Split(filePath, ".")
+	if len(parts) < 2 {
+		return "plaintext"
+	}
+	ext := parts[len(parts)-1]
+
+	ftMap := map[string]string{
+		"go": "go", "py": "python", "js": "javascript", "ts": "typescript",
+		"tsx": "tsx", "jsx": "javascript", "java": "java", "rs": "rust",
+		"c": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "h": "c",
+		"hpp": "cpp", "lua": "lua", "rb": "ruby", "php": "php",
+		"sh": "shell", "bash": "shell", "sql": "sql", "md": "markdown",
+		"html": "html", "css": "css", "scss": "scss", "less": "less",
+		"vue": "vue", "svelte": "svelte", "kt": "kotlin", "swift": "swift",
+		"scala": "scala", "r": "r", "json": "json", "yaml": "yaml",
+		"yml": "yaml", "xml": "xml", "toml": "ini", "dockerfile": "dockerfile",
+		"makefile": "makefile", "ex": "elixir", "exs": "elixir",
+		"erl": "erlang", "clj": "clojure", "hs": "haskell",
+		"dart": "dart", "proto": "protobuf", "tex": "latex",
 	}
 
-	firstLine := origLines[0]
-	lastLine := origLines[len(origLines)-1]
-
-	// Convert UTF-16 code unit positions to byte offsets
-	startByte := utf16OffsetToBytes(firstLine, edit.Range.Start.Character)
-	endByte := utf16OffsetToBytes(lastLine, edit.Range.End.Character)
-
-	prefix := firstLine[:startByte]
-	suffix := lastLine[endByte:]
-
-	// Copilot NES sometimes returns ranges that don't cover the full line,
-	// but the edit text is meant as a complete replacement. Detect this case:
-	// Only apply heuristic for single-line edits where we can safely compare.
-	if len(origLines) == 1 && startByte == 0 && suffix != "" {
-		// Check if the original line content (minus suffix) is a prefix of the edit text
-		origWithoutSuffix := firstLine[:endByte]
-		if strings.HasPrefix(edit.Text, origWithoutSuffix) {
-			// Edit text already includes what was being replaced, don't add suffix
-			suffix = ""
+	lang := ftMap[ext]
+	if lang == "" {
+		base := strings.ToLower(parts[len(parts)-2] + "." + ext)
+		if base == "dockerfile" || base == "makefile" {
+			lang = base
 		}
 	}
+	if lang == "" {
+		lang = "plaintext"
+	}
 
-	return prefix + edit.Text + suffix
+	if alias, ok := filetypeAliases[lang]; ok {
+		lang = alias
+	}
+
+	return lang
 }
 
-// utf16OffsetToBytes converts a UTF-16 code unit offset to a byte offset in a UTF-8 string.
-// LSP specifies positions in UTF-16 code units, but Go strings are UTF-8.
-func utf16OffsetToBytes(s string, utf16Offset int) int {
-	if utf16Offset <= 0 {
-		return 0
-	}
-
-	byteOffset := 0
-	utf16Pos := 0
-
-	for _, r := range s {
-		if utf16Pos >= utf16Offset {
-			break
-		}
-
-		// Use standard library to determine UTF-16 code units for this rune
-		utf16Pos += len(utf16.Encode([]rune{r}))
-		byteOffset += utf8.RuneLen(r)
-	}
-
-	// If utf16Offset is beyond the string, clamp to string length
-	if byteOffset > len(s) {
-		return len(s)
-	}
-
-	return byteOffset
-}
-
-// emptyResponse returns an empty completion response
 func (p *Provider) emptyResponse() *types.CompletionResponse {
 	return &types.CompletionResponse{
 		Completions:  []*types.Completion{},

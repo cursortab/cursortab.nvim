@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,34 +94,57 @@ type windsurfPos struct {
 	Col int `json:"col"`
 }
 
-type windsurfRange struct {
-	StartPosition windsurfPos `json:"startPosition"`
-	EndPosition   windsurfPos `json:"endPosition"`
+type windsurfResponseRange struct {
+	StartOffset   string `json:"startOffset"`
+	EndOffset     string `json:"endOffset"`
+	StartPosition struct {
+		Row string `json:"row"`
+	} `json:"startPosition"`
+	EndPosition struct {
+		Row string `json:"row"`
+		Col string `json:"col"`
+	} `json:"endPosition"`
 }
 
-type windsurfSuffix struct {
-	Text              string `json:"text"`
-	DeltaCursorOffset int    `json:"deltaCursorOffset"`
+type windsurfCompletionPart struct {
+	Text   string `json:"text"`
+	Offset string `json:"offset"`
+	Type   string `json:"type"`
+	Prefix string `json:"prefix"`
+	Line   string `json:"line"`
 }
 
 type windsurfCompletion struct {
-	CompletionID string `json:"completionId"`
-	Text         string `json:"text"`
+	CompletionID          string    `json:"completionId"`
+	Text                  string    `json:"text"`
+	Stop                  string    `json:"stop"`
+	Score                 float64   `json:"score"`
+	Tokens                []string  `json:"tokens"`
+	DecodedTokens         []string  `json:"decodedTokens"`
+	Probabilities         []float64 `json:"probabilities"`
+	AdjustedProbabilities []float64 `json:"adjustedProbabilities"`
+	GeneratedLength       string    `json:"generatedLength"`
+	StopReason            string    `json:"stopReason"`
+	OriginalText          string    `json:"originalText"`
 }
 
 type windsurfCompletionItem struct {
-	Completion windsurfCompletion `json:"completion"`
-	Range      windsurfRange      `json:"range"`
-	Suffix     windsurfSuffix     `json:"suffix"`
+	Completion      windsurfCompletion       `json:"completion"`
+	Range           windsurfResponseRange    `json:"range"`
+	Source          string                   `json:"source"`
+	CompletionParts []windsurfCompletionPart `json:"completionParts"`
 }
 
 type windsurfState struct {
-	State string `json:"state"`
+	State   string `json:"state"`
+	Message string `json:"message"`
 }
 
 type windsurfResponse struct {
-	State           *windsurfState           `json:"state"`
-	CompletionItems []windsurfCompletionItem `json:"completionItems"`
+	State                   windsurfState            `json:"state"`
+	CompletionItems         []windsurfCompletionItem `json:"completionItems"`
+	FilteredCompletionItems []windsurfCompletionItem `json:"filteredCompletionItems"`
+	PromptID                string                   `json:"promptId"`
 }
 
 type windsurfMetadata struct {
@@ -214,7 +238,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 			IDEName:          "neovim",
 			IDEVersion:       "0.10.0",
 			ExtensionName:    "neovim",
-			ExtensionVersion: "1.0.0",
+			ExtensionVersion: "1.20.9",
 			RequestID:        p.reqCounter,
 		},
 		EditorOptions: windsurfEditorOptions{
@@ -269,7 +293,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		return p.emptyResponse(), nil
 	}
 
-	if wsResp.State == nil || wsResp.State.State != "CODEIUM_STATE_SUCCESS" {
+	if wsResp.State.State != "CODEIUM_STATE_SUCCESS" {
 		logger.Debug("windsurf: non-success state: %v", wsResp.State)
 		return p.emptyResponse(), nil
 	}
@@ -297,7 +321,7 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 			IDEName:          "neovim",
 			IDEVersion:       "0.10.0",
 			ExtensionName:    "neovim",
-			ExtensionVersion: "1.0.0",
+			ExtensionVersion: "1.20.9",
 			RequestID:        p.reqCounter,
 		},
 		CompletionID: event.Info.ID,
@@ -357,8 +381,11 @@ func (p *Provider) convertResponse(wsResp *windsurfResponse, req *types.Completi
 }
 
 func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.CompletionRequest, idx int) *types.Completion {
-	startLine := item.Range.StartPosition.Row + 1
-	endLine := item.Range.EndPosition.Row + 1
+	startRow, _ := strconv.Atoi(item.Range.StartPosition.Row)
+	endRow, _ := strconv.Atoi(item.Range.EndPosition.Row)
+
+	startLine := startRow + 1
+	endLine := endRow + 1
 
 	if startLine < 1 || startLine > len(req.Lines)+1 {
 		logger.Debug("windsurf: item %d start line %d out of bounds", idx, startLine)
@@ -372,47 +399,26 @@ func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.Com
 		endLine = startLine
 	}
 
-	startIdx := item.Range.StartPosition.Row
-	if startIdx >= len(req.Lines) {
-		startIdx = len(req.Lines) - 1
-	}
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	endIdx := item.Range.EndPosition.Row
-	if endIdx >= len(req.Lines) {
-		endIdx = len(req.Lines) - 1
-	}
-	if endIdx < startIdx {
-		endIdx = startIdx
-	}
-
-	origLines := req.Lines[startIdx : endIdx+1]
-
 	completionText := item.Completion.Text
-	suffixText := item.Suffix.Text
-
-	if len(origLines) == 0 {
-		origLines = []string{""}
+	if completionText == "" {
+		logger.Debug("windsurf: item %d has empty completion text", idx)
+		return nil
 	}
 
-	firstLine := origLines[0]
-	startCol := item.Range.StartPosition.Col
-	if startCol > len(firstLine) {
-		startCol = len(firstLine)
+	newLines := strings.Split(completionText, "\n")
+
+	endCol, _ := strconv.Atoi(item.Range.EndPosition.Col)
+	if endCol > 0 && endLine >= 1 && endLine <= len(req.Lines) {
+		lastOrigLine := req.Lines[endLine-1]
+		if endCol < len(lastOrigLine) {
+			lineSuffix := lastOrigLine[endCol:]
+			if len(newLines) > 0 {
+				newLines[len(newLines)-1] += lineSuffix
+			}
+		}
 	}
-	prefix := firstLine[:startCol]
 
-	lastLine := origLines[len(origLines)-1]
-	endCol := item.Range.EndPosition.Col
-	if endCol > len(lastLine) {
-		endCol = len(lastLine)
-	}
-	lineSuffix := lastLine[endCol:]
-
-	newText := prefix + completionText + lineSuffix + suffixText
-	newLines := strings.Split(newText, "\n")
-
+	origLines := req.Lines[startLine-1 : endLine]
 	if slices.Equal(newLines, origLines) {
 		logger.Debug("windsurf: item %d is no-op", idx)
 		return nil

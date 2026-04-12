@@ -17,10 +17,22 @@ func makeRequest(lines []string, cursorRow, cursorCol int) *types.CompletionRequ
 	}
 }
 
+func makeRange(startRow, endRow, endCol string) windsurfResponseRange {
+	return windsurfResponseRange{
+		StartPosition: struct {
+			Row string `json:"row"`
+		}{Row: startRow},
+		EndPosition: struct {
+			Row string `json:"row"`
+			Col string `json:"col"`
+		}{Row: endRow, Col: endCol},
+	}
+}
+
 func TestConvertResponse_EmptyItems(t *testing.T) {
 	p := &Provider{}
 	wsResp := &windsurfResponse{
-		State:           &windsurfState{State: "CODEIUM_STATE_SUCCESS"},
+		State:           windsurfState{State: "CODEIUM_STATE_SUCCESS"},
 		CompletionItems: []windsurfCompletionItem{},
 	}
 	req := makeRequest([]string{"line1", "line2"}, 1, 0)
@@ -30,11 +42,10 @@ func TestConvertResponse_EmptyItems(t *testing.T) {
 	assert.Len(t, 0, resp.Completions, "completions")
 }
 
-func TestConvertResponse_NilState(t *testing.T) {
+func TestConvertResponse_EmptyState(t *testing.T) {
 	p := &Provider{}
 	wsResp := &windsurfResponse{
-		State:           nil,
-		CompletionItems: nil,
+		State: windsurfState{State: ""},
 	}
 	req := makeRequest([]string{"line1"}, 1, 0)
 
@@ -50,10 +61,7 @@ func TestConvertSingleItem_SingleLineReplacement(t *testing.T) {
 			CompletionID: "abc123",
 			Text:         "hello world",
 		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 0, Col: 0},
-			EndPosition:   windsurfPos{Row: 0, Col: 5},
-		},
+		Range: makeRange("0", "0", "5"),
 	}
 	req := makeRequest([]string{"hello"}, 1, 5)
 
@@ -64,6 +72,22 @@ func TestConvertSingleItem_SingleLineReplacement(t *testing.T) {
 	assert.Equal(t, []string{"hello world"}, comp.Lines, "lines")
 }
 
+func TestConvertSingleItem_SingleLineWithSuffix(t *testing.T) {
+	p := &Provider{}
+	item := windsurfCompletionItem{
+		Completion: windsurfCompletion{
+			CompletionID: "abc123",
+			Text:         "goodbye",
+		},
+		Range: makeRange("0", "0", "5"),
+	}
+	req := makeRequest([]string{"hello world"}, 1, 5)
+
+	comp := p.convertSingleItem(item, req, 0)
+	assert.NotNil(t, comp, "completion")
+	assert.Equal(t, []string{"goodbye world"}, comp.Lines, "lines with suffix preserved")
+}
+
 func TestConvertSingleItem_MultiLineReplacement(t *testing.T) {
 	p := &Provider{}
 	item := windsurfCompletionItem{
@@ -71,10 +95,7 @@ func TestConvertSingleItem_MultiLineReplacement(t *testing.T) {
 			CompletionID: "abc123",
 			Text:         "new line 1\nnew line 2\nnew line 3",
 		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 1, Col: 0},
-			EndPosition:   windsurfPos{Row: 3, Col: 5},
-		},
+		Range: makeRange("1", "3", "5"),
 	}
 	req := makeRequest([]string{"line0", "old1", "old2", "old3", "line4"}, 2, 0)
 
@@ -85,28 +106,6 @@ func TestConvertSingleItem_MultiLineReplacement(t *testing.T) {
 	assert.Equal(t, 3, len(comp.Lines), "num lines")
 }
 
-func TestConvertSingleItem_WithSuffix(t *testing.T) {
-	p := &Provider{}
-	item := windsurfCompletionItem{
-		Completion: windsurfCompletion{
-			CompletionID: "abc123",
-			Text:         "world",
-		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 0, Col: 0},
-			EndPosition:   windsurfPos{Row: 0, Col: 5},
-		},
-		Suffix: windsurfSuffix{
-			Text: "!",
-		},
-	}
-	req := makeRequest([]string{"hello"}, 1, 5)
-
-	comp := p.convertSingleItem(item, req, 0)
-	assert.NotNil(t, comp, "completion")
-	assert.Equal(t, []string{"world!"}, comp.Lines, "lines with suffix appended")
-}
-
 func TestConvertSingleItem_NoOp(t *testing.T) {
 	p := &Provider{}
 	item := windsurfCompletionItem{
@@ -114,10 +113,7 @@ func TestConvertSingleItem_NoOp(t *testing.T) {
 			CompletionID: "abc123",
 			Text:         "hello",
 		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 0, Col: 0},
-			EndPosition:   windsurfPos{Row: 0, Col: 5},
-		},
+		Range: makeRange("0", "0", "5"),
 	}
 	req := makeRequest([]string{"hello"}, 1, 5)
 
@@ -132,10 +128,7 @@ func TestConvertSingleItem_StartLineOutOfBounds(t *testing.T) {
 			CompletionID: "abc123",
 			Text:         "something",
 		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 99, Col: 0},
-			EndPosition:   windsurfPos{Row: 99, Col: 0},
-		},
+		Range: makeRange("99", "99", "0"),
 	}
 	req := makeRequest([]string{"line1", "line2"}, 1, 0)
 
@@ -143,39 +136,48 @@ func TestConvertSingleItem_StartLineOutOfBounds(t *testing.T) {
 	assert.Nil(t, comp, "completion should be nil for out of bounds")
 }
 
-func TestConvertSingleItem_PartialLineEdit(t *testing.T) {
+func TestConvertSingleItem_EmptyBuffer(t *testing.T) {
 	p := &Provider{}
 	item := windsurfCompletionItem{
 		Completion: windsurfCompletion{
 			CompletionID: "abc123",
-			Text:         "Baz",
+			Text:         "package main",
 		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 0, Col: 4},
-			EndPosition:   windsurfPos{Row: 0, Col: 7},
-		},
+		Range: makeRange("0", "0", "0"),
 	}
-	req := makeRequest([]string{"foo Bar baz"}, 1, 7)
+	req := makeRequest([]string{""}, 1, 0)
 
 	comp := p.convertSingleItem(item, req, 0)
 	assert.NotNil(t, comp, "completion")
-	assert.Equal(t, []string{"foo Baz baz"}, comp.Lines, "lines")
+	assert.Equal(t, []string{"package main"}, comp.Lines, "lines")
+}
+
+func TestConvertSingleItem_EmptyText(t *testing.T) {
+	p := &Provider{}
+	item := windsurfCompletionItem{
+		Completion: windsurfCompletion{
+			CompletionID: "abc123",
+			Text:         "",
+		},
+		Range: makeRange("0", "0", "5"),
+	}
+	req := makeRequest([]string{"hello"}, 1, 5)
+
+	comp := p.convertSingleItem(item, req, 0)
+	assert.Nil(t, comp, "completion should be nil for empty text")
 }
 
 func TestConvertResponse_MetricsInfo(t *testing.T) {
 	p := &Provider{}
 	wsResp := &windsurfResponse{
-		State: &windsurfState{State: "CODEIUM_STATE_SUCCESS"},
+		State: windsurfState{State: "CODEIUM_STATE_SUCCESS"},
 		CompletionItems: []windsurfCompletionItem{
 			{
 				Completion: windsurfCompletion{
 					CompletionID: "comp-id-1",
 					Text:         "new text",
 				},
-				Range: windsurfRange{
-					StartPosition: windsurfPos{Row: 0, Col: 0},
-					EndPosition:   windsurfPos{Row: 0, Col: 4},
-				},
+				Range: makeRange("0", "0", "4"),
 			},
 		},
 	}
@@ -186,25 +188,6 @@ func TestConvertResponse_MetricsInfo(t *testing.T) {
 	assert.Len(t, 1, resp.Completions, "completions")
 	assert.NotNil(t, resp.MetricsInfo, "metricsInfo")
 	assert.Equal(t, "comp-id-1", resp.MetricsInfo.ID, "metricsInfo.ID")
-}
-
-func TestConvertSingleItem_EmptyBuffer(t *testing.T) {
-	p := &Provider{}
-	item := windsurfCompletionItem{
-		Completion: windsurfCompletion{
-			CompletionID: "abc123",
-			Text:         "package main",
-		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 0, Col: 0},
-			EndPosition:   windsurfPos{Row: 0, Col: 0},
-		},
-	}
-	req := makeRequest([]string{""}, 1, 0)
-
-	comp := p.convertSingleItem(item, req, 0)
-	assert.NotNil(t, comp, "completion")
-	assert.Equal(t, []string{"package main"}, comp.Lines, "lines")
 }
 
 func TestResolveLanguage(t *testing.T) {
@@ -242,14 +225,11 @@ func TestConvertSingleItem_ColOutOfBounds(t *testing.T) {
 			CompletionID: "abc123",
 			Text:         "more",
 		},
-		Range: windsurfRange{
-			StartPosition: windsurfPos{Row: 0, Col: 100},
-			EndPosition:   windsurfPos{Row: 0, Col: 200},
-		},
+		Range: makeRange("0", "0", "200"),
 	}
 	req := makeRequest([]string{"short"}, 1, 5)
 
 	comp := p.convertSingleItem(item, req, 0)
 	assert.NotNil(t, comp, "completion")
-	assert.Equal(t, []string{"shortmore"}, comp.Lines, "lines with clamped cols")
+	assert.Equal(t, []string{"more"}, comp.Lines, "lines with clamped col")
 }

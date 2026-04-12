@@ -65,6 +65,20 @@ function M.check()
 		end
 	end
 
+	if cfg.provider.type == "windsurf" then
+		vim.health.start("Windsurf")
+		local ok, codeium = pcall(require, 'codeium')
+		if not ok then
+			vim.health.error("codeium plugin not installed", { "Install windsurf.nvim (codeium) plugin" })
+		elseif not codeium.s then
+			vim.health.error("codeium server not initialized", { "Run :Codeium Auth to authenticate" })
+		elseif not codeium.s.healthy then
+			vim.health.warn("codeium server not healthy")
+		else
+			vim.health.ok("codeium server running (port: " .. codeium.s.port .. ")")
+		end
+	end
+
 	-- Behavior
 	vim.health.start("Behavior")
 	vim.health.info("idle_delay: " .. cfg.behavior.idle_completion_delay .. "ms")

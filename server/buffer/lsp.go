@@ -84,3 +84,50 @@ func (b *NvimBuffer) RegisterLspHandler(handler func(reqID int64, editsJSON stri
 		handler(reqID, editsJSON, errMsg)
 	})
 }
+
+type WindsurfInfo struct {
+	Healthy bool
+	Port    int
+	APIKey  string
+}
+
+func (b *NvimBuffer) GetWindsurfInfo() (*WindsurfInfo, error) {
+	if b.client == nil {
+		return nil, fmt.Errorf("nvim client not set")
+	}
+
+	var result map[string]any
+	batch := b.client.NewBatch()
+	batch.ExecLua(`return require('cursortab.lsp').windsurf_get_info()`, &result, nil)
+
+	if err := batch.Execute(); err != nil {
+		return nil, fmt.Errorf("failed to get windsurf info: %w", err)
+	}
+
+	if result == nil {
+		return &WindsurfInfo{Healthy: false}, nil
+	}
+
+	healthy, _ := result["healthy"].(bool)
+	if !healthy {
+		return &WindsurfInfo{Healthy: false}, nil
+	}
+
+	port := 0
+	if v, ok := result["port"]; ok {
+		switch n := v.(type) {
+		case float64:
+			port = int(n)
+		case int64:
+			port = int(n)
+		}
+	}
+
+	apiKey, _ := result["api_key"].(string)
+
+	return &WindsurfInfo{
+		Healthy: healthy,
+		Port:    port,
+		APIKey:  apiKey,
+	}, nil
+}

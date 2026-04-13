@@ -19,7 +19,7 @@ A Neovim plugin that provides edit completions and cursor predictions.
 * [Installation](#installation)
   * [Mercury API (hosted, no local GPU needed)](#mercury-api-hosted-no-local-gpu-needed)
   * [Zeta-2 (local next-edit prediction)](#zeta-2-local-next-edit-prediction)
-  * [Qwen3.5-0.8B (fastest local)](#qwen35-08b-fastest-local)
+  * [Qwen3.5-0.8B/Sweep (fastest local)](#qwen35-08bsweep-fastest-local)
   * [Using lazy.nvim](#using-lazynvim)
   * [Using packer.nvim](#using-packernvim)
 * [Configuration](#configuration)
@@ -78,12 +78,14 @@ Run [llama.cpp](https://github.com/ggml-org/llama.cpp):
 llama-server -hf bartowski/zed-industries_zeta-2-GGUF:Q8_0 --port 8000
 ```
 
-### Qwen3.5-0.8B (fastest local)
+### Qwen3.5-0.8B/Sweep (fastest local)
 
 Run [llama.cpp](https://github.com/ggml-org/llama.cpp):
 
 ```bash
 llama-server -hf unsloth/Qwen3.5-0.8B-GGUF:Q8_0 --port 8000
+# llama-server -hf sweepai/sweep-next-edit-0.5b --port 8000
+# llama-server -hf sweepai/sweep-next-edit-1.5b --port 8000
 ```
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
@@ -101,12 +103,15 @@ llama-server -hf unsloth/Qwen3.5-0.8B-GGUF:Q8_0 --port 8000
         type = "mercuryapi",
         api_key_env = "MERCURY_AI_TOKEN",
 
-        -- Zeta-2 (local)
+        -- Zeta-2 (best local)
         -- type = "zeta-2",
         -- url = "http://localhost:8000",
-        -- model = "zeta-2",
 
-        -- Qwen3.5-0.8B (fastest local, default to "inline")
+        -- Qwen3.5-0.8B (fastest local, defaults to "inline")
+        -- url = "http://localhost:8000",
+
+        -- sweep-next-edit-0.5B/1.5B (fastest local)
+        -- type = "sweep",
         -- url = "http://localhost:8000",
       },
     })
@@ -422,7 +427,6 @@ require("cursortab").setup({
   provider = {
     type = "zeta-2",
     url = "http://localhost:8000",
-    model = "zeta-2",
   },
 })
 ```
@@ -446,7 +450,6 @@ require("cursortab").setup({
   provider = {
     type = "zeta",
     url = "http://localhost:8000",
-    model = "zeta",
   },
 })
 ```

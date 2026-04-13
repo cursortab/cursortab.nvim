@@ -224,6 +224,7 @@ const (
 	ProviderTypeZeta2      ProviderType = "zeta-2"
 	ProviderTypeCopilot    ProviderType = "copilot"
 	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
+	ProviderTypeWindsurf   ProviderType = "windsurf"
 )
 
 // FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration

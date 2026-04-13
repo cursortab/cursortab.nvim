@@ -42,9 +42,9 @@ func (e *Engine) suppressForSingleDeletion() bool {
 }
 
 // suppressForMidLine returns true if the cursor is in the middle of a line
-// with meaningful code to the right, and the provider is insertion-only.
+// with meaningful code to the right, and the provider is inline (not FIM or edit).
 func (e *Engine) suppressForMidLine() bool {
-	if e.config.EditCompletionProvider {
+	if e.config.EditCompletionProvider || e.config.ProviderName == string(types.ProviderTypeFIM) {
 		return false
 	}
 

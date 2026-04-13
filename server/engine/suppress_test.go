@@ -123,7 +123,18 @@ func TestSuppressForMidLine(t *testing.T) {
 	}
 	assert.False(t, e.suppressForMidLine(), "cursor at end of line")
 
-	// Non-edit provider, cursor mid-line with code to right → suppress
+	// FIM provider → never suppress mid-line
+	e = &Engine{
+		config: EngineConfig{ProviderName: "fim"},
+		buffer: &mockBuffer{
+			lines: []string{"for _, item := range items {"},
+			row:   1,
+			col:   21, // before "items {"
+		},
+	}
+	assert.False(t, e.suppressForMidLine(), "FIM provider ignores mid-line")
+
+	// Inline provider, cursor mid-line with code to right → suppress
 	e = &Engine{
 		config: EngineConfig{EditCompletionProvider: false},
 		buffer: &mockBuffer{

@@ -1,6 +1,6 @@
 # cursortab.nvim
 
-A Neovim plugin that provides local edit completions and cursor predictions.
+A Neovim plugin that provides edit completions and cursor predictions.
 
 > [!NOTE]
 >

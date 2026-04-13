@@ -87,11 +87,19 @@ func generateReport(fixtures []fixtureResult, outputPath string) error {
 		if !allPass {
 			status = "failed"
 		}
-		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\" open>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button><span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span><span class=\"hdr-statuses\">%s %s%s</span></summary>\n",
-			status, escapedName, escapedName,
+		verifiedBadge := `<span class="fail">unverified</span>`
+		if f.Verified {
+			verifiedBadge = `<span class="pass">verified</span>`
+		}
+		openAttr := " open"
+		if allPass && f.Verified {
+			openAttr = ""
+		}
+		fmt.Fprintf(&b, "<details class=\"fixture\" data-status=\"%s\"%s>\n<summary class=\"hdr\"><h2>%s</h2><button class=\"copy-btn\" data-name=\"%s\" onclick=\"navigator.clipboard.writeText(this.dataset.name)\">copy</button><span class=\"meta\">cursor=(%d,%d) vp=[%d,%d]</span><span class=\"hdr-statuses\">%s %s %s%s</span></summary>\n",
+			status, openAttr, escapedName, escapedName,
 			f.Params.CursorRow, f.Params.CursorCol,
 			f.Params.ViewportTop, f.Params.ViewportBottom,
-			bStatus, iStatus, applyStatuses)
+			verifiedBadge, bStatus, iStatus, applyStatuses)
 
 		var expectedStages []e2e.StageInfo
 		if !f.BatchPass || !f.IncrementalPass {

@@ -2,8 +2,8 @@
 
 @CONTRIBUTING.md
 
-**Important:** Never run `-verify` or `-verify-case`. Verification must always
-be done manually by the user.
+**Important:** Never run `just verify-e2e` or pass `-verify`/`-verify-all`
+flags. Verification must always be done manually by the user.
 
 ## Code Style
 

@@ -288,8 +288,8 @@ Zeta-2, Zeta (legacy), Copilot, and Mercury API.
 
 #### Benchmarks
 
-Measured on 50 scenarios (25 quality + 25 suppress) using the eval harness.
-Sorted by Score (higher = better):
+Measured on 50 scenarios (25 quality + 25 suppress) using the
+[eval harness](CONTRIBUTING.md#eval-harness). Sorted by Score (higher = better):
 
 - **Score** — `deltaChrF × gateScore / 100` where
   `gateScore = 2 × showRate × quietRate / (showRate + quietRate)`. Combines edit

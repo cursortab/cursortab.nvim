@@ -1,14 +1,17 @@
 package text
 
 import (
+	"crypto/sha256"
 	"cursortab/assert"
 	"cursortab/e2e"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,9 +21,12 @@ import (
 
 var updateAll = flag.Bool("update", false, "update all expected golden files")
 var update multiStringFlag
+var verifyAll = flag.Bool("verify-all", false, "mark all passing test cases as verified")
+var verify multiStringFlag
 
 func init() {
 	flag.Var(&update, "update-only", "update expected for specific test cases (can be repeated)")
+	flag.Var(&verify, "verify", "mark a test case as verified by name (can be repeated)")
 }
 
 type multiStringFlag []string
@@ -100,6 +106,7 @@ type fixtureResult struct {
 	BatchPass         bool
 	IncrementalPass   bool
 	MaxLinesResults   []maxLinesResult
+	Verified          bool
 }
 
 // stageIsPureInsertion checks if a stage is a pure insertion (insert without
@@ -308,6 +315,38 @@ func toJSON(t *testing.T, v any) string {
 	return string(data)
 }
 
+// --- Verified manifest ---
+
+func sha256Hex(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+func loadVerifiedManifest(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]string{}
+	}
+	var m map[string]string
+	if json.Unmarshal(data, &m) != nil {
+		return map[string]string{}
+	}
+	return m
+}
+
+func saveVerifiedManifest(path string, m map[string]string) error {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
 // --- Fixture loading ---
 
 type fixture struct {
@@ -454,10 +493,14 @@ func TestApplyWithMaxLines(t *testing.T) {
 	}
 }
 
-func TestUpdateExpected(t *testing.T) {
+func TestE2EUpdate(t *testing.T) {
 	if !*updateAll && len(update) == 0 {
 		t.Skip("no -update or -update-only flag")
 	}
+
+	manifestPath := filepath.Join("testdata", "verified.json")
+	manifest := loadVerifiedManifest(manifestPath)
+	manifestDirty := false
 
 	for _, f := range loadFixtures(t, "testdata") {
 		if !*updateAll && !update.contains(f.Name) {
@@ -472,13 +515,63 @@ func TestUpdateExpected(t *testing.T) {
 				return
 			}
 			assert.NoError(t, writeTxtarFixture(f.Path, f.Params, f.Old, f.New, actual), "write fixture")
-			t.Logf("updated %s", f.Path)
+			if _, ok := manifest[f.Name]; ok {
+				delete(manifest, f.Name)
+				manifestDirty = true
+			}
+			t.Logf("updated %s (unverified)", f.Path)
+		})
+	}
+
+	if manifestDirty {
+		assert.NoError(t, saveVerifiedManifest(manifestPath, manifest), "save manifest")
+	}
+}
+
+func TestE2EVerify(t *testing.T) {
+	manifestPath := filepath.Join("testdata", "verified.json")
+
+	if *verifyAll || len(verify) > 0 {
+		manifest := loadVerifiedManifest(manifestPath)
+		for _, f := range loadFixtures(t, "testdata") {
+			if !*verifyAll && !verify.contains(f.Name) {
+				continue
+			}
+			t.Run(f.Name, func(t *testing.T) {
+				batchLua := runBatchPipeline(f.OldLines, f.NewLines, f.Params)
+				incLua := runIncrementalPipeline(f.OldLines, f.NewLines, f.Params)
+				if toJSON(t, batchLua) != toJSON(t, f.Expected) || toJSON(t, incLua) != toJSON(t, f.Expected) {
+					t.Errorf("cannot verify %s: output does not match expected", f.Name)
+					return
+				}
+				hash := sha256Hex([]byte(formatExpected(f.Expected)))
+				manifest[f.Name] = hash
+				t.Logf("verified %s", f.Name)
+			})
+		}
+		assert.NoError(t, saveVerifiedManifest(manifestPath, manifest), "save manifest")
+		return
+	}
+
+	if *updateAll || len(update) > 0 {
+		t.Skip("skipping verification check during update")
+	}
+
+	manifest := loadVerifiedManifest(manifestPath)
+	for _, f := range loadFixtures(t, "testdata") {
+		t.Run(f.Name, func(t *testing.T) {
+			hash := sha256Hex([]byte(formatExpected(f.Expected)))
+			if manifest[f.Name] != hash {
+				t.Errorf("unverified: run 'just verify-e2e %s' after reviewing", f.Name)
+			}
 		})
 	}
 }
 
 func TestE2EReport(t *testing.T) {
 	e2eDir := "testdata"
+	manifestPath := filepath.Join(e2eDir, "verified.json")
+	manifest := loadVerifiedManifest(manifestPath)
 	var fixtures []fixtureResult
 
 	for _, f := range loadFixtures(t, e2eDir) {
@@ -492,6 +585,9 @@ func TestE2EReport(t *testing.T) {
 		batchJSON := toJSON(t, batchLua)
 		incJSON := toJSON(t, incLua)
 		expectedJSON := toJSON(t, f.Expected)
+
+		hash := sha256Hex([]byte(formatExpected(f.Expected)))
+		verified := manifest[f.Name] == hash
 
 		maxLinesValues := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 1000}
 		var mlResults []maxLinesResult
@@ -513,6 +609,7 @@ func TestE2EReport(t *testing.T) {
 			BatchPass:         batchJSON == expectedJSON,
 			IncrementalPass:   incJSON == expectedJSON,
 			MaxLinesResults:   mlResults,
+			Verified:          verified,
 		})
 	}
 

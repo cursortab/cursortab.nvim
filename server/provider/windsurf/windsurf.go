@@ -78,6 +78,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -297,6 +298,9 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	lineEnding := "\n"
 	language := resolveLanguage(req.FilePath)
 
+	absFilePath, _ := filepath.Abs(req.FilePath)
+	absWorkspacePath, _ := filepath.Abs(req.WorkspacePath)
+
 	text := strings.Join(req.Lines, lineEnding)
 	if len(req.Lines) > 0 {
 		text += lineEnding
@@ -324,8 +328,8 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 				Row: req.CursorRow - 1,
 				Col: req.CursorCol,
 			},
-			AbsoluteURI:  "file://" + req.FilePath,
-			WorkspaceURI: "file://" + req.WorkspacePath,
+			AbsoluteURI:  "file://" + absFilePath,
+			WorkspaceURI: "file://" + absWorkspacePath,
 			LineEnding:   lineEnding,
 		},
 	}

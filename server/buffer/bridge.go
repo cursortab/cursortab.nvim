@@ -108,13 +108,9 @@ func (b *NvimBuffer) GetWindsurfInfo() (*WindsurfInfo, error) {
 	}
 
 	port := 0
-	if v, ok := result["port"]; ok {
-		switch n := v.(type) {
-		case float64:
-			port = int(n)
-		case int64:
-			port = int(n)
-		}
+
+	if n, ok := result["port"].(uint64); ok {
+		port = int(n)
 	}
 
 	apiKey, _ := result["api_key"].(string)

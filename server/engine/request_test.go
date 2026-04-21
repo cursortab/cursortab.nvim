@@ -636,6 +636,82 @@ func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
 	assert.False(t, result, "should return false when prefetch content already in buffer")
 }
 
+func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{
+		"import numpy as np",
+		"import matplotlib.pyplot as plt",
+		"import pandas as pd",
+		"",
+		"def bubble_sort(arr):",
+		"",
+		"if __name__ == \"__main__\":",
+		"    pass",
+	}
+	buf.row = 5
+	buf.col = 0
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	stage := &text.Stage{
+		BufferStart: 6,
+		BufferEnd:   6,
+		Lines: []string{
+			"    n = len(arr)",
+			"    for i in range(n):",
+			"        for j in range(0, n-i-1):",
+			"            if arr[j] > arr[j+1]:",
+		},
+		Groups: []*text.Group{{
+			Type:       "addition",
+			BufferLine: 6,
+			StartLine:  1,
+			EndLine:    4,
+			Lines: []string{
+				"    n = len(arr)",
+				"    for i in range(n):",
+				"        for j in range(0, n-i-1):",
+				"            if arr[j] > arr[j+1]:",
+			},
+		}},
+		CursorTarget: &types.CursorPredictionTarget{
+			LineNumber:      10,
+			ShouldRetrigger: true,
+		},
+		IsLastStage: true,
+	}
+
+	eng.stagedCompletion = &text.StagedCompletion{
+		CurrentIdx: 0,
+		Stages:     []*text.Stage{stage},
+	}
+
+	eng.prefetchAtNMinusOne()
+	time.Sleep(10 * time.Millisecond)
+
+	prov.mu.Lock()
+	req := prov.lastRequest
+	prov.mu.Unlock()
+
+	assert.NotNil(t, req, "prefetch request should be issued")
+	assert.Equal(t, []string{
+		"import numpy as np",
+		"import matplotlib.pyplot as plt",
+		"import pandas as pd",
+		"",
+		"def bubble_sort(arr):",
+		"    n = len(arr)",
+		"    for i in range(n):",
+		"        for j in range(0, n-i-1):",
+		"            if arr[j] > arr[j+1]:",
+		"",
+		"if __name__ == \"__main__\":",
+		"    pass",
+	}, req.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
+}
+
 // TestAcceptLastStage_WaitsForInflightPrefetch tests that when accepting the last stage
 // and prefetch is still in-flight, the engine waits for it instead of going idle.
 func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {

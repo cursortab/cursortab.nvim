@@ -290,7 +290,7 @@ func (e *Engine) tryShowPrefetchedCompletion() bool {
 
 	comp := e.prefetchedCompletions[0]
 	e.clearPrefetchResult()
-	return e.processCompletion(comp)
+	return e.processCompletion(comp) == completionShown
 }
 
 // handlePrefetchError processes a prefetch error
@@ -322,7 +322,7 @@ func (e *Engine) handleDeferredCursorTarget() {
 		comp := e.prefetchedCompletions[0]
 		e.clearPrefetchResult()
 
-		if e.processCompletion(comp) {
+		if e.processCompletion(comp) == completionShown {
 			return
 		}
 

@@ -147,7 +147,7 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
 				}
-				sr.Shown = eng.processCompletion(comp)
+				sr.Shown = eng.processCompletion(comp) == completionShown
 			}
 
 		case "prefetch":

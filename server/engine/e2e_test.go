@@ -214,7 +214,7 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
 			}
-			result := eng.processCompletion(comp)
+			result := eng.processCompletion(comp) == completionShown
 			if step.Expect != nil && step.Expect.Shown != nil {
 				assert.Equal(t, *step.Expect.Shown, result, label+" shown")
 			}

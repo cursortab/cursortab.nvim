@@ -19,7 +19,7 @@ func TestReject(t *testing.T) {
 	eng.completions = []*types.Completion{{StartLine: 1, EndLineInc: 1, Lines: []string{"test"}}}
 	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 5}
 
-	eng.reject()
+	eng.rejectAndRemember()
 
 	assert.Equal(t, stateIdle, eng.state, "state after reject")
 	assert.Nil(t, eng.completions, "completions after reject")

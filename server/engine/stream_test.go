@@ -285,6 +285,56 @@ func TestLineStreamingReject_NoKeepPartial(t *testing.T) {
 	assert.Equal(t, stateIdle, eng.state, "state after rejecting line streaming")
 }
 
+func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.currentRejectedCompletion = &rejectedCompletion{
+		filePath:   buf.Path(),
+		startLine:  1,
+		endLineInc: 1,
+		beforeLine: "",
+		afterLine:  "",
+		oldLines:   []string{"hello"},
+		lines:      []string{"hello world"},
+	}
+	eng.rememberRejectedCompletion()
+
+	eng.state = stateStreamingCompletion
+	eng.streamingState = &StreamingState{}
+	eng.streamLinesChan = make(chan string)
+
+	stage := &text.Stage{
+		BufferStart: 1,
+		BufferEnd:   1,
+		Lines:       []string{"hello world"},
+		Groups: []*text.Group{{
+			Type:       "modification",
+			StartLine:  1,
+			EndLine:    1,
+			BufferLine: 1,
+			Lines:      []string{"hello world"},
+			OldLines:   []string{"hello"},
+			RenderHint: "append_chars",
+			ColStart:   5,
+			ColEnd:     11,
+		}},
+	}
+
+	eng.renderStreamedStage(stage)
+
+	assert.Equal(t, 0, buf.prepareCompletionCalls, "suppressed streamed stage should not render")
+	assert.Greater(t, buf.clearUICalls, 0, "suppressed streamed stage should clear UI through reject")
+	assert.Equal(t, stateIdle, eng.state, "state after suppressing streamed stage")
+	assert.Nil(t, eng.streamingState, "streaming state after suppression")
+	assert.Nil(t, eng.streamLinesChan, "stream channel after suppression")
+}
+
 func TestCancelTokenStreamingKeepPartial(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()

@@ -108,7 +108,7 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 
 	completion := resp.Completions[0]
 	e.pendingMetricsInfo = resp.MetricsInfo
-	shown := e.processCompletion(completion)
+	shown := e.processCompletion(completion) == completionShown
 	result.Shown = shown
 	if !shown {
 		e.pendingMetricsInfo = nil
@@ -148,7 +148,7 @@ func (e *Engine) EvalAccept() {
 func (e *Engine) EvalReject() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.reject()
+	e.rejectAndRemember()
 }
 
 // applyAllStagesToBufferCopy returns the buffer with all staged completion

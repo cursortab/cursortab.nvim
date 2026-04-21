@@ -128,9 +128,11 @@ type Engine struct {
 	contextResultCh chan *types.ContextResult // async context gather for snapshot
 	metricsCh       chan metrics.Event
 
-	lastCompletionSource   types.CompletionSource
-	completionsSinceAccept int
-	pendingMetricsInfo     *types.MetricsInfo // stored from batch completion for showCurrentStage
+	lastCompletionSource      types.CompletionSource
+	completionsSinceAccept    int
+	pendingMetricsInfo        *types.MetricsInfo // stored from batch completion for showCurrentStage
+	rejectedCompletions       map[string][]*rejectedCompletion
+	currentRejectedCompletion *rejectedCompletion
 }
 
 // NewEngine creates a new Engine instance.
@@ -165,6 +167,7 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 		prefetchState:          prefetchNone,
 		stopped:                false,
 		fileStateStore:         make(map[string]*FileState),
+		rejectedCompletions:    make(map[string][]*rejectedCompletion),
 	}
 
 	// Initialize metrics: combine provider sender + community sender if available
@@ -247,6 +250,7 @@ func (e *Engine) resetCompletionFields() {
 	e.applyBatch = nil
 	e.completionOriginalLines = nil
 	e.currentGroups = nil
+	e.currentRejectedCompletion = nil
 	e.manuallyTriggered = false
 	e.pendingMetricsInfo = nil
 	e.contextResultCh = nil

@@ -37,18 +37,25 @@ func renderJSONSection(b *strings.Builder, batchData, incData []map[string]any, 
 func generateReport(fixtures []fixtureResult, outputPath string) error {
 	var b strings.Builder
 
-	var totalFixtures, passCount, failCount int
+	var totalFixtures, passCount, failCount, unverifiedCount int
 	for _, f := range fixtures {
 		totalFixtures++
-		if !f.BatchPass || !f.IncrementalPass || !allMaxLinesPass(f) {
+		testPass := f.BatchPass && f.IncrementalPass && allMaxLinesPass(f)
+		if !testPass {
 			failCount++
+		} else if !f.Verified {
+			unverifiedCount++
 		} else {
 			passCount++
 		}
 	}
 
 	e2e.ReportHeader(&b, "E2E Report")
-	e2e.ReportStats(&b, "E2E Pipeline Report", totalFixtures, passCount, failCount)
+	e2e.ReportStats(&b, "E2E Pipeline Report", totalFixtures, passCount, failCount,
+		struct {
+			Label, Class string
+			N            int
+		}{Label: "Unverified", Class: "unverified", N: unverifiedCount})
 
 	for _, f := range fixtures {
 		batchStages := e2e.ParseStages(f.BatchActual)
@@ -86,6 +93,8 @@ func generateReport(fixtures []fixtureResult, outputPath string) error {
 		status := "passed"
 		if !allPass {
 			status = "failed"
+		} else if !f.Verified {
+			status = "unverified"
 		}
 		verifiedBadge := `<span class="fail">unverified</span>`
 		if f.Verified {

@@ -68,11 +68,12 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </style>
 </head>
 <body>
-<h1>E2E Pipeline Report <span class="stats"><span class="meta">72 fixtures</span><span class="pass">72 pass</span></span></h1>
+<h1>E2E Pipeline Report <span class="stats"><span class="meta">90 fixtures</span><span class="pass">90 pass</span></span></h1>
 <div class="filters">
-<button class="filter-btn active" data-filter="all">All (72)</button>
-<button class="filter-btn" data-filter="passed">Passed (72)</button>
+<button class="filter-btn active" data-filter="all">All (90)</button>
+<button class="filter-btn" data-filter="passed">Passed (90)</button>
 <button class="filter-btn" data-filter="failed">Failed (0)</button>
+<button class="filter-btn" data-filter="unverified">Unverified (0)</button>
 </div>
 <details class="fixture" data-status="passed">
 <summary class="hdr"><h2>addition-at-first-line</h2><button class="copy-btn" data-name="addition-at-first-line" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
@@ -713,6 +714,81 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;old_lines&#34;: null,
         &#34;start_line&#34;: 2,
         &#34;type&#34;: &#34;addition&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>append-chars-cursor-mid-line</h2><button class="copy-btn" data-name="append-chars-cursor-mid-line" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,2) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>he<span class="cursor">l</span>lo</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>he<span class="cursor">l</span>lo<span class="ghost"> world!</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>hello world!<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>he<span class="cursor">l</span>lo</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>he<span class="cursor">l</span>lo<span class="ghost"> world!</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>hello world!<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 5,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;hello world!&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;hello&#34;
+        ],
+        &#34;render_hint&#34;: &#34;append_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 5,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;hello world!&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;hello&#34;
+        ],
+        &#34;render_hint&#34;: &#34;append_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
       }
     ],
     &#34;startLine&#34;: 1
@@ -1633,6 +1709,156 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </details></div>
 </details>
 <details class="fixture" data-status="passed">
+<summary class="hdr"><h2>delete-chars-cursor-on-line</h2><button class="copy-btn" data-name="delete-chars-cursor-on-line" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,8) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>result.v<span class="cursor">a</span>lue = 42</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>result<span class="del-hl">.v<span class="cursor">a</span>lue</span> = 42</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>result<span class="cursor"> </span>= 42</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>result.v<span class="cursor">a</span>lue = 42</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>result<span class="del-hl">.v<span class="cursor">a</span>lue</span> = 42</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>result<span class="cursor"> </span>= 42</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;result = 42&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;result.value = 42&#34;
+        ],
+        &#34;render_hint&#34;: &#34;delete_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;result = 42&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;result.value = 42&#34;
+        ],
+        &#34;render_hint&#34;: &#34;delete_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>delete-chars-large-span</h2><button class="copy-btn" data-name="delete-chars-large-span" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">s</span>tart REMOVED LARGE TEXT HERE end</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">s</span>tart <span class="del-hl">REMOVED LARGE TEXT HERE </span>end</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>start <span class="cursor">e</span>nd</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">s</span>tart REMOVED LARGE TEXT HERE end</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">s</span>tart <span class="del-hl">REMOVED LARGE TEXT HERE </span>end</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>start <span class="cursor">e</span>nd</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 30,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;start end&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;start REMOVED LARGE TEXT HERE end&#34;
+        ],
+        &#34;render_hint&#34;: &#34;delete_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 6,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 30,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;start end&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;start REMOVED LARGE TEXT HERE end&#34;
+        ],
+        &#34;render_hint&#34;: &#34;delete_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
 <summary class="hdr"><h2>delete-chars-middle</h2><button class="copy-btn" data-name="delete-chars-middle" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
@@ -2045,6 +2271,81 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       }
     ],
     &#34;startLine&#34;: 2
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>emoji-modification</h2><button class="copy-btn" data-name="emoji-modification" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">H</span>ello 🎉 world</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">H</span>ello 🚀 <span class="add-hl">wo</span>rld</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>Hello 🚀 wo<span class="cursor">r</span>ld</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">H</span>ello 🎉 world</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">H</span>ello 🚀 <span class="add-hl">wo</span>rld</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>Hello 🚀 wo<span class="cursor">r</span>ld</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 10,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 10,
+        &#34;col_start&#34;: 8,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;Hello 🚀 world&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;Hello 🎉 world&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 10,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 10,
+        &#34;col_start&#34;: 8,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;Hello 🚀 world&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;Hello 🎉 world&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
   }
 ]</code></div>
 </div>
@@ -3125,6 +3426,140 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;old_lines&#34;: null,
         &#34;start_line&#34;: 7,
         &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>line-cleared-to-space</h2><button class="copy-btn" data-name="line-cleared-to-space" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(2,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>keep me</span><span class="line"><span class="ln">2</span><span class="cursor">h</span>ello</span><span class="line"><span class="ln">3</span>keep me too</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>keep me</span><span class="line del"><span class="ln">2</span><span class="cursor">h</span>ello</span><span class="line"><span class="ln">3</span>keep me too</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>keep me</span><span class="line"><span class="ln">2</span><span class="cursor"> </span></span><span class="line"><span class="ln">3</span>keep me too</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>keep me</span><span class="line"><span class="ln">2</span><span class="cursor">h</span>ello</span><span class="line"><span class="ln">3</span>keep me too</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>keep me</span><span class="line del"><span class="ln">2</span><span class="cursor">h</span>ello</span><span class="line"><span class="ln">3</span>keep me too</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>keep me</span><span class="line"><span class="ln">2</span><span class="cursor"> </span></span><span class="line"><span class="ln">3</span>keep me too</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: -1,
+    &#34;cursor_line&#34;: -1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;hello&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
+    &#34;startLine&#34;: 2
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: -1,
+    &#34;cursor_line&#34;: -1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;hello&#34;
+        ],
+        &#34;old_lines&#34;: null,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;deletion&#34;
+      }
+    ],
+    &#34;startLine&#34;: 2
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>long-line-fully-replaced</h2><button class="copy-btn" data-name="long-line-fully-replaced" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">t</span>his is the entirely original sentence here</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">t</span>his is the entirely original sentence here</span><span class="line mod side"><span class="ln">→</span>abcdefg different totally new content xyzw</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>abcdefg different totally new content xyzw<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">t</span>his is the entirely original sentence here</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">t</span>his is the entirely original sentence here</span><span class="line mod side"><span class="ln">→</span>abcdefg different totally new content xyzw</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>abcdefg different totally new content xyzw<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 42,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;abcdefg different totally new content xyzw&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;this is the entirely original sentence here&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 42,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;abcdefg different totally new content xyzw&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;this is the entirely original sentence here&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
       }
     ],
     &#34;startLine&#34;: 1
@@ -4846,6 +5281,593 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
 </details></div>
 </details>
 <details class="fixture" data-status="passed">
+<summary class="hdr"><h2>proximity-at-threshold</h2><button class="copy-btn" data-name="proximity-at-threshold" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(6,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>mod_a_old</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>mod_b_old</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>mod_a_<span class="add-hl">new</span></span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>mod_b_<span class="add-hl">new</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>mod_a_new</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span>line 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>mod_b_new<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>mod_a_old</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>mod_b_old</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>mod_a_<span class="add-hl">new</span></span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>mod_b_<span class="add-hl">new</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>mod_a_new</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span>line 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>mod_b_new<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 11,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;mod_a_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_a_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 11,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 11,
+        &#34;lines&#34;: [
+          &#34;mod_b_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_b_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 11,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 11,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;mod_a_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_a_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      },
+      {
+        &#34;buffer_line&#34;: 11,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 11,
+        &#34;lines&#34;: [
+          &#34;mod_b_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_b_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 11,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>proximity-past-threshold</h2><button class="copy-btn" data-name="proximity-past-threshold" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(6,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>mod_a_old</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>line 11</span><span class="line"><span class="ln">12</span>mod_b_old</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>mod_a_<span class="add-hl">new</span></span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>line 11</span><span class="line"><span class="ln">12</span>mod_b_<span class="add-hl">new</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>mod_a_new</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span>line 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>line 11</span><span class="line"><span class="ln">12</span>mod_b_new<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>mod_a_old</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>line 11</span><span class="line"><span class="ln">12</span>mod_b_old</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>mod_a_<span class="add-hl">new</span></span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span><span class="cursor">l</span>ine 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>line 11</span><span class="line"><span class="ln">12</span>mod_b_<span class="add-hl">new</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>mod_a_new</span><span class="line"><span class="ln">2</span>line 2</span><span class="line"><span class="ln">3</span>line 3</span><span class="line"><span class="ln">4</span>line 4</span><span class="line"><span class="ln">5</span>line 5</span><span class="line"><span class="ln">6</span>line 6</span><span class="line"><span class="ln">7</span>line 7</span><span class="line"><span class="ln">8</span>line 8</span><span class="line"><span class="ln">9</span>line 9</span><span class="line"><span class="ln">10</span>line 10</span><span class="line"><span class="ln">11</span>line 11</span><span class="line"><span class="ln">12</span>mod_b_new<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;mod_a_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_a_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  },
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 12,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;mod_b_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_b_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 12
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;mod_a_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_a_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  },
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 12,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;mod_b_new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;mod_b_old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 12
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>replace-chars-12-char-boundary</h2><button class="copy-btn" data-name="replace-chars-12-char-boundary" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>bc 123456789012 xyz</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>bc <span class="add-hl">abcdefghijkl</span> xyz</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>abc abcdefghijkl<span class="cursor"> </span>xyz</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>bc 123456789012 xyz</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>bc <span class="add-hl">abcdefghijkl</span> xyz</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>abc abcdefghijkl<span class="cursor"> </span>xyz</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 16,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 16,
+        &#34;col_start&#34;: 4,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;abc abcdefghijkl xyz&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;abc 123456789012 xyz&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 16,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 16,
+        &#34;col_start&#34;: 4,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;abc abcdefghijkl xyz&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;abc 123456789012 xyz&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>replace-chars-13-char-fallback</h2><button class="copy-btn" data-name="replace-chars-13-char-fallback" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>bc 1234567890123 xyz</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">a</span>bc 1234567890123 xyz</span><span class="line mod side"><span class="ln">→</span>abc abcdefghijklm xyz</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>abc abcdefghijklm xyz<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>bc 1234567890123 xyz</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">a</span>bc 1234567890123 xyz</span><span class="line mod side"><span class="ln">→</span>abc abcdefghijklm xyz</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>abc abcdefghijklm xyz<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 21,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;abc abcdefghijklm xyz&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;abc 1234567890123 xyz&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 21,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;abc abcdefghijklm xyz&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;abc 1234567890123 xyz&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>replace-chars-cursor-at-colstart</h2><button class="copy-btn" data-name="replace-chars-cursor-at-colstart" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,9) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>function <span class="cursor">f</span>oo() {</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function <span class="add-hl"><span class="cursor">b</span>ar</span>() {</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>function bar<span class="cursor">(</span>) {</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>function <span class="cursor">f</span>oo() {</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span>function <span class="add-hl"><span class="cursor">b</span>ar</span>() {</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>function bar<span class="cursor">(</span>) {</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 9,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;function bar() {&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;function foo() {&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 9,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;function bar() {&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;function foo() {&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>replace-chars-cursor-different-line</h2><button class="copy-btn" data-name="replace-chars-cursor-different-line" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine one</span><span class="line"><span class="ln">2</span>function foo() {</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine one</span><span class="line"><span class="ln">2</span>function <span class="add-hl">bar</span>() {</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line one</span><span class="line"><span class="ln">2</span>function bar<span class="cursor">(</span>) {</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine one</span><span class="line"><span class="ln">2</span>function foo() {</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>ine one</span><span class="line"><span class="ln">2</span>function <span class="add-hl">bar</span>() {</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>line one</span><span class="line"><span class="ln">2</span>function bar<span class="cursor">(</span>) {</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 9,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;function bar() {&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;function foo() {&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 2
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 2,
+        &#34;col_end&#34;: 12,
+        &#34;col_start&#34;: 9,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;function bar() {&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;function foo() {&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 2
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>replace-chars-cursor-past-colstart</h2><button class="copy-btn" data-name="replace-chars-cursor-past-colstart" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,10) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>function f<span class="cursor">o</span>o() {</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span>function f<span class="cursor">o</span>o() {</span><span class="line mod side"><span class="ln">→</span>function bar() {</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>function bar<span class="cursor">(</span>) {</span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span>function f<span class="cursor">o</span>o() {</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span>function f<span class="cursor">o</span>o() {</span><span class="line mod side"><span class="ln">→</span>function bar() {</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>function bar<span class="cursor">(</span>) {</span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;function bar() {&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;function foo() {&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 12,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;function bar() {&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;function foo() {&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
 <summary class="hdr"><h2>replace-chars-middle</h2><button class="copy-btn" data-name="replace-chars-middle" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
 <div class="pipelines">
 <div class="pipeline-col">
@@ -5360,6 +6382,241 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
         &#34;old_lines&#34;: null,
         &#34;start_line&#34;: 2,
         &#34;type&#34;: &#34;addition&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>stacked-modification-fits-width</h2><button class="copy-btn" data-name="stacked-modification-fits-width" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line"><span class="ln">2</span>let oldName2 = compute(c, d);</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line del"><span class="ln">2</span>let oldName2 = compute(c, d);</span><span class="line mod"><span class="ln">3</span>var newId1 = process(x, y, z);</span><span class="line mod"><span class="ln">4</span>var newId2 = process(w, v, u);</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>var newId1 = process(x, y, z);</span><span class="line"><span class="ln">2</span>var newId2 = process(w, v, u);<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line"><span class="ln">2</span>let oldName2 = compute(c, d);</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line del"><span class="ln">2</span>let oldName2 = compute(c, d);</span><span class="line mod"><span class="ln">3</span>var newId1 = process(x, y, z);</span><span class="line mod"><span class="ln">4</span>var newId2 = process(w, v, u);</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>var newId1 = process(x, y, z);</span><span class="line"><span class="ln">2</span>var newId2 = process(w, v, u);<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 30,
+    &#34;cursor_line&#34;: 2,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;var newId1 = process(x, y, z);&#34;,
+          &#34;var newId2 = process(w, v, u);&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;let oldName1 = compute(a, b);&#34;,
+          &#34;let oldName2 = compute(c, d);&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 30,
+    &#34;cursor_line&#34;: 2,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;var newId1 = process(x, y, z);&#34;,
+          &#34;var newId2 = process(w, v, u);&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;let oldName1 = compute(a, b);&#34;,
+          &#34;let oldName2 = compute(c, d);&#34;
+        ],
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>stacked-modification-narrow-window</h2><button class="copy-btn" data-name="stacked-modification-narrow-window" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line"><span class="ln">2</span>let oldName2 = compute(c, d);</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line del"><span class="ln">2</span>let oldName2 = compute(c, d);</span><span class="line mod"><span class="ln">3</span>var newId1 = process(x, y, z);</span><span class="line mod"><span class="ln">4</span>var newId2 = process(w, v, u);</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>var newId1 = process(x, y, z);</span><span class="line"><span class="ln">2</span>var newId2 = process(w, v, u);<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line"><span class="ln">2</span>let oldName2 = compute(c, d);</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">l</span>et oldName1 = compute(a, b);</span><span class="line del"><span class="ln">2</span>let oldName2 = compute(c, d);</span><span class="line mod"><span class="ln">3</span>var newId1 = process(x, y, z);</span><span class="line mod"><span class="ln">4</span>var newId2 = process(w, v, u);</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>var newId1 = process(x, y, z);</span><span class="line"><span class="ln">2</span>var newId2 = process(w, v, u);<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 30,
+    &#34;cursor_line&#34;: 2,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 0,
+        &#34;col_start&#34;: 0,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;var newId1 = process(x, y, z);&#34;,
+          &#34;var newId2 = process(w, v, u);&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;let oldName1 = compute(a, b);&#34;,
+          &#34;let oldName2 = compute(c, d);&#34;
+        ],
+        &#34;render_hint&#34;: &#34;stacked&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 30,
+    &#34;cursor_line&#34;: 2,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 0,
+        &#34;col_start&#34;: 0,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;var newId1 = process(x, y, z);&#34;,
+          &#34;var newId2 = process(w, v, u);&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;let oldName1 = compute(a, b);&#34;,
+          &#34;let oldName2 = compute(c, d);&#34;
+        ],
+        &#34;render_hint&#34;: &#34;stacked&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>stacked-modification-three-lines</h2><button class="copy-btn" data-name="stacked-modification-three-lines" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">c</span>onst aaa = oldImplementation(p1, p2, p3);</span><span class="line"><span class="ln">2</span>const bbb = oldImplementation(q1, q2, q3);</span><span class="line"><span class="ln">3</span>const ccc = oldImplementation(r1, r2, r3);</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">c</span>onst aaa = oldImplementation(p1, p2, p3);</span><span class="line del"><span class="ln">2</span>const bbb = oldImplementation(q1, q2, q3);</span><span class="line del"><span class="ln">3</span>const ccc = oldImplementation(r1, r2, r3);</span><span class="line mod"><span class="ln">4</span>const aaa = brandNewImplementation(p1, p2, p3, p4);</span><span class="line mod"><span class="ln">5</span>const bbb = brandNewImplementation(q1, q2, q3, q4);</span><span class="line mod"><span class="ln">6</span>const ccc = brandNewImplementation(r1, r2, r3, r4);</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>const aaa = brandNewImplementation(p1, p2, p3, p4);</span><span class="line"><span class="ln">2</span>const bbb = brandNewImplementation(q1, q2, q3, q4);</span><span class="line"><span class="ln">3</span>const ccc = brandNewImplementation(r1, r2, r3, r4);<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">c</span>onst aaa = oldImplementation(p1, p2, p3);</span><span class="line"><span class="ln">2</span>const bbb = oldImplementation(q1, q2, q3);</span><span class="line"><span class="ln">3</span>const ccc = oldImplementation(r1, r2, r3);</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">c</span>onst aaa = oldImplementation(p1, p2, p3);</span><span class="line del"><span class="ln">2</span>const bbb = oldImplementation(q1, q2, q3);</span><span class="line del"><span class="ln">3</span>const ccc = oldImplementation(r1, r2, r3);</span><span class="line mod"><span class="ln">4</span>const aaa = brandNewImplementation(p1, p2, p3, p4);</span><span class="line mod"><span class="ln">5</span>const bbb = brandNewImplementation(q1, q2, q3, q4);</span><span class="line mod"><span class="ln">6</span>const ccc = brandNewImplementation(r1, r2, r3, r4);</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>const aaa = brandNewImplementation(p1, p2, p3, p4);</span><span class="line"><span class="ln">2</span>const bbb = brandNewImplementation(q1, q2, q3, q4);</span><span class="line"><span class="ln">3</span>const ccc = brandNewImplementation(r1, r2, r3, r4);<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 51,
+    &#34;cursor_line&#34;: 3,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 0,
+        &#34;col_start&#34;: 0,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;const aaa = brandNewImplementation(p1, p2, p3, p4);&#34;,
+          &#34;const bbb = brandNewImplementation(q1, q2, q3, q4);&#34;,
+          &#34;const ccc = brandNewImplementation(r1, r2, r3, r4);&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;const aaa = oldImplementation(p1, p2, p3);&#34;,
+          &#34;const bbb = oldImplementation(q1, q2, q3);&#34;,
+          &#34;const ccc = oldImplementation(r1, r2, r3);&#34;
+        ],
+        &#34;render_hint&#34;: &#34;stacked&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 51,
+    &#34;cursor_line&#34;: 3,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 0,
+        &#34;col_start&#34;: 0,
+        &#34;end_line&#34;: 3,
+        &#34;lines&#34;: [
+          &#34;const aaa = brandNewImplementation(p1, p2, p3, p4);&#34;,
+          &#34;const bbb = brandNewImplementation(q1, q2, q3, q4);&#34;,
+          &#34;const ccc = brandNewImplementation(r1, r2, r3, r4);&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;const aaa = oldImplementation(p1, p2, p3);&#34;,
+          &#34;const bbb = oldImplementation(q1, q2, q3);&#34;,
+          &#34;const ccc = oldImplementation(r1, r2, r3);&#34;
+        ],
+        &#34;render_hint&#34;: &#34;stacked&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
       }
     ],
     &#34;startLine&#34;: 1
@@ -6032,6 +7289,160 @@ pre { font-family: 'JetBrains Mono', monospace; font-size: 13px; margin: 0; }
       }
     ],
     &#34;startLine&#34;: 25
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>unicode-multi-line-stacked</h2><button class="copy-btn" data-name="unicode-multi-line-stacked" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>ncien texte avec accents é è à</span><span class="line"><span class="ln">2</span>résumé final avec ç et œ</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">a</span>ncien texte avec accents é è à</span><span class="line del"><span class="ln">2</span>résumé final avec ç et œ</span><span class="line mod"><span class="ln">3</span>nouveau contenu plein de ñ et ü</span><span class="line mod"><span class="ln">4</span>phrase complètement différente</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>nouveau contenu plein de ñ et ü</span><span class="line"><span class="ln">2</span>phrase complètement différente<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">a</span>ncien texte avec accents é è à</span><span class="line"><span class="ln">2</span>résumé final avec ç et œ</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line del"><span class="ln">1</span><span class="cursor">a</span>ncien texte avec accents é è à</span><span class="line del"><span class="ln">2</span>résumé final avec ç et œ</span><span class="line mod"><span class="ln">3</span>nouveau contenu plein de ñ et ü</span><span class="line mod"><span class="ln">4</span>phrase complètement différente</span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>nouveau contenu plein de ñ et ü</span><span class="line"><span class="ln">2</span>phrase complètement différente<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 32,
+    &#34;cursor_line&#34;: 2,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 0,
+        &#34;col_start&#34;: 0,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;nouveau contenu plein de ñ et ü&#34;,
+          &#34;phrase complètement différente&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;ancien texte avec accents é è à&#34;,
+          &#34;résumé final avec ç et œ&#34;
+        ],
+        &#34;render_hint&#34;: &#34;stacked&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 32,
+    &#34;cursor_line&#34;: 2,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 0,
+        &#34;col_start&#34;: 0,
+        &#34;end_line&#34;: 2,
+        &#34;lines&#34;: [
+          &#34;nouveau contenu plein de ñ et ü&#34;,
+          &#34;phrase complètement différente&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;ancien texte avec accents é è à&#34;,
+          &#34;résumé final avec ç et œ&#34;
+        ],
+        &#34;render_hint&#34;: &#34;stacked&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+</div>
+</details></div>
+</details>
+<details class="fixture" data-status="passed">
+<summary class="hdr"><h2>unicode-replace-chars</h2><button class="copy-btn" data-name="unicode-replace-chars" onclick="navigator.clipboard.writeText(this.dataset.name)">copy</button><span class="meta">cursor=(1,0) vp=[1,50]</span><span class="hdr-statuses"><span class="pass">verified</span> <span class="pass">batch:pass</span> <span class="pass">inc:pass</span> <span class="pass">apply(default):pass</span> <span class="pass">partial(default):pass</span> <span class="pass">apply(ml1):pass</span> <span class="pass">partial(ml1):pass</span> <span class="pass">apply(ml2):pass</span> <span class="pass">partial(ml2):pass</span> <span class="pass">apply(ml3):pass</span> <span class="pass">partial(ml3):pass</span> <span class="pass">apply(ml4):pass</span> <span class="pass">partial(ml4):pass</span> <span class="pass">apply(ml5):pass</span> <span class="pass">partial(ml5):pass</span> <span class="pass">apply(ml6):pass</span> <span class="pass">partial(ml6):pass</span> <span class="pass">apply(ml7):pass</span> <span class="pass">partial(ml7):pass</span> <span class="pass">apply(ml8):pass</span> <span class="pass">partial(ml8):pass</span> <span class="pass">apply(ml1000):pass</span> <span class="pass">partial(ml1000):pass</span></span></summary>
+<div class="pipelines">
+<div class="pipeline-col">
+<div class="pipeline-label">Batch</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">c</span>afé old</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">c</span>afé n<span class="add-hl">ew</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>café new<span class="cursor"> </span></span></pre></div>
+</div>
+<div class="pipeline-col">
+<div class="pipeline-label">Incremental</div>
+<div class="pane">
+<h3>Old</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">c</span>afé old</span></pre></div>
+<div class="pane">
+<h3>Preview</h3><pre><span class="line"><span class="ln">1</span><span class="cursor">c</span>afé n<span class="add-hl">ew</span></span></pre></div>
+<div class="pane">
+<h3>New</h3><pre><span class="line"><span class="ln">1</span>café new<span class="cursor"> </span></span></pre></div>
+</div>
+</div>
+<div class="json-section"><details class="json-details"><summary>JSON</summary>
+<div class="cols-2">
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;café new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;café old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
+  }
+]</code></div>
+<div class="json-col"><code class="shiki-json">[
+  {
+    &#34;cursor_col&#34;: 9,
+    &#34;cursor_line&#34;: 1,
+    &#34;groups&#34;: [
+      {
+        &#34;buffer_line&#34;: 1,
+        &#34;col_end&#34;: 9,
+        &#34;col_start&#34;: 6,
+        &#34;end_line&#34;: 1,
+        &#34;lines&#34;: [
+          &#34;café new&#34;
+        ],
+        &#34;old_lines&#34;: [
+          &#34;café old&#34;
+        ],
+        &#34;render_hint&#34;: &#34;replace_chars&#34;,
+        &#34;start_line&#34;: 1,
+        &#34;type&#34;: &#34;modification&#34;
+      }
+    ],
+    &#34;startLine&#34;: 1
   }
 ]</code></div>
 </div>

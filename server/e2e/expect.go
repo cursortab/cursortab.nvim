@@ -16,6 +16,9 @@ type Expectations struct {
 	NoDeletionGroups *bool
 	MaxLatency       time.Duration
 	BufferLines      []string // bufferAfterAccept (engine) or stagedLinesAfter (eval)
+	CursorTargetLine *int     // engine: ShowCursorTarget called with this line (-1 = expect not called)
+	State            string   // engine: state name e.g. "idle", "hasCompletion", "hasCursorTarget"
+	PrefetchState    string   // engine: "none", "inFlight", "ready", "waitingForTab", "waitingForCursorPrediction"
 }
 
 // ParseExpect parses an expect line and optional buffer: block starting at
@@ -60,6 +63,17 @@ func ParseExpect(lines []string, i int) (*Expectations, int, error) {
 			e.StageCount = &n
 		case strings.HasPrefix(f, "noGroupsBefore="):
 			fmt.Sscanf(f, "noGroupsBefore=%d", &e.NoGroupsBefore)
+		case strings.HasPrefix(f, "cursorTargetLine="):
+			var n int
+			_, err := fmt.Sscanf(f, "cursorTargetLine=%d", &n)
+			if err != nil {
+				return nil, i, fmt.Errorf("bad cursorTargetLine: %w", err)
+			}
+			e.CursorTargetLine = &n
+		case strings.HasPrefix(f, "state="):
+			e.State = strings.TrimPrefix(f, "state=")
+		case strings.HasPrefix(f, "prefetchState="):
+			e.PrefetchState = strings.TrimPrefix(f, "prefetchState=")
 		case strings.HasPrefix(f, "latencyMax="):
 			v := strings.TrimPrefix(f, "latencyMax=")
 			d, err := time.ParseDuration(v)

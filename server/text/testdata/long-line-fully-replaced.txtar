@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+this is the entirely original sentence here
+-- new.txt --
+abcdefg different totally new content xyzw
+-- expected --
+stage @1 cursor=1:42
+  modification @1 1-1
+    + "abcdefg different totally new content xyzw"
+    - "this is the entirely original sentence here"
+

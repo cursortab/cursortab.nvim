@@ -1,0 +1,19 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+availableWidth: 40
+-- old.txt --
+ancien texte avec accents é è à
+résumé final avec ç et œ
+-- new.txt --
+nouveau contenu plein de ñ et ü
+phrase complètement différente
+-- expected --
+stage @1 cursor=2:32
+  modification @1 1-2 stacked 0:0
+    + "nouveau contenu plein de ñ et ü"
+    + "phrase complètement différente"
+    - "ancien texte avec accents é è à"
+    - "résumé final avec ç et œ"
+

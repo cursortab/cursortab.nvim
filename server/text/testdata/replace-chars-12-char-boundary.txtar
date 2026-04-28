@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+abc 123456789012 xyz
+-- new.txt --
+abc abcdefghijkl xyz
+-- expected --
+stage @1 cursor=1:16
+  modification @1 1-1 replace_chars 4:16
+    + "abc abcdefghijkl xyz"
+    - "abc 123456789012 xyz"
+

@@ -1,0 +1,16 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+line one
+function foo() {
+-- new.txt --
+line one
+function bar() {
+-- expected --
+stage @2 cursor=1:12
+  modification @2 1-1 replace_chars 9:12
+    + "function bar() {"
+    - "function foo() {"
+

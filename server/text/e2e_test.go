@@ -42,6 +42,7 @@ type fixtureParams struct {
 	CursorCol      int
 	ViewportTop    int
 	ViewportBottom int
+	AvailableWidth int
 }
 
 // parseTxtarFixture parses a txtar archive into its fixture components.
@@ -51,6 +52,7 @@ func parseTxtarFixture(ar *txtar.Archive) (params fixtureParams, oldBytes, newBy
 	params.CursorCol, _ = strconv.Atoi(hdr["cursorCol"])
 	params.ViewportTop, _ = strconv.Atoi(hdr["viewportTop"])
 	params.ViewportBottom, _ = strconv.Atoi(hdr["viewportBottom"])
+	params.AvailableWidth, _ = strconv.Atoi(hdr["availableWidth"])
 
 	var expectedDSL string
 	for _, f := range ar.Files {
@@ -73,6 +75,9 @@ func parseTxtarFixture(ar *txtar.Archive) (params fixtureParams, oldBytes, newBy
 func writeTxtarFixture(path string, params fixtureParams, oldBytes, newBytes []byte, expected []map[string]any) error {
 	header := fmt.Sprintf("cursorRow: %d\ncursorCol: %d\nviewportTop: %d\nviewportBottom: %d\n",
 		params.CursorRow, params.CursorCol, params.ViewportTop, params.ViewportBottom)
+	if params.AvailableWidth > 0 {
+		header += fmt.Sprintf("availableWidth: %d\n", params.AvailableWidth)
+	}
 
 	dsl := formatExpected(expected)
 
@@ -409,6 +414,7 @@ func runBatchPipeline(oldLines, newLines []string, params fixtureParams) []map[s
 		ViewportBottom:     params.ViewportBottom,
 		BaseLineOffset:     1,
 		ProximityThreshold: 10,
+		AvailableWidth:     params.AvailableWidth,
 		NewLines:           newLines,
 		OldLines:           oldLines,
 		FilePath:           "test.txt",
@@ -432,7 +438,7 @@ func runIncrementalPipeline(oldLines, newLines []string, params fixtureParams) [
 		params.ViewportTop, params.ViewportBottom,
 		params.CursorRow, params.CursorCol,
 		"test.txt",
-		0,
+		params.AvailableWidth,
 	)
 	for _, line := range newLines {
 		builder.AddLine(line)
@@ -635,6 +641,7 @@ func verifyApplyWithMaxLines(t *testing.T, oldLines, newLines []string, oldText,
 		BaseLineOffset:     1,
 		ProximityThreshold: 10,
 		MaxLines:           maxLines,
+		AvailableWidth:     params.AvailableWidth,
 		NewLines:           newLines,
 		OldLines:           oldLines,
 		FilePath:           "test.txt",

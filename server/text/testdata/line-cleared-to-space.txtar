@@ -1,0 +1,17 @@
+cursorRow: 2
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+keep me
+hello
+keep me too
+-- new.txt --
+keep me
+
+keep me too
+-- expected --
+stage @2 cursor=-1:-1
+  deletion @2 1-1
+    + "hello"
+

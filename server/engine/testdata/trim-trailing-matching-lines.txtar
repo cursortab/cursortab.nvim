@@ -1,0 +1,22 @@
+Model overruns past EndLineInc with trailing lines that already match the buffer; processCompletion trims that suffix so it isn't treated as a no-op modification.
+row: 2
+col: 4
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def main():
+    pass
+    foo
+    bar
+-- steps --
+completion 2-2
+  | "    x = 1"
+  | "    foo"
+  | "    bar"
+expect shown
+  buffer:
+    | "def main():"
+    | "    x = 1"
+    | "    foo"
+    | "    bar"
+

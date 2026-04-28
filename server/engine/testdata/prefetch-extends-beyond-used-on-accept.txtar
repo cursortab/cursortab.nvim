@@ -1,0 +1,32 @@
+A stashed prefetch covering content beyond the accepted stage is used automatically on accept (no separate prefetch step needed).
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+
+}
+
+function sub(a, b) {
+
+}
+-- steps --
+completion 2-2
+  | "  return a + b;"
+expect shown state=hasCompletion
+
+stash-prefetch 6-6
+  | "  return a - b;"
+
+accept
+expect state=hasCursorTarget cursorTargetLine=6 prefetchState=none
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+    | ""
+    | "function sub(a, b) {"
+    | "  return a - b;"
+    | "}"
+

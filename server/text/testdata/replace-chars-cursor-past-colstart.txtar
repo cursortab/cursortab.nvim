@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 10
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+function foo() {
+-- new.txt --
+function bar() {
+-- expected --
+stage @1 cursor=1:12
+  modification @1 1-1
+    + "function bar() {"
+    - "function foo() {"
+

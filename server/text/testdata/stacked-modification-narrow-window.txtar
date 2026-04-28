@@ -1,0 +1,19 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+availableWidth: 50
+-- old.txt --
+let oldName1 = compute(a, b);
+let oldName2 = compute(c, d);
+-- new.txt --
+var newId1 = process(x, y, z);
+var newId2 = process(w, v, u);
+-- expected --
+stage @1 cursor=2:30
+  modification @1 1-2 stacked 0:0
+    + "var newId1 = process(x, y, z);"
+    + "var newId2 = process(w, v, u);"
+    - "let oldName1 = compute(a, b);"
+    - "let oldName2 = compute(c, d);"
+

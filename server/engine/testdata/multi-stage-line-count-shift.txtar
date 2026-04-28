@@ -1,0 +1,36 @@
+First stage expands one line into three; the second stage's buffer position shifts by +2 so the second modification still lands on the right line after acceptance.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def first():
+    pass
+line 3
+line 4
+line 5
+line 6
+old_line_7
+-- steps --
+completion 1-7
+  | "def first():"
+  | "    x = 1"
+  | "    y = 2"
+  | "    print(x + y)"
+  | "line 3"
+  | "line 4"
+  | "line 5"
+  | "line 6"
+  | "new_line_7"
+expect shown stageCount=2
+  buffer:
+    | "def first():"
+    | "    x = 1"
+    | "    y = 2"
+    | "    print(x + y)"
+    | "line 3"
+    | "line 4"
+    | "line 5"
+    | "line 6"
+    | "new_line_7"
+

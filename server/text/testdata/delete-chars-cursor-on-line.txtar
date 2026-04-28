@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 8
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+result.value = 42
+-- new.txt --
+result = 42
+-- expected --
+stage @1 cursor=1:6
+  modification @1 1-1 delete_chars 6:12
+    + "result = 42"
+    - "result.value = 42"
+

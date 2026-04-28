@@ -23,29 +23,23 @@ Pipeline tests verify ComputeDiff, CreateStages, and ToLuaFormat. They run as
 part of `just test`. Fixtures are `.txtar` files in `server/text/testdata/`,
 each containing `old.txt`, `new.txt`, and an `expected` section.
 
-```bash
-just test-e2e                   # run E2E tests and generate HTML report
-just update-e2e                 # regenerate all expected output
-just update-e2e fixture-name    # regenerate specific fixture(s)
-just verify-e2e                 # mark all passing fixtures as verified
-just verify-e2e fixture-name    # mark specific fixture(s) as verified
-```
+| Command | Who runs it |
+| --- | --- |
+| `just test-e2e` (run + generate HTML report) | agent or human |
+| `just update-e2e [name]` (regenerate expected output) | agent or human |
+| Review `server/text/testdata/report.html` | **human only** |
+| `just verify-e2e [name]` (mark as reviewed) | human; agents only when explicitly asked |
 
 Updated fixtures are marked as **unverified** and will fail `just test` until
-verified. After reviewing the HTML report at `server/text/testdata/report.html`,
-run `just verify-e2e <name>` to mark them as reviewed. Verification state is
-tracked in `server/text/testdata/verified.json` (a SHA256 manifest). In the HTML
-report, verified passing tests are collapsed while unverified or failing tests
-are shown expanded.
+the human runs `just verify-e2e <name>`. Verification state is tracked in
+`server/text/testdata/verified.json` (a SHA256 manifest). In the HTML report,
+verified passing tests are collapsed while unverified or failing tests are
+shown expanded.
 
 To add a new fixture, create a `.txtar` file in `server/text/testdata/` with
-`old.txt`, `new.txt` sections, then:
-
-```bash
-just update-e2e <name>          # generate initial expected output
-# review the HTML report
-just verify-e2e <name>          # mark as verified
-```
+`old.txt`, `new.txt` sections, then run `just update-e2e <name>` to generate
+the initial expected output. Stop there — the human reviews the report and
+runs `just verify-e2e <name>`.
 
 ## Eval Harness
 

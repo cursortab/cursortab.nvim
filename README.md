@@ -296,8 +296,8 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 [eval harness](CONTRIBUTING.md#eval-harness). Sorted by Score (higher = better):
 
 - **Score** — `deltaChrF × gateScore / 100` where
-  `gateScore = 2 × showRate × quietRate / (showRate + quietRate)`. Combines edit
-  quality with gating behavior into a single metric.
+  `gateScore = 2 × showRate × quietRate / (showRate + quietRate)` (harmonic mean
+  / F1). Combines edit quality with gating behavior into a single metric.
 - **deltaChrF** — edit quality when shown (character n-gram F-score on the diff
   region)
 - **Show rate** — fraction of quality scenarios where a completion was shown
@@ -306,18 +306,19 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 
 | Target               | Type       |    Score | deltaChrF | Show rate | Quiet rate | p50 (ms) | p90 (ms) |
 | -------------------- | ---------- | -------: | --------: | --------: | ---------: | -------: | -------: |
-| mercuryapi           | mercuryapi | **0.58** |  **64.4** |  **100%** |        81% |      565 |      739 |
-| zeta-2               | zeta-2     |     0.56 |      61.5 |       88% |    **96%** |      551 |      833 |
-| zeta                 | zeta       |     0.55 |      60.9 |       88% |        92% |      413 |      661 |
-| qwen3.5-27B          | fim        |     0.23 |      32.2 |       76% |        68% |      131 |      647 |
-| sweep-next-edit-7B   | sweep      |     0.22 |      45.2 |       64% |        40% |      237 |      474 |
-| sweep-next-edit-1.5B | sweep      |     0.20 |      41.9 |       68% |        36% |      155 |      258 |
-| qwen3.5-4B           | fim        |     0.18 |      27.1 |       76% |        60% |     1254 |     1339 |
-| qwen3.5-0.8B         | fim        |     0.18 |      31.4 |       84% |        44% |   **49** |      509 |
-| qwen3.5-2B           | fim        |     0.17 |      29.4 |       84% |        44% |       89 |      735 |
+| zeta-2               | zeta-2     | **0.61** |  **65.4** |       92% |    **96%** |      551 |      833 |
+| mercuryapi           | mercuryapi |     0.58 |      65.2 |  **100%** |        81% |      571 |     1107 |
+| zeta                 | zeta       |     0.56 |      62.4 |       88% |        92% |      413 |      662 |
+| qwen3.6-27B          | fim        |     0.23 |      32.0 |       60% |        92% |      214 |      455 |
+| sweep-next-edit-7B   | sweep      |     0.23 |      46.0 |       64% |        40% |      270 |      515 |
+| qwen3.5-0.8B         | fim        |     0.21 |      37.3 |       80% |        44% |  **137** |  **226** |
+| sweep-next-edit-1.5B | sweep      |     0.21 |      43.7 |       68% |        36% |      157 |      258 |
+| qwen3.5-2B           | fim        |     0.20 |      35.1 |       80% |        44% |      185 |      429 |
+| qwen3.5-4B           | fim        |     0.18 |      28.7 |       64% |        64% |      357 |      730 |
 | copilot              | copilot    |     0.13 |      22.3 |       40% |   **100%** |      351 |      915 |
-| sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |  **201** |
-| sweepapi             | sweepapi   |     0.08 |      16.4 |       32% |   **100%** |      156 |      300 |
+| sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |      207 |
+| qwen3.6-35B-A3B      | fim        |     0.10 |      19.2 |       40% |        80% |  **113** |      411 |
+| sweepapi             | sweepapi   |     0.08 |      17.3 |       32% |   **100%** |      158 |      306 |
 
 #### Inline Provider (Default)
 

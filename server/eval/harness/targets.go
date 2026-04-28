@@ -19,9 +19,10 @@ func DefaultTargets() map[string]Target {
 		"zeta":   {Name: "zeta", Type: "zeta", Model: "zeta", URL: url},
 		"zeta-2": {Name: "zeta-2", Type: "zeta-2", Model: "zeta-2", URL: url},
 
-		"qwen3.5-0.8B": {Name: "qwen3.5-0.8B", Type: "fim", Model: "Qwen/Qwen3.5-0.8B", URL: url},
-		"qwen3.5-2B":   {Name: "qwen3.5-2B", Type: "fim", Model: "Qwen/Qwen3.5-2B", URL: url},
-		"qwen3.5-4B":   {Name: "qwen3.5-4B", Type: "fim", Model: "Qwen/Qwen3.5-4B", URL: url},
-		"qwen3.5-27B":  {Name: "qwen3.5-27B", Type: "fim", Model: "Qwen/Qwen3.5-27B", URL: url},
+		"qwen3.5-0.8B":    {Name: "qwen3.5-0.8B", Type: "fim", Model: "Qwen/Qwen3.5-0.8B", URL: url},
+		"qwen3.5-2B":      {Name: "qwen3.5-2B", Type: "fim", Model: "Qwen/Qwen3.5-2B", URL: url},
+		"qwen3.5-4B":      {Name: "qwen3.5-4B", Type: "fim", Model: "Qwen/Qwen3.5-4B", URL: url},
+		"qwen3.6-27B":     {Name: "qwen3.6-27B", Type: "fim", Model: "Qwen/Qwen3.6-27B", URL: url},
+		"qwen3.6-35B-A3B": {Name: "qwen3.6-35B-A3B", Type: "fim", Model: "Qwen/Qwen3.6-35B-A3B", URL: url},
 	}
 }

@@ -14,9 +14,9 @@ type suppressCount struct{ correct, total int }
 // targetStats holds pre-computed aggregate stats for one target.
 //
 // Score is the headline metric: deltaChrF × gateScore / 100, where
-// gateScore is the harmonic mean of showRate and quietRate. This rewards
-// targets that produce high-quality completions (deltaChrF) while also
-// showing them at the right time (showRate) and staying quiet when
+// gateScore is the harmonic mean (F1) of showRate and quietRate. This
+// rewards targets that produce high-quality completions (deltaChrF) while
+// also showing them at the right time (showRate) and staying quiet when
 // appropriate (quietRate).
 type targetStats struct {
 	name      string
@@ -39,7 +39,7 @@ func computeTargetStats(perTarget map[string][]metrics.Score, suppressStats map[
 			ts.quietRate = float64(sc.correct) / float64(sc.total)
 		}
 		// score = deltaChrF × gateScore / 100
-		// gateScore = harmonic mean of showRate and quietRate
+		// gateScore = harmonic mean of showRate and quietRate (F1).
 		gateScore := float64(0)
 		if agg.ShowRate+ts.quietRate > 0 {
 			gateScore = 2 * agg.ShowRate * ts.quietRate / (agg.ShowRate + ts.quietRate)

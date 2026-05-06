@@ -404,7 +404,7 @@ func (e *Engine) doReject() {
 }
 
 func (e *Engine) doRejectAndDebounce() {
-	e.reject()
+	e.rejectAndRemember()
 	e.startTextChangeTimer()
 }
 

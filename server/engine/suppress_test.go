@@ -549,3 +549,200 @@ func TestRejectedCompletionSuppression_LRUCapPerFile(t *testing.T) {
 	entries := eng.rejectedCompletions[buf.Path()]
 	assert.Equal(t, rejectedCompletionMaxPerFile, len(entries), "cache capped at max per file")
 }
+
+// A trailing punctuation char on a 1-2 char context line ("}" -> "};")
+// drops the Levenshtein ratio to 0.5, which would trip the strict 0.9 gate
+// even though the structural context is essentially unchanged.
+func TestRejectedCompletionSuppression_ShortContextLineLenient(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{
+		"fn foo() {",
+		"  let x = 1;",
+		"}",
+	}
+	buf.row = 2
+	buf.col = 0
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	comp := &types.Completion{
+		StartLine:  2,
+		EndLineInc: 2,
+		Lines:      []string{"  let x = 42;"},
+	}
+
+	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	eng.doReject()
+
+	// Trailing punctuation tweak on the after-line (closing brace).
+	buf.lines[2] = "};"
+
+	assert.Equal(t, completionSuppressed, eng.processCompletion(comp),
+		"trailing punctuation in short after-line context should not break suppression")
+}
+
+// A short context line with a meaningfully different character (not just an
+// extension) is still tolerated by the relaxed gate, but the content gates
+// (oldLines / lines) carry the real signal so unrelated edits won't suppress.
+func TestRejectedCompletionSuppression_ShortContextLineNoSpuriousMatch(t *testing.T) {
+	cached := &rejectedCompletion{
+		filePath:   "test.go",
+		startLine:  2,
+		endLineInc: 2,
+		beforeLine: "a",
+		afterLine:  "c",
+		oldLines:   []string{"b"},
+		lines:      []string{"updated"},
+	}
+	// Same shape but a completely different oldLines value — the lines /
+	// oldLines gate must still reject it even though context is short.
+	incoming := &rejectedCompletion{
+		filePath:   "test.go",
+		startLine:  2,
+		endLineInc: 2,
+		beforeLine: "a",
+		afterLine:  "c",
+		oldLines:   []string{"totally different content here"},
+		lines:      []string{"updated"},
+	}
+
+	matched, _ := cached.matches(incoming)
+	assert.False(t, matched, "different oldLines should not match even with short context")
+}
+
+// A rejected completion that comes back one line shorter (e.g. trailing
+// blank/comment dropped on retry) should still be suppressed when the
+// overlapping prefix is identical.
+func TestRejectedCompletionSuppression_TruncatedCompletionSuppressed(t *testing.T) {
+	cached := &rejectedCompletion{
+		filePath:   "test.go",
+		startLine:  1,
+		endLineInc: 1,
+		beforeLine: "func foo() {",
+		afterLine:  "",
+		oldLines:   []string{"  // body"},
+		lines: []string{
+			"  for i := range items {",
+			"    if items[i] > 0 {",
+			"      result = append(result, items[i])",
+			"    }",
+			"  }",
+			"  return result",
+			"  // trailing",
+		},
+	}
+	incoming := &rejectedCompletion{
+		filePath:   "test.go",
+		startLine:  1,
+		endLineInc: 1,
+		beforeLine: "func foo() {",
+		afterLine:  "",
+		oldLines:   []string{"  // body"},
+		lines: []string{
+			"  for i := range items {",
+			"    if items[i] > 0 {",
+			"      result = append(result, items[i])",
+			"    }",
+			"  }",
+			"  return result",
+		},
+	}
+
+	matched, _ := cached.matches(incoming)
+	assert.True(t, matched, "shorter retry of rejected completion should still match cached")
+}
+
+// Length differences are still penalized through the average — a 5-vs-3
+// completion has avg = 3/5 = 0.6, well below the 0.85 threshold.
+func TestRejectedCompletionSuppression_LargeLengthDiffAllowed(t *testing.T) {
+	cached := &rejectedCompletion{
+		filePath:   "test.go",
+		startLine:  1,
+		endLineInc: 1,
+		beforeLine: "func foo() {",
+		afterLine:  "",
+		oldLines:   []string{"  // body"},
+		lines:      []string{"line a", "line b", "line c", "line d", "line e"},
+	}
+	incoming := &rejectedCompletion{
+		filePath:   "test.go",
+		startLine:  1,
+		endLineInc: 1,
+		beforeLine: "func foo() {",
+		afterLine:  "",
+		oldLines:   []string{"  // body"},
+		lines:      []string{"line a", "line b", "line c"},
+	}
+
+	matched, _ := cached.matches(incoming)
+	assert.False(t, matched, "large length difference should fail the avg gate")
+}
+
+// Typing while a cursor target is shown is the equivalent of pressing Esc on
+// a regular completion: the user signaled they don't want this prediction.
+// The candidate captured at the cursor target should be cached so the same
+// prediction doesn't immediately re-pop.
+func TestRejectedCompletionSuppression_CursorTargetTypingCachesRejection(t *testing.T) {
+	buf := newMockBuffer()
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %d", i+1)
+	}
+	buf.lines = lines
+	buf.row = 1
+	buf.col = 0
+	buf.viewportTop = 1
+	buf.viewportBottom = 30
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	comp := &types.Completion{
+		StartLine:  10,
+		EndLineInc: 10,
+		Lines:      []string{"line 10 modified"},
+	}
+
+	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial cursor target shown")
+	assert.Equal(t, stateHasCursorTarget, eng.state, "should be in cursor target state")
+	assert.NotNil(t, eng.currentRejectedCompletion, "candidate captured for cursor target")
+
+	// EventTextChanged from stateHasCursorTarget is dispatched as
+	// doRejectAndDebounce by the state machine.
+	eng.doRejectAndDebounce()
+
+	assert.Equal(t, completionSuppressed, eng.processCompletion(comp),
+		"typing during cursor target should cache the rejection")
+}
+
+// Tab on a cursor target is forward progress — like accepting a regular
+// completion, the file's rejection cache should be invalidated since line
+// numbers shift and surrounding context is now stale.
+func TestRejectedCompletionSuppression_AcceptCursorTargetClearsCache(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 0
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.rejectedCompletions[buf.Path()] = []*rejectedCompletion{{
+		filePath:  buf.Path(),
+		startLine: 1,
+		lines:     []string{"hello world"},
+		expiresAt: clock.Now().Add(time.Minute),
+	}}
+
+	eng.state = stateHasCursorTarget
+	eng.cursorTarget = &types.CursorPredictionTarget{
+		RelativePath: buf.Path(),
+		LineNumber:   1,
+	}
+
+	eng.acceptCursorTarget()
+
+	assert.Nil(t, eng.rejectedCompletions[buf.Path()],
+		"Tab on cursor target should clear the file's rejection cache")
+}

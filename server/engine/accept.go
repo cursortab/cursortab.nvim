@@ -148,6 +148,9 @@ func (e *Engine) acceptCursorTarget() {
 		logger.Error("acceptCursorTarget: move cursor failed: %v", err)
 	}
 
+	// Accept = forward progress; any cached rejections for this file are stale.
+	e.forgetRejectedCompletions(e.buffer.Path())
+
 	// 2. If more staged completions, show current stage
 	if e.hasMoreStages() {
 		e.syncBuffer()

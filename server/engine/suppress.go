@@ -268,12 +268,12 @@ func (r *rejectedCompletion) matches(other *rejectedCompletion) (bool, string) {
 	if dist := absInt(r.startLine - other.startLine); dist > rejectedCompletionLineProximity {
 		return false, fmt.Sprintf("start line distance %d > %d", dist, rejectedCompletionLineProximity)
 	}
-	beforeSim := text.LineSimilarity(r.beforeLine, other.beforeLine)
-	if beforeSim < rejectedCompletionContextThreshold {
+	beforeSim, beforeOK := contextLineSimilar(r.beforeLine, other.beforeLine)
+	if !beforeOK {
 		return false, fmt.Sprintf("before-line similarity %.2f < %.2f", beforeSim, rejectedCompletionContextThreshold)
 	}
-	afterSim := text.LineSimilarity(r.afterLine, other.afterLine)
-	if afterSim < rejectedCompletionContextThreshold {
+	afterSim, afterOK := contextLineSimilar(r.afterLine, other.afterLine)
+	if !afterOK {
 		return false, fmt.Sprintf("after-line similarity %.2f < %.2f", afterSim, rejectedCompletionContextThreshold)
 	}
 	oldAvg, oldMin := completionLinesSimilarityStats(r.oldLines, other.oldLines)
@@ -314,29 +314,48 @@ func (r *rejectedCompletion) clone() *rejectedCompletion {
 
 // completionLinesSimilarityStats returns both the average and minimum
 // per-line similarity. The minimum guards against a single very-different
-// line being averaged away by surrounding identical lines.
-func completionLinesSimilarityStats(a, b []string) (avg, min float64) {
+// line being averaged away by surrounding identical lines. The minimum is
+// computed over the overlapping prefix only — trailing positions in the
+// longer slice would always count as 0 similarity and trivially fail the
+// min gate, so length differences are penalized through the average alone
+// (total summed over the overlap, divided by the longer length).
+func completionLinesSimilarityStats(a, b []string) (avg, minSim float64) {
 	if len(a) == 0 && len(b) == 0 {
 		return 1.0, 1.0
 	}
 	if len(a) == 0 || len(b) == 0 {
 		return 0, 0
 	}
+	overlap := min(len(a), len(b))
 	maxLines := max(len(a), len(b))
 
 	total := 0.0
-	minSim := 1.0
-	for i := 0; i < maxLines; i++ {
-		var sim float64
-		if i < len(a) && i < len(b) {
-			sim = text.LineSimilarity(a[i], b[i])
-		}
+	minSim = 1.0
+	for i := 0; i < overlap; i++ {
+		sim := text.LineSimilarity(a[i], b[i])
 		total += sim
 		if sim < minSim {
 			minSim = sim
 		}
 	}
 	return total / float64(maxLines), minSim
+}
+
+// contextLineSimilar reports whether two surrounding-context lines should
+// be treated as the same context. For lines longer than 3 chars after
+// trimming, the strict similarity ratio applies. For shorter lines the
+// ratio is dominated by single-char punctuation differences ("}" vs "};")
+// so the gate is relaxed — the oldLines / completion-lines gates carry the
+// real signal.
+func contextLineSimilar(a, b string) (float64, bool) {
+	sim := text.LineSimilarity(a, b)
+	if sim >= rejectedCompletionContextThreshold {
+		return sim, true
+	}
+	if max(len(a), len(b)) <= 3 {
+		return sim, true
+	}
+	return sim, false
 }
 
 func normalizeCompletionLines(lines []string) []string {

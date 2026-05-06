@@ -439,6 +439,11 @@ func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) bool {
 		e.state = stateHasCompletion
 		return true
 	}
+	if matches {
+		e.reject()
+		e.startTextChangeTimer()
+		return true
+	}
 	e.rejectAndRemember()
 	e.startTextChangeTimer()
 	return true

@@ -266,6 +266,38 @@ func TestTokenStreamingKeepPartial_FullyTyped(t *testing.T) {
 	assert.Equal(t, stateIdle, eng.state, "state after fully typing completion during streaming")
 }
 
+func TestLineStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello world"} // User typed the full completion
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.state = stateStreamingCompletion
+	eng.streamingState = &StreamingState{}
+	eng.completions = []*types.Completion{{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"hello world"},
+	}}
+	eng.completionOriginalLines = []string{"hello "}
+	eng.currentRejectedCompletion = &rejectedCompletion{
+		filePath:   buf.Path(),
+		startLine:  1,
+		endLineInc: 1,
+		beforeLine: "",
+		afterLine:  "",
+		oldLines:   []string{"hello"},
+		lines:      []string{"hello world"},
+	}
+	eng.streamLinesChan = make(chan string)
+
+	eng.doRejectStreamingAndDebounce()
+
+	assert.Equal(t, stateIdle, eng.state, "state after fully typing line-streamed completion")
+	assert.Nil(t, eng.rejectedCompletions[buf.Path()], "fully typed streamed completion should not populate rejection cache")
+}
+
 func TestLineStreamingReject_NoKeepPartial(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()

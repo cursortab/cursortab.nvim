@@ -272,13 +272,7 @@ func (e *Engine) showOrNavigateToNextStage() {
 	}
 
 	// Needs navigation - show cursor target instead
-	e.cursorTarget = &types.CursorPredictionTarget{
-		RelativePath:    e.buffer.Path(),
-		LineNumber:      int32(nextStage.BufferStart),
-		ShouldRetrigger: false,
-	}
-	e.state = stateHasCursorTarget
-	e.buffer.ShowCursorTarget(nextStage.BufferStart)
+	e.showStageCursorTarget(nextStage)
 }
 
 // transitionAfterAccept handles state transition after accept based on cursor target.

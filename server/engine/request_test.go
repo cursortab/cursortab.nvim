@@ -486,6 +486,7 @@ func TestHandlePrefetchCursorPrediction_FarDistance(t *testing.T) {
 	assert.Equal(t, stateHasCursorTarget, eng.state, "should show cursor target when far")
 	assert.NotNil(t, eng.cursorTarget, "should have cursor target")
 	assert.Equal(t, int32(10), eng.cursorTarget.LineNumber, "cursor target should point to changed line")
+	assert.NotNil(t, eng.currentRejectedCompletion, "far prefetch cursor target should capture rejection candidate")
 	assert.Equal(t, prefetchReady, eng.prefetchState, "prefetch should be ready for later use")
 }
 

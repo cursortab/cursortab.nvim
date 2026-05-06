@@ -329,15 +329,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 
 	// Transition to appropriate state
 	if stagingResult.FirstNeedsNavigation {
-		navStage := stagingResult.Stages[0]
-		e.cursorTarget = &types.CursorPredictionTarget{
-			RelativePath:    e.buffer.Path(),
-			LineNumber:      int32(navStage.BufferStart),
-			ShouldRetrigger: false,
-		}
-		e.state = stateHasCursorTarget
-		e.buffer.ShowCursorTarget(navStage.BufferStart)
-		e.currentRejectedCompletion = e.rejectedCompletionForStage(navStage)
+		e.showStageCursorTarget(stagingResult.Stages[0])
 	} else {
 		e.showCurrentStage()
 	}
@@ -394,17 +386,15 @@ func (e *Engine) handleStreamCompleteAfterAccept(ss *StreamingState) {
 		e.tryShowPrefetchedCompletion()
 	} else {
 		// Far away - show cursor prediction
-		e.cursorTarget = &types.CursorPredictionTarget{
+		e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
 			RelativePath:    e.buffer.Path(),
 			LineNumber:      int32(targetLine),
 			ShouldRetrigger: false,
-		}
+		}, e.rejectedCompletionFor(comp))
 		// Store the completions for when user jumps to target
 		e.prefetchedCompletions = resp.Completions
 		e.prefetchedCursorTarget = resp.CursorTarget
 		e.prefetchState = prefetchReady
-		e.state = stateHasCursorTarget
-		e.buffer.ShowCursorTarget(targetLine)
 	}
 }
 

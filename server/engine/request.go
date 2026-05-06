@@ -270,13 +270,11 @@ func (e *Engine) handlePrefetchCursorPrediction() {
 		e.tryShowPrefetchedCompletion()
 	} else {
 		// Show cursor prediction to the target line
-		e.cursorTarget = &types.CursorPredictionTarget{
+		e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
 			RelativePath:    e.buffer.Path(),
 			LineNumber:      int32(targetLine),
 			ShouldRetrigger: false,
-		}
-		e.state = stateHasCursorTarget
-		e.buffer.ShowCursorTarget(targetLine)
+		}, e.rejectedCompletionFor(comp))
 	}
 }
 
@@ -366,12 +364,7 @@ func (e *Engine) prefetchAtNMinusOne() {
 
 	// Build a synthetic buffer with the last stage's edit applied.
 	// This is what the buffer will look like after the user accepts.
-	lines := slices.Clone(e.buffer.Lines())
-	start := stage.BufferStart - 1 // 0-indexed
-	end := stage.BufferEnd         // exclusive (BufferEnd is 1-indexed inclusive)
-	if start >= 0 && end <= len(lines) {
-		lines = append(lines[:start], append(stage.Lines, lines[end:]...)...)
-	}
+	lines := applyStageToLines(slices.Clone(e.buffer.Lines()), stage)
 
 	// The cursor target accounts for line count changes from the stage.
 	overrideRow := max(1, int(stage.CursorTarget.LineNumber))

@@ -182,13 +182,7 @@ func (e *Engine) handleCursorTarget() {
 				e.showCurrentStage()
 				return
 			}
-			e.cursorTarget = &types.CursorPredictionTarget{
-				RelativePath:    e.buffer.Path(),
-				LineNumber:      int32(nextStage.BufferStart),
-				ShouldRetrigger: false,
-			}
-			e.state = stateHasCursorTarget
-			e.buffer.ShowCursorTarget(nextStage.BufferStart)
+			e.showStageCursorTarget(nextStage)
 			return
 		}
 
@@ -217,6 +211,27 @@ func (e *Engine) clearCompletionUIOnly() {
 	e.resetCompletionFields()
 	e.state = stateIdle
 	e.cursorTarget = nil
+}
+
+func (e *Engine) showCursorTargetWithCandidate(target *types.CursorPredictionTarget, candidate *rejectedCompletion) {
+	if target == nil || target.LineNumber < 1 {
+		return
+	}
+	e.cursorTarget = target
+	e.state = stateHasCursorTarget
+	e.currentRejectedCompletion = candidate
+	e.buffer.ShowCursorTarget(int(target.LineNumber))
+}
+
+func (e *Engine) showStageCursorTarget(stage *text.Stage) {
+	if stage == nil {
+		return
+	}
+	e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
+		RelativePath:    e.buffer.Path(),
+		LineNumber:      int32(stage.BufferStart),
+		ShouldRetrigger: false,
+	}, e.rejectedCompletionForStage(stage))
 }
 
 // showCurrentStage displays the current stage of a multi-stage completion
@@ -377,16 +392,7 @@ func (e *Engine) processCompletion(completion *types.Completion) completionOutco
 		}
 
 		if stagingResult.FirstNeedsNavigation {
-			e.cursorTarget = &types.CursorPredictionTarget{
-				RelativePath:    e.buffer.Path(),
-				LineNumber:      int32(firstStage.BufferStart),
-				ShouldRetrigger: false,
-			}
-			e.state = stateHasCursorTarget
-			e.buffer.ShowCursorTarget(firstStage.BufferStart)
-			// No ghost text was rendered, so showCurrentStage didn't run; capture
-			// the candidate manually so an Esc on the cursor target still caches.
-			e.currentRejectedCompletion = e.rejectedCompletionForStage(firstStage)
+			e.showStageCursorTarget(firstStage)
 			return completionShown
 		}
 

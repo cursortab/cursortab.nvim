@@ -731,6 +731,43 @@ func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testi
 	assert.Equal(t, 13, stage2.BufferEnd, "stage 2 BufferEnd shifted by 3")
 }
 
+func TestShowOrNavigateToNextStage_CapturesRejectedCompletionCandidate(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{
+		"line 1", "line 2", "line 3", "line 4", "line 5",
+		"line 6", "line 7", "line 8", "line 9", "old line 10",
+	}
+	buf.row = 1
+	buf.viewportTop = 1
+	buf.viewportBottom = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.stagedCompletion = &text.StagedCompletion{
+		CurrentIdx: 0,
+		Stages: []*text.Stage{{
+			BufferStart: 10,
+			BufferEnd:   10,
+			Lines:       []string{"new line 10"},
+			Groups: []*text.Group{{
+				Type:       "modification",
+				BufferLine: 10,
+				StartLine:  1,
+				EndLine:    1,
+				Lines:      []string{"new line 10"},
+				OldLines:   []string{"old line 10"},
+			}},
+		}},
+	}
+
+	eng.showOrNavigateToNextStage()
+
+	assert.Equal(t, stateHasCursorTarget, eng.state, "far next stage should show cursor target")
+	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line for next stage")
+	assert.NotNil(t, eng.currentRejectedCompletion, "next-stage cursor target should capture rejection candidate")
+}
+
 // TestPartialAccept_StagedOffset_PureAddition tests that after partially accepting
 // through a pure addition stage, the cumulative offset for subsequent stages is
 // computed correctly. When all groups are additions and BufferStart==BufferEnd,

@@ -21,7 +21,7 @@ const (
 	// after which completions are re-enabled (user is rewriting, not correcting).
 	consecutiveDeletionThreshold = 3
 
-	rejectedCompletionTTL                 = 2 * time.Minute
+	rejectedCompletionTTL                 = 30 * time.Second
 	rejectedCompletionLineProximity       = 3
 	rejectedCompletionContextThreshold    = 0.9
 	rejectedCompletionOldLinesThreshold   = 0.9

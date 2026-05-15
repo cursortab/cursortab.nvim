@@ -12,6 +12,15 @@ local ns_id = vim.api.nvim_create_namespace("cursortab")
 local is_enabled = true
 
 local is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
+local ffi = require("ffi")
+
+if is_windows then
+	ffi.cdef([[
+		void* __stdcall OpenProcess(uint32_t dwDesiredAccess, int bInheritHandle, uint32_t dwProcessId);
+		int __stdcall CloseHandle(void* hObject);
+		int __stdcall GetExitCodeProcess(void* hProcess, uint32_t* lpExitCode);
+	]])
+end
 
 local function get_ipc_path(state_dir)
 	if is_windows then
@@ -24,8 +33,16 @@ end
 -- Check if process with given PID is running
 local function is_process_running(pid)
 	if is_windows then
-		vim.fn.system('tasklist /FI "PID eq ' .. pid .. '" 2>NUL | findstr /I "' .. pid .. '"')
-		return vim.v.shell_error == 0
+		local PROCESS_QUERY_INFORMATION = 0x0400
+		local STILL_ACTIVE = 259
+		local h = ffi.C.OpenProcess(PROCESS_QUERY_INFORMATION, false, pid)
+		if h == ffi.NULL or h == nil then
+			return false
+		end
+		local exitCode = ffi.new("uint32_t[1]")
+		ffi.C.GetExitCodeProcess(h, exitCode)
+		ffi.C.CloseHandle(h)
+		return exitCode[0] == STILL_ACTIVE
 	else
 		vim.fn.system("kill -0 " .. pid .. " 2>/dev/null")
 		return vim.v.shell_error == 0
@@ -156,21 +173,39 @@ local function start_daemon()
 	end
 
 	if need_daemon_start then
-		vim.fn.jobstart({ binary_path, "--daemon" }, {
-			env = env,
-			detach = true,
-		})
+		-- Defer process creation so UI renders first (Windows CreateProcess blocks ~1.5s)
+		vim.defer_fn(function()
+			vim.fn.jobstart({ binary_path, "--daemon" }, {
+				env = env,
+				detach = true,
+			})
 
-		-- Write config so future connections can detect changes
-		vim.fn.writefile({ json_config }, config_path)
+			-- Write config so future connections can detect changes
+			vim.fn.writefile({ json_config }, config_path)
 
-		-- Wait for socket (max 1 second)
-		for _ = 1, 10 do
-			vim.wait(100)
-			if vim.fn.filereadable(ipc_path) == 1 then
-				break
+			-- Async wait for IPC file, then connect RPC
+			local function try_connect(attempts)
+				if vim.fn.filereadable(ipc_path) == 1 then
+					chan = vim.fn.jobstart({ binary_path }, {
+						rpc = true,
+						env = env,
+					})
+					return
+				end
+				if attempts > 0 then
+					vim.defer_fn(function()
+						try_connect(attempts - 1)
+					end, 100)
+				else
+					vim.notify(
+						"cursortab: daemon failed to create IPC file at " .. ipc_path .. " (timed out after 10s)",
+						vim.log.levels.ERROR
+					)
+				end
 			end
-		end
+			try_connect(100)
+		end, 0)
+		return true
 	end
 
 	-- Connect to daemon
@@ -317,7 +352,7 @@ function daemon.stop_daemon()
 	-- Send TERM signal to daemon
 	local kill_sent
 	if is_windows then
-		vim.fn.system('taskkill /PID ' .. pid)
+		vim.fn.system("taskkill /PID " .. pid)
 		kill_sent = vim.v.shell_error == 0
 	else
 		vim.fn.system("kill " .. pid .. " 2>/dev/null")
@@ -340,7 +375,7 @@ function daemon.stop_daemon()
 	-- Process didn't terminate gracefully, force kill
 	if is_process_running(pid) then
 		if is_windows then
-			vim.fn.system('taskkill /F /PID ' .. pid)
+			vim.fn.system("taskkill /F /PID " .. pid)
 		else
 			vim.fn.system("kill -9 " .. pid .. " 2>/dev/null")
 		end

@@ -9,7 +9,6 @@ local daemon = {}
 ---@type integer|nil
 local chan = nil
 local ns_id = vim.api.nvim_create_namespace("cursortab")
-local event_debounce_timer = nil
 local is_enabled = true
 
 -- Check if process with given PID is running
@@ -168,9 +167,10 @@ local function start_daemon()
 	return chan > 0
 end
 
--- Send RPC event to daemon
+-- Public API
+
 ---@param event_name string
-local function send_rpc_event(event_name)
+function daemon.send_event(event_name)
 	if buffer.should_skip() or not is_enabled then
 		return
 	end
@@ -187,20 +187,6 @@ local function send_rpc_event(event_name)
 	if not success then
 		chan = nil
 	end
-end
-
--- Public API
-
--- Send event with debouncing
----@param event_name string
-function daemon.send_event(event_name)
-	if event_debounce_timer then
-		vim.fn.timer_stop(event_debounce_timer)
-	end
-	local event_debounce_ms = 10 -- hardcoded internal value
-	event_debounce_timer = vim.fn.timer_start(event_debounce_ms, function()
-		send_rpc_event(event_name)
-	end)
 end
 
 -- Get the namespace ID
@@ -225,12 +211,6 @@ function daemon.send_reject()
 			vim.fn.rpcnotify(chan, "cursortab_event", "esc")
 		end)
 	end
-end
-
--- Send event immediately without debouncing (for critical events like insert_leave)
----@param event_name string
-function daemon.send_event_immediate(event_name)
-	send_rpc_event(event_name)
 end
 
 -- Check daemon process status

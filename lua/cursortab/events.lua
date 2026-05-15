@@ -98,7 +98,7 @@ local function on_accept()
 		completing = true
 		suppress_blink()
 		vim.schedule(dismiss_native_completion)
-		daemon.send_event_immediate("accept")
+		daemon.send_event("accept")
 		return ""
 	else
 		return "\t"
@@ -107,7 +107,7 @@ end
 
 -- Escape key handler
 local function on_escape()
-	daemon.send_event_immediate("esc")
+	daemon.send_event("esc")
 end
 
 -- Partial accept handler (Shift-Tab by default)
@@ -120,7 +120,7 @@ local function on_partial_accept()
 		completing = true
 		suppress_blink()
 		vim.schedule(dismiss_native_completion)
-		daemon.send_event_immediate("partial_accept")
+		daemon.send_event("partial_accept")
 		return ""
 	else
 		-- Pass through configured key
@@ -131,7 +131,7 @@ end
 
 -- Manual trigger handler
 local function on_trigger()
-	daemon.send_event_immediate("trigger_completion")
+	daemon.send_event("trigger_completion")
 end
 
 -- Update a single keymap slot: clear old binding if changed, set new one
@@ -304,8 +304,7 @@ local function setup_autocommands()
 			if ui.has_cursor_prediction() or ui.has_completion() then
 				ui.ensure_close_all()
 			end
-			-- Send immediately without debounce - critical for committing user edits
-			daemon.send_event_immediate("insert_leave")
+			daemon.send_event("insert_leave")
 		end,
 	})
 

@@ -68,12 +68,14 @@ func NewDaemon(config Config) (*Daemon, error) {
 		DeviceID:            loadOrCreateDeviceID(config.StateDir),
 	}
 
-	providerConfig.FIMTokens = types.FIMTokenConfig{
-		Prefix:   config.Provider.FIMTokens.Prefix,
-		Suffix:   config.Provider.FIMTokens.Suffix,
-		Middle:   config.Provider.FIMTokens.Middle,
-		RepoName: config.Provider.FIMTokens.RepoName,
-		FileSep:  config.Provider.FIMTokens.FileSep,
+	if config.Provider.FIMTokens != nil {
+		providerConfig.FIMTokens = &types.FIMTokenConfig{
+			Prefix:   config.Provider.FIMTokens.Prefix,
+			Suffix:   config.Provider.FIMTokens.Suffix,
+			Middle:   config.Provider.FIMTokens.Middle,
+			RepoName: config.Provider.FIMTokens.RepoName,
+			FileSep:  config.Provider.FIMTokens.FileSep,
+		}
 	}
 
 	buf := buffer.New(buffer.Config{

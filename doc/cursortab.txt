@@ -113,13 +113,15 @@ Full configuration with defaults: >lua
       completion_timeout = 5000,    -- ms
       max_diff_history_tokens = 512,
       completion_path = "/v1/completions",
-      fim_tokens = {
-        prefix = "<|fim_prefix|>",
-        suffix = "<|fim_suffix|>",
-        middle = "<|fim_middle|>",
-        repo_name = "",             -- Optional: enables cross-file context
-        file_sep = "",              -- Optional: enables cross-file context
-      },
+      -- fim_tokens is optional. Omit (the default) to use OpenAI prompt+suffix
+      -- format (e.g. DeepSeek). Set it to opt into tokenized FIM:
+      --   fim_tokens = {
+      --     prefix = "<|fim_prefix|>",
+      --     suffix = "<|fim_suffix|>",
+      --     middle = "<|fim_middle|>",
+      --     repo_name = "<|repo_name|>", -- optional; auto-detected for Qwen
+      --     file_sep = "<|file_sep|>",   -- optional; auto-detected for Qwen
+      --   },
     },
 
     blink = {
@@ -322,7 +324,15 @@ PROVIDER OPTIONS                                    *cursortab-config-provider*
 
   `fim_tokens`                                 *cursortab-config-provider-fim*
       FIM (Fill-in-the-Middle) tokens configuration. Only used by the FIM
-      provider. When nil, uses default tokens.
+      provider.
+
+      When omitted (nil), the FIM provider uses the standard OpenAI
+      completions API `prompt` + `suffix` format. This is the format used
+      by APIs such as DeepSeek.
+
+      When set, the provider concatenates prefix content, suffix content,
+      and special delimiter tokens into a single `prompt` string (tokenized
+      FIM format).
 
       When `repo_name` and `file_sep` are set, the FIM provider prepends
       cross-file context (recent files, diagnostics, treesitter, diff history,

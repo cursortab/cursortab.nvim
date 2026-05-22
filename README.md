@@ -316,6 +316,7 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 | sweep-next-edit-1.5B | sweep      |     0.21 |      43.7 |       68% |        36% |      157 |      258 |
 | qwen3.5-2B           | fim        |     0.20 |      35.1 |       80% |        44% |      185 |      429 |
 | qwen3.5-4B           | fim        |     0.18 |      28.7 |       64% |        64% |      357 |      730 |
+| windsurf             | windsurf   |     0.13 |      19.1 |       52% |   **100%** |      556 |      995 |
 | copilot              | copilot    |     0.13 |      22.3 |       40% |   **100%** |      351 |      915 |
 | sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |  **207** |
 | qwen3.6-35B-A3B      | fim        |     0.10 |      19.2 |       40% |        80% |  **113** |      411 |

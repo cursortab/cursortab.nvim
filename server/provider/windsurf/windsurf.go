@@ -91,6 +91,13 @@ import (
 	"cursortab/types"
 )
 
+// InfoProvider is the minimum interface the Windsurf provider needs from the
+// buffer. *buffer.NvimBuffer satisfies this via duck typing. The eval harness
+// provides a cassette-backed implementation that returns static info.
+type InfoProvider interface {
+	GetWindsurfInfo() (*buffer.WindsurfInfo, error)
+}
+
 const windsurfBlockPartType = "COMPLETION_PART_TYPE_BLOCK"
 const windsurfInlineMaskPartType = "COMPLETION_PART_TYPE_INLINE_MASK"
 
@@ -258,18 +265,22 @@ type windsurfAcceptRequest struct {
 }
 
 type Provider struct {
-	buffer     *buffer.NvimBuffer
+	buffer     InfoProvider
 	httpClient *http.Client
 	reqCounter int
 }
 
-func NewProvider(buf *buffer.NvimBuffer) *Provider {
+func NewProvider(buf InfoProvider) *Provider {
 	return &Provider{
 		buffer: buf,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
+	p.httpClient.Transport = rt
 }
 
 func (p *Provider) GetContextLimits() engine.ContextLimits {

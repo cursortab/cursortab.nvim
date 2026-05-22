@@ -14,6 +14,7 @@ func DefaultTargets() map[string]Target {
 	return map[string]Target{
 		"mercuryapi": {Name: "mercuryapi", Type: "mercuryapi", Model: mercuryclient.Model},
 		"copilot":    {Name: "copilot", Type: "copilot"},
+		"windsurf":   {Name: "windsurf", Type: "windsurf"},
 
 		"sweep-next-edit-0.5B": {Name: "sweep-next-edit-0.5B", Type: "sweep", Model: "sweep-next-edit-0.5B", URL: url},
 		"sweep-next-edit-1.5B": {Name: "sweep-next-edit-1.5B", Type: "sweep", Model: "sweep-next-edit-1.5B", URL: url},

@@ -147,7 +147,7 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
 				}
-				sr.Shown = eng.processCompletion(comp)
+				sr.Shown = eng.processCompletion(comp) == completionShown
 			}
 
 		case "prefetch":
@@ -163,6 +163,20 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 				}}
 				eng.prefetchState = prefetchReady
 				sr.Shown = eng.tryShowPrefetchedCompletion()
+			}
+
+		case "stash-prefetch":
+			if step.Completion != nil {
+				sr.OldLines, sr.OldEndOrig, sr.OldEndActual = extractOldLines(buf.lines, step.Completion)
+				sr.OldStart = step.Completion.StartLine
+				sr.NewLines = step.Completion.Lines
+
+				eng.prefetchedCompletions = []*types.Completion{{
+					StartLine:  step.Completion.StartLine,
+					EndLineInc: step.Completion.EndLineInc,
+					Lines:      step.Completion.Lines,
+				}}
+				eng.prefetchState = prefetchReady
 			}
 
 		case "accept":
@@ -225,6 +239,24 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 							sr.Failures = append(sr.Failures, fmt.Sprintf("line %d: got %q, want %q", j+1, sr.ActualBuffer[j], sr.ExpectedBuffer[j]))
 						}
 					}
+				}
+			}
+			if step.Expect.CursorTargetLine != nil {
+				if *step.Expect.CursorTargetLine != buf.showCursorTargetLine {
+					sr.Failures = append(sr.Failures, fmt.Sprintf("cursorTargetLine: got %d, want %d", buf.showCursorTargetLine, *step.Expect.CursorTargetLine))
+				}
+			}
+			if step.Expect.State != "" {
+				actual := strings.ToLower(eng.state.String())
+				want := strings.ToLower(step.Expect.State)
+				if actual != want {
+					sr.Failures = append(sr.Failures, fmt.Sprintf("state: got %q, want %q", actual, want))
+				}
+			}
+			if step.Expect.PrefetchState != "" {
+				actual := prefetchStateName(eng.prefetchState)
+				if !strings.EqualFold(actual, step.Expect.PrefetchState) {
+					sr.Failures = append(sr.Failures, fmt.Sprintf("prefetchState: got %q, want %q", actual, step.Expect.PrefetchState))
 				}
 			}
 		}

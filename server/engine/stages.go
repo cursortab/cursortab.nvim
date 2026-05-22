@@ -1,6 +1,10 @@
 package engine
 
-import "cursortab/text"
+import (
+	"slices"
+
+	"cursortab/text"
+)
 
 // stageIsPureInsertion reports whether a stage is a pure insertion (no
 // replacement — only addition groups at a single buffer line).
@@ -88,7 +92,7 @@ func advanceStageOffsets(stages []*text.Stage, appliedIdx int) {
 // mutated.
 func applyAllStages(bufLines []string, stagedStages []*text.Stage) []string {
 	if len(stagedStages) == 0 {
-		return append([]string{}, bufLines...)
+		return slices.Clone(bufLines)
 	}
 	stages := make([]*text.Stage, len(stagedStages))
 	for i, s := range stagedStages {
@@ -100,7 +104,7 @@ func applyAllStages(bufLines []string, stagedStages []*text.Stage) []string {
 		}
 		stages[i] = &cp
 	}
-	out := append([]string{}, bufLines...)
+	out := slices.Clone(bufLines)
 	for i := range stages {
 		out = applyStageToLines(out, stages[i])
 		advanceStageOffsets(stages, i)

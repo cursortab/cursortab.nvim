@@ -1,7 +1,7 @@
 ---@diagnostic disable: undefined-doc-name
 local config = require("cursortab.config")
 local daemon = require("cursortab.daemon")
-local source = require("cursortab.source")
+local ui = require("cursortab.ui")
 
 local M = {}
 
@@ -35,15 +35,15 @@ function M:get_completions(_, callback)
 		return
 	end
 
-	local append_item = source.get_append_item()
-	if not append_item then
+	local append_chars = ui.get_append_chars()
+	if not append_chars or append_chars.text == "" then
 		callback(empty_response)
 		return
 	end
 
 	local item = {
-		label = append_item.label,
-		insertText = append_item.insertText,
+		label = append_chars.text,
+		insertText = append_chars.text,
 		kind = require("blink.cmp.types").CompletionItemKind.Text,
 		kind_name = "Cursortab",
 		kind_hl = "BlinkCmpItemKindCursortab",

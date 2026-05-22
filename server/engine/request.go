@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"cursortab/ctx"
 	"cursortab/logger"
@@ -32,6 +33,12 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 	if e.stopped {
 		return
 	}
+
+	// Drop any leftover stream from a prior accept-during-streaming. The
+	// new request supersedes its "next prediction" output; without this,
+	// the leftover stream's late completion hits handleStreamCompleteAfterAccept
+	// and rewrites state we're about to set up here.
+	e.cancelStreaming()
 
 	e.syncBuffer()
 
@@ -153,12 +160,7 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 		return
 	}
 
-	// Cancel existing prefetch if any
-	if e.prefetchCancel != nil {
-		e.prefetchCancel()
-		e.prefetchCancel = nil
-		e.prefetchState = prefetchNone
-	}
+	e.cancelPrefetch()
 
 	// Sync buffer to ensure latest context
 	e.syncBuffer()
@@ -167,43 +169,32 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 	e.prefetchCancel = cancel
 	e.prefetchState = prefetchInFlight
 
-	// Snapshot required values to avoid races with buffer mutation
+	// Snapshot required values under the event loop's lock so the goroutine
+	// doesn't race with concurrent mutations of buffer state or fileStateStore.
 	lines := opts.Lines
 	if lines == nil {
-		lines = append([]string{}, e.buffer.Lines()...)
+		lines = slices.Clone(e.buffer.Lines())
 	}
-	previousLines := append([]string{}, e.buffer.PreviousLines()...)
-	version := e.buffer.Version()
-	filePath := e.buffer.Path()
-	viewportHeight := e.getViewportHeightConstraint()
+	req := &types.CompletionRequest{
+		Source:            source,
+		WorkspacePath:     e.WorkspacePath,
+		WorkspaceID:       e.WorkspaceID,
+		FilePath:          e.buffer.Path(),
+		Lines:             lines,
+		Version:           e.buffer.Version(),
+		PreviousLines:     slices.Clone(e.buffer.PreviousLines()),
+		FileDiffHistories: e.getAllFileDiffHistories(),
+		CursorRow:         overrideRow,
+		CursorCol:         overrideCol,
+		ViewportHeight:    e.getViewportHeightConstraint(),
+		MaxVisibleLines:   e.config.MaxVisibleLines,
+		AdditionalContext: e.gatherContext(e.buffer.Path()),
+	}
 
 	go func() {
 		defer cancel()
-		// Stop() cancels mainCtx and closes eventChan in that order. There's
-		// still a race where this goroutine can commit to the send branch
-		// of the select below just as the channel is being closed. Recover
-		// so the in-flight prefetch doesn't tear the whole process down.
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Debug("prefetch goroutine recovered from panic during shutdown: %v", r)
-			}
-		}()
 
-		result, err := e.provider.GetCompletion(ctx, &types.CompletionRequest{
-			Source:            source,
-			WorkspacePath:     e.WorkspacePath,
-			WorkspaceID:       e.WorkspaceID,
-			FilePath:          filePath,
-			Lines:             lines,
-			Version:           version,
-			PreviousLines:     previousLines,
-			FileDiffHistories: e.getAllFileDiffHistories(),
-			CursorRow:         overrideRow,
-			CursorCol:         overrideCol,
-			ViewportHeight:    viewportHeight,
-			MaxVisibleLines:   e.config.MaxVisibleLines,
-			AdditionalContext: e.gatherContext(filePath),
-		})
+		result, err := e.provider.GetCompletion(ctx, req)
 
 		if err != nil {
 			select {
@@ -279,13 +270,11 @@ func (e *Engine) handlePrefetchCursorPrediction() {
 		e.tryShowPrefetchedCompletion()
 	} else {
 		// Show cursor prediction to the target line
-		e.cursorTarget = &types.CursorPredictionTarget{
+		e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
 			RelativePath:    e.buffer.Path(),
 			LineNumber:      int32(targetLine),
 			ShouldRetrigger: false,
-		}
-		e.state = stateHasCursorTarget
-		e.buffer.ShowCursorTarget(targetLine)
+		}, e.rejectedCompletionFor(comp))
 	}
 }
 
@@ -298,12 +287,8 @@ func (e *Engine) tryShowPrefetchedCompletion() bool {
 	e.syncBuffer()
 
 	comp := e.prefetchedCompletions[0]
-
-	e.prefetchedCompletions = nil
-	e.prefetchedCursorTarget = nil
-	e.prefetchState = prefetchNone
-
-	return e.processCompletion(comp)
+	e.clearPrefetchResult()
+	return e.processCompletion(comp) == completionShown
 }
 
 // handlePrefetchError processes a prefetch error
@@ -333,13 +318,9 @@ func (e *Engine) handleDeferredCursorTarget() {
 		e.syncBuffer()
 
 		comp := e.prefetchedCompletions[0]
+		e.clearPrefetchResult()
 
-		// Clear prefetch state before processing
-		e.prefetchedCompletions = nil
-		e.prefetchedCursorTarget = nil
-		e.prefetchState = prefetchNone
-
-		if e.processCompletion(comp) {
+		if e.processCompletion(comp) == completionShown {
 			return
 		}
 
@@ -383,12 +364,7 @@ func (e *Engine) prefetchAtNMinusOne() {
 
 	// Build a synthetic buffer with the last stage's edit applied.
 	// This is what the buffer will look like after the user accepts.
-	lines := append([]string{}, e.buffer.Lines()...)
-	start := stage.BufferStart - 1 // 0-indexed
-	end := stage.BufferEnd         // exclusive (BufferEnd is 1-indexed inclusive)
-	if start >= 0 && end <= len(lines) {
-		lines = append(lines[:start], append(stage.Lines, lines[end:]...)...)
-	}
+	lines := applyStageToLines(slices.Clone(e.buffer.Lines()), stage)
 
 	// The cursor target accounts for line count changes from the stage.
 	overrideRow := max(1, int(stage.CursorTarget.LineNumber))

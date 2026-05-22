@@ -1,0 +1,24 @@
+A stashed prefetch that overlaps the accepted stage but doesn't extend beyond it is cleared, not used. After accept the engine triggers a new prefetch and goes idle because the cursor target is close.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+
+}
+-- steps --
+completion 2-2
+  | "  return a + b;"
+expect shown state=hasCompletion
+
+stash-prefetch 2-2
+  | "  return a + b;"
+
+accept
+expect state=idle prefetchState=waitingForCursorPrediction
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+

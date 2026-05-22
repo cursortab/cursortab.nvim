@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"cursortab/assert"
+	mercuryclient "cursortab/client/mercuryapi"
 	"cursortab/eval/cassette"
 	"cursortab/types"
 )
@@ -175,11 +176,11 @@ func TestRegressionNoEditsSuppressed(t *testing.T) {
 			ViewportTop:    1,
 			ViewportBottom: 20,
 		},
-		Targets: []Target{{Name: "mercuryapi", Type: "mercuryapi", Model: "mercury-edit"}},
+		Targets: []Target{{Name: "mercuryapi", Type: "mercuryapi", Model: mercuryclient.Model}},
 		Cassettes: map[string]*cassette.Cassette{
 			// Empty cassette: if gating doesn't fire, the replayer will panic
 			// and the test fails.
-			"mercuryapi": cassette.New("mercuryapi", "mercury-edit"),
+			"mercuryapi": cassette.New("mercuryapi", mercuryclient.Model),
 		},
 	}
 
@@ -205,7 +206,7 @@ func TestEvalAcceptDoesNotRetriggerRequests(t *testing.T) {
 		return string(payload)
 	}
 
-	cs := cassette.New("mercuryapi", "mercury-edit")
+	cs := cassette.New("mercuryapi", mercuryclient.Model)
 	cs.Interactions = append(cs.Interactions,
 		cassette.Interaction{
 			Request:    cassette.RecordedRequest{Method: "POST", URL: "https://example/"},
@@ -302,7 +303,7 @@ function greet(name) {
 // fixture is loaded correctly.
 func TestParseCassetteSection(t *testing.T) {
 	// Build a minimal cassette.
-	cs := cassette.New("mercuryapi", "mercury-edit")
+	cs := cassette.New("mercuryapi", mercuryclient.Model)
 	cs.Interactions = append(cs.Interactions, cassette.Interaction{
 		Request: cassette.RecordedRequest{
 			Method: "POST", URL: "https://example/",
@@ -318,7 +319,7 @@ func TestParseCassetteSection(t *testing.T) {
 	var buf bytes.Buffer
 	assert.NoError(t, cs.Write(&buf), "write cassette")
 	body := buf.String()
-	if !strings.Contains(body, "mercury-edit") {
+	if !strings.Contains(body, mercuryclient.Model) {
 		t.Fatalf("expected model version in cassette body: %q", body)
 	}
 

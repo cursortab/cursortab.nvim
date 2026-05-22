@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"sort"
 
 	"cursortab/buffer"
@@ -25,10 +26,10 @@ func (e *Engine) syncBuffer() {
 // newFileStateFromBuffer creates a FileState snapshot from current buffer state.
 func (e *Engine) newFileStateFromBuffer() *FileState {
 	return &FileState{
-		PreviousLines: copyLines(e.buffer.PreviousLines()),
-		DiffHistories: copyDiffs(e.buffer.DiffHistories()),
-		OriginalLines: copyLines(e.buffer.OriginalLines()),
-		DiskLines:     copyLines(e.buffer.DiskLines()),
+		PreviousLines: slices.Clone(e.buffer.PreviousLines()),
+		DiffHistories: slices.Clone(e.buffer.DiffHistories()),
+		OriginalLines: slices.Clone(e.buffer.OriginalLines()),
+		DiskLines:     slices.Clone(e.buffer.DiskLines()),
 		LastAccessNs:  e.clock.Now().UnixNano(),
 		Version:       e.buffer.Version(),
 	}
@@ -41,8 +42,7 @@ func (e *Engine) saveCurrentFileState() {
 	}
 
 	state := e.newFileStateFromBuffer()
-	// Capture first lines for FileChunks context
-	state.FirstLines = copyFirstN(e.buffer.Lines(), e.contextLimits.FileChunkLines)
+	state.FirstLines = firstN(e.buffer.Lines(), e.contextLimits.FileChunkLines)
 	e.fileStateStore[e.buffer.Path()] = state
 	e.trimFileStateStore(3) // Keep at most 3 files for FileChunks
 }
@@ -53,10 +53,24 @@ func (e *Engine) handleFileSwitch(oldPath, newPath string, currentLines []string
 		return false
 	}
 
+	// Drop any in-flight or visible completion work tied to the old file.
+	// The old file's prefetched/streaming/staged completions reference its
+	// line content; applying them against the new buffer would render
+	// against the wrong rows. Late-arriving responses for the cancelled
+	// requests are then discarded by the state guards in events.go.
+	e.cancelCurrentRequest()
+	e.cancelPrefetch()
+	e.cancelStreaming()
+	e.cursorTarget = nil
+	e.stagedCompletion = nil
+	e.resetCompletionFields()
+	e.state = stateIdle
+	e.buffer.ClearUI()
+
 	if oldPath != "" {
 		state := e.newFileStateFromBuffer()
 		// Capture first lines for FileChunks context
-		state.FirstLines = copyFirstN(currentLines, e.contextLimits.FileChunkLines)
+		state.FirstLines = firstN(currentLines, e.contextLimits.FileChunkLines)
 		e.fileStateStore[oldPath] = state
 	}
 
@@ -74,11 +88,10 @@ func (e *Engine) handleFileSwitch(oldPath, newPath string, currentLines []string
 		delete(e.fileStateStore, newPath)
 	}
 
-	lines := copyLines(currentLines)
 	e.buffer.SetFileContext(buffer.FileContext{
-		PreviousLines: lines,
-		OriginalLines: copyLines(currentLines),
-		DiskLines:     copyLines(currentLines),
+		PreviousLines: slices.Clone(currentLines),
+		OriginalLines: slices.Clone(currentLines),
+		DiskLines:     slices.Clone(currentLines),
 	})
 	return false
 }
@@ -92,10 +105,7 @@ func (e *Engine) isFileStateValid(state *FileState, currentLines []string) bool 
 	origLen := len(state.OriginalLines)
 	currLen := len(currentLines)
 	if origLen != currLen {
-		diff := origLen - currLen
-		if diff < 0 {
-			diff = -diff
-		}
+		diff := utils.Abs(origLen - currLen)
 		threshold := max(origLen/10, 10)
 		if diff > threshold {
 			return false
@@ -119,27 +129,34 @@ func (e *Engine) isFileStateValid(state *FileState, currentLines []string) bool 
 	return mismatches <= len(checkIndices)/2
 }
 
+// fileStatesByRecency returns (path, state) pairs from the file state store,
+// sorted by LastAccessNs descending (most recently accessed first). Pairs for
+// which keep returns false are skipped.
+func (e *Engine) fileStatesByRecency(keep func(path string, state *FileState) bool) []fileStateEntry {
+	entries := make([]fileStateEntry, 0, len(e.fileStateStore))
+	for path, state := range e.fileStateStore {
+		if keep == nil || keep(path, state) {
+			entries = append(entries, fileStateEntry{path, state})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].state.LastAccessNs > entries[j].state.LastAccessNs
+	})
+	return entries
+}
+
+type fileStateEntry struct {
+	path  string
+	state *FileState
+}
+
 // trimFileStateStore keeps only the most recently accessed maxFiles files
 func (e *Engine) trimFileStateStore(maxFiles int) {
 	if len(e.fileStateStore) <= maxFiles {
 		return
 	}
-
-	type entry struct {
-		path  string
-		state *FileState
-	}
-
-	entries := make([]entry, 0, len(e.fileStateStore))
-	for path, state := range e.fileStateStore {
-		entries = append(entries, entry{path, state})
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].state.LastAccessNs > entries[j].state.LastAccessNs
-	})
-
-	e.fileStateStore = make(map[string]*FileState)
+	entries := e.fileStatesByRecency(nil)
+	e.fileStateStore = make(map[string]*FileState, maxFiles)
 	for i := 0; i < maxFiles && i < len(entries); i++ {
 		e.fileStateStore[entries[i].path] = entries[i].state
 	}
@@ -167,7 +184,7 @@ func (e *Engine) getAllFileDiffHistories() []*types.FileDiffHistory {
 
 	// Current file history (most recent, added last for chronological ordering)
 	if currentPath != "" && len(e.buffer.DiffHistories()) > 0 {
-		diffs := buffer.ProcessDiffHistory(copyDiffs(e.buffer.DiffHistories()), e.clock.Now().UnixNano())
+		diffs := buffer.ProcessDiffHistory(slices.Clone(e.buffer.DiffHistories()), e.clock.Now().UnixNano())
 
 		if e.config.MaxDiffTokens > 0 {
 			diffs = utils.TrimDiffEntries(diffs, e.config.MaxDiffTokens)
@@ -187,55 +204,19 @@ func (e *Engine) getAllFileDiffHistories() []*types.FileDiffHistory {
 	return result
 }
 
-// copyLines creates a deep copy of a string slice
-func copyLines(lines []string) []string {
-	if lines == nil {
-		return nil
-	}
-	result := make([]string, len(lines))
-	copy(result, lines)
-	return result
-}
-
-// copyDiffs creates a deep copy of a DiffEntry slice
-func copyDiffs(diffs []*types.DiffEntry) []*types.DiffEntry {
-	if diffs == nil {
-		return nil
-	}
-	result := make([]*types.DiffEntry, len(diffs))
-	copy(result, diffs)
-	return result
-}
-
-// copyFirstN creates a copy of the first n lines
-func copyFirstN(lines []string, n int) []string {
-	if lines == nil {
-		return nil
-	}
+// firstN returns a clone of the first n lines (or all of them if n exceeds the length).
+func firstN(lines []string, n int) []string {
 	if n < 0 || len(lines) <= n {
-		return copyLines(lines)
+		return slices.Clone(lines)
 	}
-	return copyLines(lines[:n])
+	return slices.Clone(lines[:n])
 }
 
 // getRecentBufferSnapshots returns up to limit recent buffer snapshots
 // excluding the current file, sorted by most recently accessed
 func (e *Engine) getRecentBufferSnapshots(excludePath string, limit int) []*types.RecentBufferSnapshot {
-	type entry struct {
-		path  string
-		state *FileState
-	}
-
-	var entries []entry
-	for path, state := range e.fileStateStore {
-		if path != excludePath && len(state.FirstLines) > 0 {
-			entries = append(entries, entry{path, state})
-		}
-	}
-
-	// Sort by LastAccessNs descending (most recent first)
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].state.LastAccessNs > entries[j].state.LastAccessNs
+	entries := e.fileStatesByRecency(func(path string, state *FileState) bool {
+		return path != excludePath && len(state.FirstLines) > 0
 	})
 
 	var result []*types.RecentBufferSnapshot

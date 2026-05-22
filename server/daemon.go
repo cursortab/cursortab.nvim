@@ -6,10 +6,8 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/signal"
 	"strconv"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"cursortab/buffer"
@@ -23,7 +21,6 @@ import (
 	"cursortab/provider/inline"
 	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
-	"cursortab/provider/sweepapi"
 	"cursortab/provider/windsurf"
 	"cursortab/provider/zeta"
 	"cursortab/provider/zeta2"
@@ -38,7 +35,6 @@ type Daemon struct {
 	buffer      *buffer.NvimBuffer
 	engine      *engine.Engine
 	listener    net.Listener
-	socketPath  string
 	pidPath     string
 	clientCount int64
 	shutdown    chan bool
@@ -66,19 +62,21 @@ func NewDaemon(config Config) (*Daemon, error) {
 		CompletionPath:      config.Provider.CompletionPath,
 		CompletionTimeout:   config.Provider.CompletionTimeout,
 		PrivacyMode:         config.Provider.PrivacyMode,
-		Version:             "0.7.8", // AUTO-UPDATED by release workflow
+		Version:             "0.8.0", // AUTO-UPDATED by release workflow
 		EditorVersion:       config.EditorVersion,
 		EditorOS:            config.EditorOS,
 		StateDir:            config.StateDir,
 		DeviceID:            loadOrCreateDeviceID(config.StateDir),
 	}
 
-	providerConfig.FIMTokens = types.FIMTokenConfig{
-		Prefix:   config.Provider.FIMTokens.Prefix,
-		Suffix:   config.Provider.FIMTokens.Suffix,
-		Middle:   config.Provider.FIMTokens.Middle,
-		RepoName: config.Provider.FIMTokens.RepoName,
-		FileSep:  config.Provider.FIMTokens.FileSep,
+	if config.Provider.FIMTokens != nil {
+		providerConfig.FIMTokens = &types.FIMTokenConfig{
+			Prefix:   config.Provider.FIMTokens.Prefix,
+			Suffix:   config.Provider.FIMTokens.Suffix,
+			Middle:   config.Provider.FIMTokens.Middle,
+			RepoName: config.Provider.FIMTokens.RepoName,
+			FileSep:  config.Provider.FIMTokens.FileSep,
+		}
 	}
 
 	buf := buffer.New(buffer.Config{
@@ -93,8 +91,6 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = fim.NewProvider(providerConfig)
 	case types.ProviderTypeSweep:
 		prov = sweep.NewProvider(providerConfig)
-	case types.ProviderTypeSweepAPI:
-		prov = sweepapi.NewProvider(providerConfig)
 	case types.ProviderTypeZeta:
 		prov = zeta.NewProvider(providerConfig)
 	case types.ProviderTypeZeta2:
@@ -108,15 +104,6 @@ func NewDaemon(config Config) (*Daemon, error) {
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", config.Provider.Type)
 	}
-
-	provType := types.ProviderType(config.Provider.Type)
-	editCompletionProvider := provType == types.ProviderTypeSweep ||
-		provType == types.ProviderTypeSweepAPI ||
-		provType == types.ProviderTypeZeta ||
-		provType == types.ProviderTypeZeta2 ||
-		provType == types.ProviderTypeCopilot ||
-		provType == types.ProviderTypeMercuryAPI ||
-		provType == types.ProviderTypeWindsurf
 
 	// Initialize dataset sender if user opted in to contribute data
 	var datasetSender metrics.Sender
@@ -144,7 +131,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		DisabledIn:             config.Behavior.DisabledIn,
 		CompleteInInsert:       config.Behavior.CompleteInInsert,
 		CompleteInNormal:       config.Behavior.CompleteInNormal,
-		EditCompletionProvider: editCompletionProvider,
+		EditCompletionProvider: types.ProviderType(config.Provider.Type).IsEditCompletion(),
 	}, engine.SystemClock, ctx.NewGatherer(buf), datasetSender)
 	if err != nil {
 		return nil, err
@@ -153,15 +140,14 @@ func NewDaemon(config Config) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Daemon{
-		config:     config,
-		provider:   prov,
-		buffer:     buf,
-		engine:     eng,
-		socketPath: getSocketPath(config.StateDir),
-		pidPath:    getPidPath(config.StateDir),
-		shutdown:   make(chan bool, 1),
-		ctx:        ctx,
-		cancel:     cancel,
+		config:   config,
+		provider: prov,
+		buffer:   buf,
+		engine:   eng,
+		pidPath:  getPidPath(config.StateDir),
+		shutdown: make(chan bool, 1),
+		ctx:      ctx,
+		cancel:   cancel,
 	}, nil
 }
 
@@ -170,13 +156,15 @@ func (d *Daemon) Start() error {
 	d.writePidFile()
 	defer d.removePidFile()
 
-	// Setup socket
-	if err := d.setupSocket(); err != nil {
+	// Setup IPC
+	listener, addr, err := listenIPC(d.config.StateDir)
+	if err != nil {
 		return err
 	}
-	defer d.cleanup()
+	d.listener = listener
+	defer cleanupIPC(d.config.StateDir)
 
-	logger.Info("daemon listening on socket: %s", d.socketPath)
+	logger.Info("daemon listening on: %s", addr)
 
 	// Start engine
 	d.engine.Start(d.ctx)
@@ -196,27 +184,11 @@ func (d *Daemon) Start() error {
 	return nil
 }
 
-func (d *Daemon) setupSocket() error {
-	// Remove existing socket
-	os.Remove(d.socketPath)
-
-	// Listen on Unix socket
-	listener, err := net.Listen("unix", d.socketPath)
-	if err != nil {
-		return err
-	}
-	d.listener = listener
-	return nil
-}
-
 func (d *Daemon) setupShutdownHandling() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-sigChan
+	setupShutdownHandler(func() {
 		logger.Info("received shutdown signal")
 		d.Stop()
-	}()
+	})
 }
 
 func (d *Daemon) acceptConnections() {
@@ -314,14 +286,10 @@ func (d *Daemon) monitorIdleShutdown() {
 
 func (d *Daemon) Stop() {
 	d.engine.Stop()
+	d.cancel()
 	if d.listener != nil {
 		d.listener.Close()
 	}
-	d.cancel()
-}
-
-func (d *Daemon) cleanup() {
-	os.Remove(d.socketPath)
 }
 
 func (d *Daemon) writePidFile() {

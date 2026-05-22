@@ -17,6 +17,7 @@ import (
 type CompletionRequest struct {
 	Model       string   `json:"model"`
 	Prompt      string   `json:"prompt"`
+	Suffix      string   `json:"suffix,omitempty"`
 	Temperature float64  `json:"temperature"`
 	MaxTokens   int      `json:"max_tokens"`
 	TopK        int      `json:"top_k,omitempty"`

@@ -238,6 +238,7 @@ end
 ---@param min_width integer|nil
 ---@param cursorline_buffer_line integer|nil 0-indexed buffer line for cursorline matching, nil to skip
 ---@param ns_id integer|nil namespace id for extmarks
+---@param row_offset integer|nil visual row offset from buffer_line (for virtual line placements)
 ---@return integer, integer, integer # overlay_win, overlay_buf, bytes_trimmed_first_line
 local function create_overlay_window(
 	parent_win,
@@ -248,7 +249,8 @@ local function create_overlay_window(
 	bg_highlight,
 	min_width,
 	cursorline_buffer_line,
-	ns_id
+	ns_id,
+	row_offset
 )
 	-- Create buffer for overlay content
 	local overlay_buf = vim.api.nvim_create_buf(false, true)
@@ -257,12 +259,13 @@ local function create_overlay_window(
 	---@type string[]
 	local content_lines = type(content) == "table" and content or { content }
 
-	-- Query parent window state once: topline, leftcol, textoff, cursor, cursorline
-	---@type {topline: integer, leftcol: integer, textoff: integer}
+	-- Query parent window state once: topline, leftcol, textoff, winrow, cursor, cursorline
+	---@type {topline: integer, leftcol: integer, textoff: integer, winrow: integer}
 	local wininfo = vim.fn.getwininfo(parent_win)[1]
 	local leftcol = wininfo.leftcol or 0
 	local first_visible_line = wininfo.topline
 	local textoff = wininfo.textoff or 0
+	local winrow = wininfo.winrow or 1
 	local cursor_line = vim.api.nvim_win_get_cursor(parent_win)[1] - 1
 	local cursorline_enabled = vim.api.nvim_get_option_value("cursorline", { win = parent_win })
 
@@ -304,8 +307,18 @@ local function create_overlay_window(
 		max_width = math.max(max_width, adjusted_min_width)
 	end
 
-	-- Convert absolute buffer line to window-relative line (buffer_line is 0-based)
-	local window_relative_line = buffer_line - (first_visible_line - 1)
+	-- Use screenpos so wrap, folds, and virtual lines from other plugins
+	-- (e.g. render-markdown.nvim) don't shift the overlay off the target line.
+	-- buffer_line is the actual buffer line; row_offset adjusts for virtual lines
+	-- that this overlay covers (e.g. stacked modifications or additions).
+	row_offset = row_offset or 0
+	local sp = vim.fn.screenpos(parent_win, buffer_line + 1, 1)
+	local window_relative_line
+	if sp and sp.row and sp.row > 0 then
+		window_relative_line = sp.row - winrow + row_offset
+	else
+		window_relative_line = buffer_line - (first_visible_line - 1) + row_offset
+	end
 
 	-- Create floating window
 	local overlay_win = vim.api.nvim_open_win(overlay_buf, false, {
@@ -324,7 +337,8 @@ local function create_overlay_window(
 		fixed = true,
 	})
 
-	local overlay_has_cursor_line = cursor_line >= buffer_line and cursor_line < buffer_line + #content_lines
+	local overlay_start_line = buffer_line + row_offset
+	local overlay_has_cursor_line = cursor_line >= overlay_start_line and cursor_line < overlay_start_line + #content_lines
 
 	-- Inherit conceal settings from parent window so overlay text renders identically.
 	-- On the cursor line, Neovim reveals concealed text (unless the mode is in 'concealcursor'),
@@ -475,14 +489,15 @@ local function render_append_chars(
 			local display_col = vim.fn.strdisplaywidth(string.sub(content, 1, col_start))
 			local overlay_win, overlay_buf, _ = create_overlay_window(
 				current_win,
-				nvim_line + virt_line_offset,
+				nvim_line,
 				display_col,
 				{ appended_text },
 				syntax_ft,
 				"CursorTabAddition",
 				nil,
 				nvim_line,
-				ns_id
+				ns_id,
+				0
 			)
 			table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 
@@ -546,8 +561,18 @@ local function render_replace_chars(group, nvim_line, virt_line_offset, current_
 	local original_line_width = vim.fn.strdisplaywidth(old_content)
 
 	if content ~= "" then
-		local overlay_win, overlay_buf, bytes_trimmed =
-			create_overlay_window(current_win, nvim_line + virt_line_offset, 0, content, syntax_ft, nil, original_line_width, nil, ns_id)
+		local overlay_win, overlay_buf, bytes_trimmed = create_overlay_window(
+			current_win,
+			nvim_line,
+			0,
+			content,
+			syntax_ft,
+			nil,
+			original_line_width,
+			nil,
+			ns_id,
+			0
+		)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 
 		-- Highlight the changed portion
@@ -583,8 +608,8 @@ local function render_modification(group, nvim_line, virt_line_offset, current_w
 	local overlay_col = 0
 	if not use_stacked then
 		for i = 1, line_count do
-			local line_content =
-				vim.api.nvim_buf_get_lines(current_buf, nvim_line + i - 1, nvim_line + i, false)[1] or ""
+			local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line + i - 1, nvim_line + i, false)[1]
+				or ""
 			local w = vim.fn.strdisplaywidth(line_content)
 			if w > max_old_width then
 				max_old_width = w
@@ -613,17 +638,17 @@ local function render_modification(group, nvim_line, virt_line_offset, current_w
 		for i = 1, line_count do
 			local new_line = group.lines[i]
 			if new_line and new_line ~= "" then
-				local overlay_target = last_nvim_line + virt_line_offset + i
 				local overlay_win, overlay_buf, _ = create_overlay_window(
 					current_win,
-					overlay_target,
+					last_nvim_line,
 					0,
 					new_line,
 					syntax_ft,
 					"CursorTabModification",
 					win_width,
 					nil,
-					ns_id
+					ns_id,
+					i
 				)
 				table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 			end
@@ -636,14 +661,15 @@ local function render_modification(group, nvim_line, virt_line_offset, current_w
 			if new_line and new_line ~= "" then
 				local overlay_win, overlay_buf, _ = create_overlay_window(
 					current_win,
-					nvim_line + i - 1 + virt_line_offset,
+					nvim_line + i - 1,
 					overlay_col,
 					new_line,
 					syntax_ft,
 					"CursorTabModification",
 					nil,
 					nil,
-					ns_id
+					ns_id,
+					0
 				)
 				table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 			end
@@ -671,20 +697,23 @@ local function render_addition(group, nvim_line, virt_line_offset, current_win, 
 	end
 
 	local virtual_extmark_id
-	local overlay_line
+	local overlay_buffer_line
+	local overlay_row_offset
 	if nvim_line >= buf_line_count then
 		local last_existing_line = buf_line_count - 1
 		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, last_existing_line, 0, {
 			virt_lines = virt_lines_array,
 			virt_lines_above = false,
 		})
-		overlay_line = buf_line_count + virt_line_offset
+		overlay_buffer_line = last_existing_line
+		overlay_row_offset = 1
 	else
 		virtual_extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
 			virt_lines = virt_lines_array,
 			virt_lines_above = true,
 		})
-		overlay_line = nvim_line + virt_line_offset
+		overlay_buffer_line = nvim_line
+		overlay_row_offset = -line_count
 	end
 	table.insert(completion_extmarks, { buf = current_buf, extmark_id = virtual_extmark_id })
 
@@ -698,14 +727,15 @@ local function render_addition(group, nvim_line, virt_line_offset, current_win, 
 		end
 		local overlay_win, overlay_buf, _ = create_overlay_window(
 			current_win,
-			overlay_line,
+			overlay_buffer_line,
 			0,
 			display_lines,
 			syntax_ft,
 			"CursorTabAddition",
 			win_width,
 			nil,
-			ns_id
+			ns_id,
+			overlay_row_offset
 		)
 		table.insert(completion_windows, { win_id = overlay_win, buf_id = overlay_buf })
 	end

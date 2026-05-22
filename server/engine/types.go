@@ -109,13 +109,20 @@ func (cl ContextLimits) WithDefaults() ContextLimits {
 	return cl
 }
 
+// StreamingType describes how a provider streams completion content.
+type StreamingType int
+
+const (
+	StreamingTypeNone   StreamingType = iota // Batch mode
+	StreamingTypeLines                       // Line-by-line (sweep, zeta, zeta-2, fim)
+	StreamingTypeTokens                      // Token-by-token (inline)
+)
+
 // LineStreamProvider extends Provider with line-by-line streaming capabilities.
 // For providers like sweep, zeta, zeta-2, fim that stream by lines.
 type LineStreamProvider interface {
 	Provider
-	// GetStreamingType returns: 0=none, 1=lines, 2=tokens
-	GetStreamingType() int
-	// PrepareLineStream prepares the stream and returns it along with provider context
+	GetStreamingType() StreamingType
 	PrepareLineStream(ctx context.Context, req *types.CompletionRequest) (LineStream, any, error)
 	// ValidateFirstLine validates the first line (called after first line received)
 	ValidateFirstLine(providerCtx any, firstLine string) error
@@ -127,21 +134,13 @@ type LineStreamProvider interface {
 // For providers like inline that stream individual tokens for ghost text.
 type TokenStreamProvider interface {
 	Provider
-	// GetStreamingType returns: 0=none, 1=lines, 2=tokens
-	GetStreamingType() int
+	GetStreamingType() StreamingType
 	// PrepareTokenStream prepares the stream and returns it along with provider context.
 	// The stream emits cumulative text (not deltas) for idempotent UI updates.
 	PrepareTokenStream(ctx context.Context, req *types.CompletionRequest) (LineStream, any, error)
 	// FinishTokenStream runs postprocessors on the final accumulated result
 	FinishTokenStream(providerCtx any, text string) (*types.CompletionResponse, error)
 }
-
-// Streaming type constants
-const (
-	StreamingTypeNone   = 0 // Batch mode
-	StreamingTypeLines  = 1 // Line-by-line (sweep, zeta, zeta-2, fim)
-	StreamingTypeTokens = 2 // Token-by-token (inline)
-)
 
 // LineStream provides incremental line-by-line streaming
 type LineStream interface {
@@ -295,6 +294,6 @@ type EngineConfig struct {
 	CompleteInInsert       bool     // Show completions in insert mode
 	CompleteInNormal       bool     // Show completions in normal mode
 	DisabledIn             []string // Treesitter scopes where completions are suppressed
-	EditCompletionProvider bool     // True for edit-prediction providers (sweep, zeta, zeta-2, mercury, copilot NES)
+	EditCompletionProvider bool     // True for edit-prediction providers (sweep, zeta, zeta-2, mercuryapi, copilot NES)
 	DisableProviderMetrics bool     // Skip wiring provider as metrics.Sender (eval harness sets this)
 }

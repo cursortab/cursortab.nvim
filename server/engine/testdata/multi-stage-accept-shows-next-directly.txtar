@@ -1,0 +1,27 @@
+After accepting the first stage, the next stage is shown directly when it's within proximity threshold and inside viewport.
+row: 4
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+line 1
+mod_a_old
+line 3
+line 4
+line 5
+mod_b_old
+line 7
+-- steps --
+completion 1-7
+  | "line 1"
+  | "mod_a_new"
+  | "line 3"
+  | "line 4"
+  | "line 5"
+  | "mod_b_new"
+  | "line 7"
+expect shown stageCount=2 state=hasCompletion
+
+accept
+expect state=hasCompletion
+

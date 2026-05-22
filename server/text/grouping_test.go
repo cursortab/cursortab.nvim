@@ -130,10 +130,10 @@ func TestGroupChanges_OnlyDeletions(t *testing.T) {
 
 func TestGroupChanges_Empty(t *testing.T) {
 	groups := GroupChanges(nil)
-	assert.True(t, len(groups) == 0, "no groups for empty changes")
+	assert.Nil(t, groups, "no groups for empty changes")
 
 	groups = GroupChanges(map[int]LineChange{})
-	assert.True(t, len(groups) == 0, "no groups for empty map")
+	assert.Nil(t, groups, "no groups for empty map")
 }
 
 func TestGroupChanges_AppendCharsHint(t *testing.T) {

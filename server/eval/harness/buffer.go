@@ -7,6 +7,7 @@
 package harness
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +41,7 @@ type EvalBuffer struct {
 
 // NewEvalBuffer returns a buffer seeded with the given lines.
 func NewEvalBuffer(path string, lines []string, row, col int) *EvalBuffer {
-	cp := append([]string{}, lines...)
+	cp := slices.Clone(lines)
 	return &EvalBuffer{
 		path:           path,
 		version:        1,
@@ -49,9 +50,9 @@ func NewEvalBuffer(path string, lines []string, row, col int) *EvalBuffer {
 		col:            col,
 		viewportTop:    1,
 		viewportBottom: len(cp) + 20,
-		previousLines:  append([]string{}, cp...),
-		originalLines:  append([]string{}, cp...),
-		diskLines:      append([]string{}, cp...),
+		previousLines:  slices.Clone(cp),
+		originalLines:  slices.Clone(cp),
+		diskLines:      slices.Clone(cp),
 		modified:       true,
 	}
 }
@@ -97,7 +98,7 @@ func (b *EvalBuffer) Sync(workspacePath string) (*buffer.SyncResult, error) {
 func (b *EvalBuffer) Lines() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return append([]string{}, b.lines...)
+	return slices.Clone(b.lines)
 }
 
 // Row implements engine.Buffer.
@@ -197,7 +198,7 @@ func (b *EvalBuffer) PrepareCompletion(startLine, endLineInc int, lines []string
 		buf:        b,
 		startLine:  startLine,
 		endLineInc: endLineInc,
-		lines:      append([]string{}, lines...),
+		lines:      slices.Clone(lines),
 	}
 }
 
@@ -283,7 +284,7 @@ func (b *EvalBuffer) InsertLine(line int, content string, keepUI bool) error {
 func (b *EvalBuffer) Snapshot() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return append([]string{}, b.lines...)
+	return slices.Clone(b.lines)
 }
 
 // evalBatch applies a staged completion to an EvalBuffer.

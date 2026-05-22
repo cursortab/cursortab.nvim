@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+abc 1234567890123 xyz
+-- new.txt --
+abc abcdefghijklm xyz
+-- expected --
+stage @1 cursor=1:21
+  modification @1 1-1
+    + "abc abcdefghijklm xyz"
+    - "abc 1234567890123 xyz"
+

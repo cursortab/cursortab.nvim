@@ -22,7 +22,11 @@ func (e *Engine) handleCompletionReadyImpl(response *types.CompletionResponse) {
 	// Store metrics info for showCurrentStage to use
 	e.pendingMetricsInfo = response.MetricsInfo
 
-	if e.processCompletion(completion) {
+	switch e.processCompletion(completion) {
+	case completionShown:
+		return
+	case completionSuppressed:
+		e.pendingMetricsInfo = nil
 		return
 	}
 
@@ -45,7 +49,8 @@ func (e *Engine) handleCompletionNoChanges(completion *types.Completion) {
 // It checks if the user typed content that matches the prediction.
 func (e *Engine) handleTextChangeImpl() {
 	if len(e.completions) == 0 {
-		e.rejectAndRearmTimer()
+		e.reject()
+		e.startTextChangeTimer()
 		return
 	}
 
@@ -58,19 +63,13 @@ func (e *Engine) handleTextChangeImpl() {
 			return
 		}
 		// User typed everything - completion fully typed
-		e.clearAll()
-		e.state = stateIdle
+		e.reject()
 		e.startTextChangeTimer()
 		return
 	}
 
 	// Typing does not match prediction
-	e.rejectAndRearmTimer()
-}
-
-// rejectAndRearmTimer rejects the current completion and restarts the text change timer.
-func (e *Engine) rejectAndRearmTimer() {
-	e.reject()
+	e.rejectAndRemember()
 	e.startTextChangeTimer()
 }
 
@@ -183,13 +182,7 @@ func (e *Engine) handleCursorTarget() {
 				e.showCurrentStage()
 				return
 			}
-			e.cursorTarget = &types.CursorPredictionTarget{
-				RelativePath:    e.buffer.Path(),
-				LineNumber:      int32(nextStage.BufferStart),
-				ShouldRetrigger: false,
-			}
-			e.state = stateHasCursorTarget
-			e.buffer.ShowCursorTarget(nextStage.BufferStart)
+			e.showStageCursorTarget(nextStage)
 			return
 		}
 
@@ -213,9 +206,32 @@ func (e *Engine) clearCompletionUIOnly() {
 	if len(e.completions) > 0 {
 		e.sendMetric(metrics.EventIgnored)
 	}
-	e.clearState(ClearOptions{CancelCurrent: true, CancelPrefetch: false, ClearStaged: true, CallOnReject: false})
+	e.cancelCurrentRequest()
+	e.stagedCompletion = nil
+	e.resetCompletionFields()
 	e.state = stateIdle
 	e.cursorTarget = nil
+}
+
+func (e *Engine) showCursorTargetWithCandidate(target *types.CursorPredictionTarget, candidate *rejectedCompletion) {
+	if target == nil || target.LineNumber < 1 {
+		return
+	}
+	e.cursorTarget = target
+	e.state = stateHasCursorTarget
+	e.currentRejectedCompletion = candidate
+	e.buffer.ShowCursorTarget(int(target.LineNumber))
+}
+
+func (e *Engine) showStageCursorTarget(stage *text.Stage) {
+	if stage == nil {
+		return
+	}
+	e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
+		RelativePath:    e.buffer.Path(),
+		LineNumber:      int32(stage.BufferStart),
+		ShouldRetrigger: false,
+	}, e.rejectedCompletionForStage(stage))
 }
 
 // showCurrentStage displays the current stage of a multi-stage completion
@@ -255,6 +271,7 @@ func (e *Engine) showCurrentStage() {
 	// needs for correct isPureInsertion/offset calculations.
 	e.currentGroups = text.CopyGroups(stage.Groups)
 
+	e.currentRejectedCompletion = e.currentRejectedCompletionCandidate()
 	e.recordMetricsShown(e.pendingMetricsInfo) // nil for streaming
 	e.pendingMetricsInfo = nil
 }
@@ -267,15 +284,33 @@ func (e *Engine) getStage(idx int) *text.Stage {
 	return e.stagedCompletion.Stages[idx]
 }
 
+// completionOutcome describes what processCompletion decided to do with an
+// incoming completion.
+type completionOutcome int
+
+const (
+	// completionNoChanges means the completion matched the current buffer or
+	// staging produced no visible stage. Caller should handle cursor target
+	// fallback (e.g. handleCompletionNoChanges).
+	completionNoChanges completionOutcome = iota
+	// completionShown means the completion was rendered (or a cursor target
+	// was shown) and the engine transitioned to a non-idle state.
+	completionShown
+	// completionSuppressed means the completion matched a recently rejected
+	// entry and was intentionally dropped. Engine is now idle; caller should
+	// not fall back to cursor target handling.
+	completionSuppressed
+)
+
 // processCompletion is the SINGLE ENTRY POINT for processing all completions.
-func (e *Engine) processCompletion(completion *types.Completion) bool {
+func (e *Engine) processCompletion(completion *types.Completion) completionOutcome {
 	defer logger.Trace("engine.processCompletion")()
 	if completion == nil {
-		return false
+		return completionNoChanges
 	}
 
 	if !e.buffer.HasChanges(completion.StartLine, completion.EndLineInc, completion.Lines) {
-		return false
+		return completionNoChanges
 	}
 
 	bufferLines := e.buffer.Lines()
@@ -339,27 +374,31 @@ func (e *Engine) processCompletion(completion *types.Completion) bool {
 	})
 
 	if stagingResult != nil && len(stagingResult.Stages) > 0 {
+		firstStage := stagingResult.Stages[0]
+
+		// Suppression compares against what the user actually sees: the first
+		// stage. Doing this post-staging means cached single-stage entries can
+		// match the visible portion of an incoming multi-stage completion.
+		if e.suppressRejectedCompletionForStage(firstStage) {
+			e.pendingMetricsInfo = nil
+			e.stagedCompletion = nil
+			e.state = stateIdle
+			return completionSuppressed
+		}
+
 		e.stagedCompletion = &text.StagedCompletion{
 			Stages:     stagingResult.Stages,
 			CurrentIdx: 0,
-			SourcePath: e.buffer.Path(),
 		}
 
 		if stagingResult.FirstNeedsNavigation {
-			firstStage := stagingResult.Stages[0]
-			e.cursorTarget = &types.CursorPredictionTarget{
-				RelativePath:    e.buffer.Path(),
-				LineNumber:      int32(firstStage.BufferStart),
-				ShouldRetrigger: false,
-			}
-			e.state = stateHasCursorTarget
-			e.buffer.ShowCursorTarget(firstStage.BufferStart)
-			return true
+			e.showStageCursorTarget(firstStage)
+			return completionShown
 		}
 
 		e.showCurrentStage()
-		return true
+		return completionShown
 	}
 
-	return false
+	return completionNoChanges
 }

@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 2
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+hello
+-- new.txt --
+hello world!
+-- expected --
+stage @1 cursor=1:12
+  modification @1 1-1 append_chars 5:12
+    + "hello world!"
+    - "hello"
+

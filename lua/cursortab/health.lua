@@ -113,9 +113,20 @@ function M.check()
 
 	-- FIM Tokens
 	vim.health.start("FIM Tokens")
-	vim.health.info("prefix: " .. cfg.provider.fim_tokens.prefix)
-	vim.health.info("suffix: " .. cfg.provider.fim_tokens.suffix)
-	vim.health.info("middle: " .. cfg.provider.fim_tokens.middle)
+	if cfg.provider.fim_tokens == nil then
+		vim.health.info("mode: prompt+suffix (no FIM tokens configured)")
+	else
+		vim.health.info("mode: tokenized")
+		vim.health.info("prefix: " .. cfg.provider.fim_tokens.prefix)
+		vim.health.info("suffix: " .. cfg.provider.fim_tokens.suffix)
+		vim.health.info("middle: " .. cfg.provider.fim_tokens.middle)
+		if cfg.provider.fim_tokens.repo_name and cfg.provider.fim_tokens.repo_name ~= "" then
+			vim.health.info("repo_name: " .. cfg.provider.fim_tokens.repo_name)
+		end
+		if cfg.provider.fim_tokens.file_sep and cfg.provider.fim_tokens.file_sep ~= "" then
+			vim.health.info("file_sep: " .. cfg.provider.fim_tokens.file_sep)
+		end
+	end
 
 	-- Debug
 	vim.health.start("Debug")

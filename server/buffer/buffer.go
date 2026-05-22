@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -844,7 +845,7 @@ func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, di
 	b.pending = &PendingEdit{
 		StartLine:        startLine,
 		EndLineInclusive: replaceEnd,
-		Lines:            append([]string{}, lines...),
+		Lines:            slices.Clone(lines),
 	}
 
 	// Apply cursor positioning from diff changes

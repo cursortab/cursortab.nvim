@@ -8,11 +8,6 @@ import (
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
-// splitLines splits text by newline, removing the trailing empty element if present.
-// This pairs with JoinLines which adds \n after each line:
-// - "a\nb\n" -> ["a", "b"] (2 lines)
-// - "a\n\n" -> ["a", ""] (2 lines, second is empty)
-// - "a\nb" -> ["a", "b"] (2 lines, no trailing \n)
 // SplitLines splits text by newline and drops the trailing empty element
 // produced by the terminating newline convention (each line ends with \n).
 func SplitLines(text string) []string {
@@ -559,10 +554,6 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 // categorizeLineChangeWithColumns determines the type of change between two lines
 // using common prefix/suffix analysis to find the single contiguous changed span.
 func categorizeLineChangeWithColumns(oldLine, newLine string) (ChangeType, int, int) {
-	if oldLine == "" && newLine != "" {
-		return ChangeAppendChars, 0, len(newLine)
-	}
-
 	if strings.HasPrefix(newLine, oldLine) {
 		return ChangeAppendChars, len(oldLine), len(newLine)
 	}

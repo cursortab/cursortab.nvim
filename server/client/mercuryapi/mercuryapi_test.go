@@ -81,7 +81,7 @@ func TestClientDoCompletion(t *testing.T) {
 		err = json.Unmarshal(body, &req)
 		assert.NoError(t, err, "parsing JSON")
 
-		assert.Equal(t, "mercury-edit", req.Model, "model")
+		assert.Equal(t, "mercury-edit-2", req.Model, "model")
 		assert.Equal(t, 1, len(req.Messages), "messages count")
 		assert.Equal(t, "user", req.Messages[0].Role, "message role")
 

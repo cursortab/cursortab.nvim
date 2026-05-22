@@ -1,0 +1,32 @@
+Two changes far apart (gap > proximity threshold) split into two stages, sorted by cursor distance.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function a() {
+  return 1;
+}
+
+function b() {
+  return 2;
+}
+-- steps --
+completion 1-7
+  | "function a() {"
+  | "  return 10;"
+  | "}"
+  | ""
+  | "function b() {"
+  | "  return 20;"
+  | "}"
+expect shown stageCount=2 state=hasCompletion
+  buffer:
+    | "function a() {"
+    | "  return 10;"
+    | "}"
+    | ""
+    | "function b() {"
+    | "  return 20;"
+    | "}"
+

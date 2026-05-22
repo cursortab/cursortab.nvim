@@ -8,16 +8,29 @@ import (
 	"cursortab/utils"
 )
 
-// reject clears all state and returns to idle.
+// reject clears all state and returns to idle without caching the current
+// completion as rejected. Cancels in-flight, prefetch, and any leftover stream
+// from a prior accept-during-streaming, drops staged completions, clears the
+// UI, and sends a reject metric if a completion was shown.
 func (e *Engine) reject() {
-	e.clearState(ClearOptions{
-		CancelCurrent:     true,
-		CancelPrefetch:    true,
-		ClearStaged:       true,
-		ClearCursorTarget: true,
-		CallOnReject:      true,
-	})
+	e.cancelCurrentRequest()
+	e.cancelPrefetch()
+	e.cancelStreaming()
+	e.buffer.ClearUI()
+	if len(e.completions) > 0 {
+		e.sendMetric(metrics.EventRejected)
+	}
+	e.cursorTarget = nil
+	e.stagedCompletion = nil
+	e.resetCompletionFields()
 	e.state = stateIdle
+}
+
+// rejectAndRemember clears all state and caches the current completion so
+// similar completions are suppressed for a short TTL.
+func (e *Engine) rejectAndRemember() {
+	e.rememberRejectedCompletion()
+	e.reject()
 }
 
 // acceptCompletion handles Tab key acceptance of completions.
@@ -37,7 +50,7 @@ func (e *Engine) acceptCompletion() {
 	// 1. Apply and commit
 	if err := e.applyBatch.Execute(); err != nil {
 		logger.Error("acceptCompletion: batch execution failed: %v", err)
-		e.clearAll()
+		e.reject()
 		return
 	}
 	e.buffer.CommitPending()
@@ -45,6 +58,9 @@ func (e *Engine) acceptCompletion() {
 
 	// Send accept metric
 	e.sendMetric(metrics.EventAccepted)
+
+	// Accept = forward progress; any cached rejections for this file are stale.
+	e.forgetRejectedCompletions(e.buffer.Path())
 
 	// Sync the current staged completion with what was actually rendered.
 	// When streaming renders a stage incrementally, Finalize() recomputes stages
@@ -62,8 +78,8 @@ func (e *Engine) acceptCompletion() {
 		}
 	}
 
-	// 2. Clear completion state (keep prefetch)
-	e.clearState(ClearOptions{})
+	// 2. Clear completion state (keep prefetch and staged)
+	e.resetCompletionFields()
 
 	// 3. Check if this is the last stage and prefetch extends beyond it
 	// Must try BEFORE advanceStagedCompletion which may clear the prefetch
@@ -132,6 +148,9 @@ func (e *Engine) acceptCursorTarget() {
 		logger.Error("acceptCursorTarget: move cursor failed: %v", err)
 	}
 
+	// Accept = forward progress; any cached rejections for this file are stale.
+	e.forgetRejectedCompletions(e.buffer.Path())
+
 	// 2. If more staged completions, show current stage
 	if e.hasMoreStages() {
 		e.syncBuffer()
@@ -178,26 +197,8 @@ func (e *Engine) advanceStagedCompletion() {
 	// Calculate cumulative offset from current stage
 	currentStage := e.getStage(e.stagedCompletion.CurrentIdx)
 	if currentStage != nil {
-		// A stage is a pure insertion only when all groups are additions,
-		// the stage targets a single old line, and the total group lines
-		// match the stage lines (no absorbed unchanged old lines).
-		isPureInsertion := currentStage.BufferStart == currentStage.BufferEnd && len(currentStage.Groups) > 0
-		if isPureInsertion {
-			groupLines := 0
-			for _, g := range currentStage.Groups {
-				if g.Type != "addition" {
-					isPureInsertion = false
-					break
-				}
-				groupLines += g.EndLine - g.StartLine + 1
-			}
-			if isPureInsertion && len(currentStage.Lines) != groupLines {
-				isPureInsertion = false
-			}
-		}
-
 		var oldLineCount int
-		if isPureInsertion {
+		if stageIsPureInsertion(currentStage) {
 			oldLineCount = 0
 		} else {
 			oldLineCount = currentStage.BufferEnd - currentStage.BufferStart + 1
@@ -219,8 +220,7 @@ func (e *Engine) advanceStagedCompletion() {
 			prefetch := e.prefetchedCompletions[0]
 			prefetchResultEnd := prefetch.StartLine + len(prefetch.Lines) - 1
 			if prefetch.StartLine <= currentStage.BufferEnd && prefetchResultEnd >= currentStage.BufferStart {
-				e.prefetchState = prefetchNone
-				e.prefetchedCompletions = nil
+				e.clearPrefetchResult()
 			}
 		}
 		e.stagedCompletion = nil
@@ -275,13 +275,7 @@ func (e *Engine) showOrNavigateToNextStage() {
 	}
 
 	// Needs navigation - show cursor target instead
-	e.cursorTarget = &types.CursorPredictionTarget{
-		RelativePath:    e.buffer.Path(),
-		LineNumber:      int32(nextStage.BufferStart),
-		ShouldRetrigger: false,
-	}
-	e.state = stateHasCursorTarget
-	e.buffer.ShowCursorTarget(nextStage.BufferStart)
+	e.showStageCursorTarget(nextStage)
 }
 
 // transitionAfterAccept handles state transition after accept based on cursor target.
@@ -470,7 +464,8 @@ func (e *Engine) finalizePartialAccept() {
 
 	e.buffer.CommitPending()
 	e.saveCurrentFileState()
-	e.clearState(ClearOptions{})
+	e.forgetRejectedCompletions(e.buffer.Path())
+	e.resetCompletionFields()
 
 	if e.stagedCompletion != nil {
 		e.advanceStagedCompletion()
@@ -579,4 +574,9 @@ func (e *Engine) rerenderPartial() {
 		originalLines = append(originalLines, bufferLines[i-1])
 	}
 	e.completionOriginalLines = originalLines
+
+	// Refresh the rejection-cache candidate against the new state. Without
+	// this, an Esc after partial accept would cache the pre-partial snapshot,
+	// whose oldLines no longer match the buffer.
+	e.currentRejectedCompletion = e.currentRejectedCompletionCandidate()
 }

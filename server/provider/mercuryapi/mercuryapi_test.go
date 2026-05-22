@@ -280,6 +280,7 @@ func TestProviderGetCompletion(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		var req mercuryapi.Request
 		json.Unmarshal(body, &req)
+		assert.Equal(t, mercuryapi.Model, req.Model, "model")
 
 		// Verify prompt structure
 		prompt := req.Messages[0].Content
@@ -316,6 +317,38 @@ func TestProviderGetCompletion(t *testing.T) {
 	assert.Equal(t, 1, resp.Completions[0].StartLine, "start line")
 	assert.Equal(t, 1, resp.Completions[0].EndLineInc, "end line")
 	assert.Equal(t, []string{"func updated() {}"}, resp.Completions[0].Lines, "lines")
+}
+
+func TestProviderGetCompletionUsesConfiguredModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req mercuryapi.Request
+		json.Unmarshal(body, &req)
+		assert.Equal(t, "custom-model", req.Model, "model")
+
+		resp := mercuryapi.Response{
+			ID:      "resp-123",
+			Choices: []mercuryapi.Choice{{Message: mercuryapi.MessageContent{Content: "None"}}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider := NewProvider(&types.ProviderConfig{
+		ProviderURL:       server.URL,
+		ProviderModel:     "custom-model",
+		CompletionTimeout: 30000,
+	})
+
+	req := &types.CompletionRequest{
+		FilePath:  "test.go",
+		Lines:     []string{"func original() {}"},
+		CursorRow: 1,
+		CursorCol: 5,
+	}
+
+	_, err := provider.GetCompletion(context.Background(), req)
+	assert.NoError(t, err, "GetCompletion")
 }
 
 func TestProviderGetCompletionEmpty(t *testing.T) {

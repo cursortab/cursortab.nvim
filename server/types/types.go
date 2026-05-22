@@ -244,7 +244,6 @@ const (
 	ProviderTypeInline     ProviderType = "inline"
 	ProviderTypeFIM        ProviderType = "fim"
 	ProviderTypeSweep      ProviderType = "sweep"
-	ProviderTypeSweepAPI   ProviderType = "sweepapi"
 	ProviderTypeZeta       ProviderType = "zeta"
 	ProviderTypeZeta2      ProviderType = "zeta-2"
 	ProviderTypeCopilot    ProviderType = "copilot"
@@ -252,7 +251,21 @@ const (
 	ProviderTypeWindsurf   ProviderType = "windsurf"
 )
 
-// FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration
+// IsEditCompletion reports whether the provider produces edit-style (multi-line,
+// region-replacing) completions, as opposed to inline/FIM single-point fills.
+func (p ProviderType) IsEditCompletion() bool {
+	switch p {
+	case ProviderTypeSweep, ProviderTypeZeta, ProviderTypeZeta2,
+		ProviderTypeCopilot, ProviderTypeMercuryAPI, ProviderTypeWindsurf:
+		return true
+	}
+	return false
+}
+
+// FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration.
+// When the provider's FIMTokens is non-nil, tokenized FIM mode is used and
+// Prefix/Suffix/Middle must all be set. When nil, the FIM provider uses the
+// OpenAI completions API prompt+suffix format (e.g. DeepSeek).
 type FIMTokenConfig struct {
 	Prefix   string // Token before the prefix content (e.g., "<|fim_prefix|>")
 	Suffix   string // Token before the suffix content (e.g., "<|fim_suffix|>")
@@ -263,20 +276,20 @@ type FIMTokenConfig struct {
 
 // ProviderConfig holds configuration for providers
 type ProviderConfig struct {
-	ProviderURL         string         // URL of the provider server (e.g., "http://localhost:8000")
-	APIKey              string         // Resolved API key for authenticated requests
-	ProviderModel       string         // Model name
-	ProviderTemperature float64        // Sampling temperature
-	ProviderContextSize int            // Max input context size in tokens (0 = use ProviderMaxTokens)
-	ProviderMaxTokens   int            // Max tokens to generate
-	ProviderTopK        int            // Top-k sampling (used by some providers)
-	CompletionPath      string         // API endpoint path (e.g., "/v1/completions")
-	FIMTokens           FIMTokenConfig // FIM tokens configuration
-	CompletionTimeout   int            // Timeout for completion requests in milliseconds
-	PrivacyMode         bool           // Don't send telemetry to provider
-	Version             string         // Plugin version for metrics/telemetry
-	EditorVersion       string         // Editor version (e.g., "0.10.0")
-	EditorOS            string         // Operating system name (e.g., "Darwin")
-	StateDir            string         // State directory for persistent data (device_id, etc.)
-	DeviceID            string         // Persistent device identifier
+	ProviderURL         string          // URL of the provider server (e.g., "http://localhost:8000")
+	APIKey              string          // Resolved API key for authenticated requests
+	ProviderModel       string          // Model name
+	ProviderTemperature float64         // Sampling temperature
+	ProviderContextSize int             // Max input context size in tokens (0 = use ProviderMaxTokens)
+	ProviderMaxTokens   int             // Max tokens to generate
+	ProviderTopK        int             // Top-k sampling (used by some providers)
+	CompletionPath      string          // API endpoint path (e.g., "/v1/completions")
+	FIMTokens           *FIMTokenConfig // nil = prompt+suffix mode; non-nil = tokenized FIM
+	CompletionTimeout   int             // Timeout for completion requests in milliseconds
+	PrivacyMode         bool            // Don't send telemetry to provider
+	Version             string          // Plugin version for metrics/telemetry
+	EditorVersion       string          // Editor version (e.g., "0.10.0")
+	EditorOS            string          // Operating system name (e.g., "Darwin")
+	StateDir            string          // State directory for persistent data (device_id, etc.)
+	DeviceID            string          // Persistent device identifier
 }

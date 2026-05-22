@@ -75,7 +75,7 @@ func isNilOrEmpty(value any) bool {
 	switch v.Kind() {
 	case reflect.Slice, reflect.Map, reflect.Chan:
 		return v.IsNil() || v.Len() == 0
-	case reflect.Pointer, reflect.Interface:
+	case reflect.Pointer, reflect.Interface, reflect.Func:
 		return v.IsNil()
 	}
 	return false

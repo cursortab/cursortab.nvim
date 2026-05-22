@@ -253,11 +253,12 @@ func (b *mockBuffer) InsertLine(line int, content string, keepUI bool) error {
 // mockBatch implements buffer.Batch
 type mockBatch struct {
 	executed bool
+	err      error
 }
 
 func (b *mockBatch) Execute() error {
 	b.executed = true
-	return nil
+	return b.err
 }
 
 // mockProvider implements the Provider interface for testing

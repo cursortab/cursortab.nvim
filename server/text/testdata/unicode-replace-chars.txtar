@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+café old
+-- new.txt --
+café new
+-- expected --
+stage @1 cursor=1:9
+  modification @1 1-1 replace_chars 6:9
+    + "café new"
+    - "café old"
+

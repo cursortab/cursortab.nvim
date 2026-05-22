@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"context"
 	"cursortab/assert"
+	"cursortab/text"
+	"cursortab/types"
 	"testing"
 )
 
@@ -73,4 +76,64 @@ func TestTrimFileStateStore(t *testing.T) {
 	assert.True(t, existsD, "should keep d.go (second most recent)")
 	_, existsE := eng.fileStateStore["e.go"]
 	assert.True(t, existsE, "should keep e.go (most recent)")
+}
+
+// TestHandleFileSwitch_DropsInFlightWork verifies that switching files cancels
+// in-flight prefetch/streaming/current requests and clears completion UI
+// state. Without this, late-arriving responses for the OLD file would be
+// applied to the NEW buffer using the old file's row indices, producing
+// either a wrong-file completion or a garbage diff.
+func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
+	buf := newMockBuffer()
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	prefetchCtx, prefetchCancel := context.WithCancel(context.Background())
+	currentCtx, currentCancel := context.WithCancel(context.Background())
+	streamCtx, streamCancel := context.WithCancel(context.Background())
+
+	eng.prefetchCancel = prefetchCancel
+	eng.prefetchState = prefetchInFlight
+	eng.prefetchedCompletions = []*types.Completion{{
+		StartLine: 5, EndLineInc: 5, Lines: []string{"old file completion"},
+	}}
+	eng.currentCancel = currentCancel
+	eng.streamingCancel = streamCancel
+	eng.streamingState = &StreamingState{}
+	eng.state = stateStreamingCompletion
+	eng.completions = []*types.Completion{{
+		StartLine: 1, EndLineInc: 1, Lines: []string{"old"},
+	}}
+	eng.stagedCompletion = &text.StagedCompletion{CurrentIdx: 0}
+	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 5}
+
+	eng.handleFileSwitch("a.go", "b.go", []string{"new content"})
+
+	assert.Equal(t, prefetchNone, eng.prefetchState, "prefetch state reset")
+	assert.Nil(t, eng.prefetchedCompletions, "prefetched completions cleared")
+	assert.Nil(t, eng.prefetchCancel, "prefetch cancel func cleared")
+	assert.Nil(t, eng.currentCancel, "current request cancel cleared")
+	assert.Nil(t, eng.streamingCancel, "streaming cancel cleared")
+	assert.Nil(t, eng.streamingState, "streaming state cleared")
+	assert.Nil(t, eng.completions, "completions cleared")
+	assert.Nil(t, eng.stagedCompletion, "staged completion cleared")
+	assert.Nil(t, eng.cursorTarget, "cursor target cleared")
+	assert.Equal(t, stateIdle, eng.state, "state reset to idle")
+
+	for _, c := range []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"prefetch", prefetchCtx},
+		{"current", currentCtx},
+		{"stream", streamCtx},
+	} {
+		select {
+		case <-c.ctx.Done():
+		default:
+			t.Errorf("%s context should be cancelled", c.name)
+		}
+	}
 }

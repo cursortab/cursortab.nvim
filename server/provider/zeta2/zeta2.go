@@ -365,7 +365,7 @@ func writeRecentFilesPseudoFiles(b *strings.Builder, snapshots []*types.RecentBu
 //
 // Zed's V0211SeedCoder deliberately drops diagnostics from the prompt, trusting
 // the model to infer errors from the code alone. We include them anyway —
-// our sweepapi and mercuryapi providers do the same thing with similar
+// our mercuryapi provider does the same thing with similar
 // pseudo-file tricks, and the format is self-explanatory enough that the
 // SeedCoder fine-tune should parse it even without seeing it in training.
 func writeDiagnosticsPseudoFile(b *strings.Builder, diag *types.Diagnostics) {

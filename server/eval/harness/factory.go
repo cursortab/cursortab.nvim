@@ -3,6 +3,7 @@ package harness
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"cursortab/engine"
 	"cursortab/eval/cassette"
@@ -10,7 +11,6 @@ import (
 	"cursortab/provider/fim"
 	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
-	"cursortab/provider/sweepapi"
 	"cursortab/provider/zeta"
 	"cursortab/provider/zeta2"
 	"cursortab/types"
@@ -32,13 +32,6 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 	switch t.Type {
 	case "sweep":
 		p := sweep.NewProvider(cfg)
-		p.SetHTTPTransport(transport)
-		return p, nil
-	case "sweepapi":
-		if t.URL != "" {
-			return nil, fmt.Errorf("harness: target %q has URL override but sweepapi only supports the hosted endpoint; use type=sweep for self-hosted models", t.Name)
-		}
-		p := sweepapi.NewProvider(cfg)
 		p.SetHTTPTransport(transport)
 		return p, nil
 	case "mercuryapi":
@@ -63,11 +56,25 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 		if cfg.ProviderMaxTokens == 0 || cfg.ProviderMaxTokens > 128 {
 			cfg.ProviderMaxTokens = 128
 		}
-		if cfg.FIMTokens.Prefix == "" {
-			cfg.FIMTokens = types.FIMTokenConfig{
+		// Qwen models (and Zeta, which is Qwen-based) use the standard FIM
+		// tokens; inject them when targets haven't configured FIMTokens. Without
+		// this, eval FIM falls back to prompt+suffix mode and Qwen completions
+		// regress.
+		isQwen := strings.Contains(strings.ToLower(cfg.ProviderModel), "qwen")
+		if cfg.FIMTokens == nil && isQwen {
+			cfg.FIMTokens = &types.FIMTokenConfig{
 				Prefix: "<|fim_prefix|>",
 				Suffix: "<|fim_suffix|>",
 				Middle: "<|fim_middle|>",
+			}
+		}
+		// Qwen also supports repo-level cross-file context.
+		if cfg.FIMTokens != nil && isQwen {
+			if cfg.FIMTokens.RepoName == "" {
+				cfg.FIMTokens.RepoName = "<|repo_name|>"
+			}
+			if cfg.FIMTokens.FileSep == "" {
+				cfg.FIMTokens.FileSep = "<|file_sep|>"
 			}
 		}
 		p := fim.NewProvider(cfg)

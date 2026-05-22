@@ -4,24 +4,22 @@ import (
 	"cursortab/logger"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"time"
 )
 
 type Client struct {
-	socketPath string
+	stateDir string
 }
 
 func NewClient(stateDir string) *Client {
 	return &Client{
-		socketPath: getSocketPath(stateDir),
+		stateDir: stateDir,
 	}
 }
 
 func (c *Client) Connect() error {
-	// Connect to daemon
-	conn, err := net.Dial("unix", c.socketPath)
+	conn, err := dialIPC(c.stateDir)
 	if err != nil {
 		return err
 	}

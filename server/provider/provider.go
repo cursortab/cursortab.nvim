@@ -18,16 +18,13 @@ type HTTPTransportSetter interface {
 	SetHTTPTransport(rt http.RoundTripper)
 }
 
-// StreamingType defines how completion content is streamed
-type StreamingType int
-
+// Re-exports of engine streaming-type constants so sub-provider packages
+// (zeta, fim, inline, sweep, ...) can reference them as provider.StreamingX
+// without taking a direct dependency on the engine package.
 const (
-	// StreamingNone indicates batch mode (no streaming)
-	StreamingNone StreamingType = iota
-	// StreamingLines indicates line-by-line streaming (sweep, zeta, zeta-2, fim)
-	StreamingLines
-	// StreamingTokens indicates token-by-token streaming (inline)
-	StreamingTokens
+	StreamingNone   = engine.StreamingTypeNone
+	StreamingLines  = engine.StreamingTypeLines
+	StreamingTokens = engine.StreamingTypeTokens
 )
 
 // Compile-time checks that Provider implements the required interfaces
@@ -163,7 +160,7 @@ type Provider struct {
 	Name           string
 	Config         *types.ProviderConfig
 	Client         Client
-	StreamingType  StreamingType // Type of streaming (None, Lines, Tokens)
+	StreamingType  engine.StreamingType // Type of streaming (None, Lines, Tokens)
 	Preprocessors  []Preprocessor
 	PromptBuilder  PromptBuilder
 	Postprocessors []Postprocessor
@@ -278,16 +275,14 @@ func (p *Provider) logResponse(result *openai.StreamResult) {
 		result.Text)
 }
 
-// GetStreamingType returns the streaming type for this provider (implements engine.LineStreamProvider)
-// Returns 0=none, 1=lines, 2=tokens to match engine.StreamingType* constants
-func (p *Provider) GetStreamingType() int {
-	return int(p.StreamingType)
+// GetStreamingType returns the streaming type for this provider.
+func (p *Provider) GetStreamingType() engine.StreamingType {
+	return p.StreamingType
 }
 
-// PrepareLineStream runs preprocessors, builds the prompt, and returns the stream.
-// Returns (stream, providerContext, error). Implements engine.LineStreamProvider.
-func (p *Provider) PrepareLineStream(ctx context.Context, req *types.CompletionRequest) (engine.LineStream, any, error) {
-	defer logger.Trace("Provider.PrepareLineStream")()
+// prepareStream runs preprocessors and builds the prompt, returning the
+// completion request and provider context ready to be passed to the client.
+func (p *Provider) prepareStream(req *types.CompletionRequest) (*openai.CompletionRequest, *Context, error) {
 	pctx := &Context{Request: req}
 
 	for _, pre := range p.Preprocessors {
@@ -301,10 +296,36 @@ func (p *Provider) PrepareLineStream(ctx context.Context, req *types.CompletionR
 
 	completionReq := p.PromptBuilder(p, pctx)
 	pctx.CompletionRequest = completionReq
-	p.logRequest(completionReq, pctx.MaxLines)
+	return completionReq, pctx, nil
+}
 
-	stream := p.Client.DoLineStream(ctx, completionReq, pctx.MaxLines, p.StopTokens)
-	return stream, pctx, nil
+// finishStream applies the streamed text to the context and runs postprocessors.
+func (p *Provider) finishStream(providerCtx any, result *openai.StreamResult) (*types.CompletionResponse, error) {
+	pctx, ok := providerCtx.(*Context)
+	if !ok {
+		return p.EmptyResponse(), fmt.Errorf("invalid provider context type")
+	}
+	pctx.Result = result
+	p.logResponse(result)
+
+	for _, post := range p.Postprocessors {
+		if resp, done := post(p, pctx); done {
+			return resp, nil
+		}
+	}
+	return p.EmptyResponse(), nil
+}
+
+// PrepareLineStream runs preprocessors, builds the prompt, and returns the stream.
+// Returns (stream, providerContext, error). Implements engine.LineStreamProvider.
+func (p *Provider) PrepareLineStream(ctx context.Context, req *types.CompletionRequest) (engine.LineStream, any, error) {
+	defer logger.Trace("Provider.PrepareLineStream")()
+	completionReq, pctx, err := p.prepareStream(req)
+	if err != nil {
+		return nil, pctx, err
+	}
+	p.logRequest(completionReq, pctx.MaxLines)
+	return p.Client.DoLineStream(ctx, completionReq, pctx.MaxLines, p.StopTokens), pctx, nil
 }
 
 // ValidateFirstLine runs validators on the first received line (implements engine.LineStreamProvider)
@@ -325,70 +346,30 @@ func (p *Provider) ValidateFirstLine(providerCtx any, firstLine string) error {
 
 // FinishLineStream runs postprocessors on the accumulated result (implements engine.LineStreamProvider)
 func (p *Provider) FinishLineStream(providerCtx any, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error) {
-	pctx, ok := providerCtx.(*Context)
-	if !ok {
-		return p.EmptyResponse(), fmt.Errorf("invalid provider context type")
-	}
-
-	pctx.Result = &openai.StreamResult{
+	return p.finishStream(providerCtx, &openai.StreamResult{
 		Text:         text,
 		FinishReason: finishReason,
 		StoppedEarly: stoppedEarly,
-	}
-	p.logResponse(pctx.Result)
-
-	for _, post := range p.Postprocessors {
-		if resp, done := post(p, pctx); done {
-			return resp, nil
-		}
-	}
-
-	return p.EmptyResponse(), nil
+	})
 }
 
 // PrepareTokenStream runs preprocessors, builds the prompt, and returns a token stream.
 // Returns (stream, providerContext, error). Implements engine.TokenStreamProvider.
 func (p *Provider) PrepareTokenStream(ctx context.Context, req *types.CompletionRequest) (engine.LineStream, any, error) {
 	defer logger.Trace("Provider.PrepareTokenStream")()
-	pctx := &Context{Request: req}
-
-	for _, pre := range p.Preprocessors {
-		if err := pre(p, pctx); err != nil {
-			if errors.Is(err, ErrSkipCompletion) {
-				return nil, pctx, ErrSkipCompletion
-			}
-			return nil, nil, fmt.Errorf("%s: %w", p.Name, err)
-		}
+	completionReq, pctx, err := p.prepareStream(req)
+	if err != nil {
+		return nil, pctx, err
 	}
-
-	completionReq := p.PromptBuilder(p, pctx)
-	pctx.CompletionRequest = completionReq
 	p.logRequest(completionReq, 0) // maxLines=0 for token streaming
-
-	// DoTokenStream uses StopTokens and no maxChars limit (0)
-	stream := p.Client.DoTokenStream(ctx, completionReq, 0, p.StopTokens)
-	return stream, pctx, nil
+	return p.Client.DoTokenStream(ctx, completionReq, 0, p.StopTokens), pctx, nil
 }
 
 // FinishTokenStream runs postprocessors on the final accumulated result (implements engine.TokenStreamProvider)
 func (p *Provider) FinishTokenStream(providerCtx any, text string) (*types.CompletionResponse, error) {
-	pctx, ok := providerCtx.(*Context)
-	if !ok {
-		return p.EmptyResponse(), fmt.Errorf("invalid provider context type")
-	}
-
-	pctx.Result = &openai.StreamResult{
+	return p.finishStream(providerCtx, &openai.StreamResult{
 		Text:         text,
 		FinishReason: "stop",
 		StoppedEarly: false,
-	}
-	p.logResponse(pctx.Result)
-
-	for _, post := range p.Postprocessors {
-		if resp, done := post(p, pctx); done {
-			return resp, nil
-		}
-	}
-
-	return p.EmptyResponse(), nil
+	})
 }

@@ -1,0 +1,37 @@
+cursorRow: 6
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+mod_a_old
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+mod_b_old
+-- new.txt --
+mod_a_new
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+mod_b_new
+-- expected --
+stage @1 cursor=11:9
+  modification @1 1-1 replace_chars 6:9
+    + "mod_a_new"
+    - "mod_a_old"
+  modification @11 11-11 replace_chars 6:9
+    + "mod_b_new"
+    - "mod_b_old"
+

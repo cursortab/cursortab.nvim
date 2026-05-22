@@ -165,7 +165,7 @@ func TestSetFileContext_Empty(t *testing.T) {
 
 	buf.SetFileContext(FileContext{})
 
-	assert.True(t, buf.previousLines == nil, "previousLines should be nil")
+	assert.Nil(t, buf.previousLines, "previousLines should be nil")
 	assert.Equal(t, 0, len(buf.diffHistories), "diffHistories empty")
 }
 
@@ -177,7 +177,7 @@ func TestExtractGranularDiffs_NoChanges(t *testing.T) {
 
 	result := extractGranularDiffs(oldLines, newLines, 1)
 
-	assert.True(t, len(result) == 0 || result == nil, "no diffs for identical content")
+	assert.Nil(t, result, "no diffs for identical content")
 }
 
 func TestExtractGranularDiffs_Modification(t *testing.T) {

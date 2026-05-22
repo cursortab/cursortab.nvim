@@ -126,6 +126,7 @@ func (e *Engine) cancelStreaming() {
 	}
 	e.streamingState = nil
 	e.tokenStreamingState = nil
+	e.acceptedDuringStreaming = false
 }
 
 // cancelTokenStreamingKeepPartial cancels token streaming but preserves the partial
@@ -222,9 +223,10 @@ func (e *Engine) handleStreamLine(line string) {
 			)
 			if !needsNav {
 				// Stage is close to cursor - render it immediately
-				e.renderStreamedStage(finalized)
-				e.recordMetricsShown(nil)
-				ss.FirstStageRendered = true
+				if e.renderStreamedStage(finalized) {
+					e.recordMetricsShown(nil)
+					ss.FirstStageRendered = true
+				}
 			}
 			// If needsNav, don't render - let Finalize() handle it with cursor prediction
 		}
@@ -300,7 +302,17 @@ func (e *Engine) handleStreamCompleteSimple() {
 	e.stagedCompletion = &text.StagedCompletion{
 		Stages:     stagingResult.Stages,
 		CurrentIdx: 0,
-		SourcePath: e.buffer.Path(),
+	}
+
+	// If the first stage matches a recent rejection, drop everything.
+	// Important: if we already rendered a stage during streaming, ghost text
+	// and applyBatch are live; a plain state flip would leave them visible
+	// with no (idle, accept) transition, so Tab would do nothing. Route
+	// through reject() so ClearUI and completion/applyBatch cleanup happen.
+	firstStage := stagingResult.Stages[0]
+	if e.suppressRejectedCompletionForStage(firstStage) {
+		e.reject()
+		return
 	}
 
 	// If we already rendered a stage during streaming, keep it as-is.
@@ -317,14 +329,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 
 	// Transition to appropriate state
 	if stagingResult.FirstNeedsNavigation {
-		firstStage := stagingResult.Stages[0]
-		e.cursorTarget = &types.CursorPredictionTarget{
-			RelativePath:    e.buffer.Path(),
-			LineNumber:      int32(firstStage.BufferStart),
-			ShouldRetrigger: false,
-		}
-		e.state = stateHasCursorTarget
-		e.buffer.ShowCursorTarget(firstStage.BufferStart)
+		e.showStageCursorTarget(stagingResult.Stages[0])
 	} else {
 		e.showCurrentStage()
 	}
@@ -381,24 +386,31 @@ func (e *Engine) handleStreamCompleteAfterAccept(ss *StreamingState) {
 		e.tryShowPrefetchedCompletion()
 	} else {
 		// Far away - show cursor prediction
-		e.cursorTarget = &types.CursorPredictionTarget{
+		e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
 			RelativePath:    e.buffer.Path(),
 			LineNumber:      int32(targetLine),
 			ShouldRetrigger: false,
-		}
+		}, e.rejectedCompletionFor(comp))
 		// Store the completions for when user jumps to target
 		e.prefetchedCompletions = resp.Completions
 		e.prefetchedCursorTarget = resp.CursorTarget
 		e.prefetchState = prefetchReady
-		e.state = stateHasCursorTarget
-		e.buffer.ShowCursorTarget(targetLine)
 	}
 }
 
-// renderStreamedStage renders a finalized stage during streaming
-func (e *Engine) renderStreamedStage(stage *text.Stage) {
+// renderStreamedStage renders a finalized stage during streaming.
+// Returns true only when the stage was actually rendered.
+func (e *Engine) renderStreamedStage(stage *text.Stage) bool {
 	if stage == nil || len(stage.Groups) == 0 {
-		return
+		return false
+	}
+
+	// Suppress before rendering so cached rejections do not flash during
+	// streaming and then disappear when the full stream finalizes.
+	if e.suppressRejectedCompletionForStage(stage) {
+		e.cancelStreaming()
+		e.reject()
+		return false
 	}
 
 	// Prepare completion for this stage and render it
@@ -422,9 +434,12 @@ func (e *Engine) renderStreamedStage(stage *text.Stage) {
 		Lines:      stage.Lines,
 	}}
 	e.cursorTarget = stage.CursorTarget
+	e.currentRejectedCompletion = e.currentRejectedCompletionCandidate()
 
 	// Store groups for partial accept
 	e.currentGroups = stage.Groups
+
+	return true
 }
 
 // handleTokenChunk processes a cumulative text chunk from token streaming.
@@ -474,6 +489,11 @@ func (e *Engine) handleTokenChunk(accumulatedText string) {
 	}}
 	e.completionOriginalLines = []string{oldLine}
 
+	// Don't capture currentRejectedCompletion here: each token chunk would
+	// store an incomplete fragment that won't match a future full completion.
+	// handleTokenStreamComplete re-runs through processCompletion, which
+	// captures the final candidate via showCurrentStage.
+
 	// Store groups for partial accept
 	e.currentGroups = []*text.Group{group}
 }
@@ -498,50 +518,39 @@ func (e *Engine) handleTokenStreamComplete() {
 	e.tokenStreamingState = nil
 	e.streamingCancel = nil
 
-	// If empty, go idle
-	if finalText == "" {
+	goIdle := func() {
 		e.buffer.ClearUI()
 		e.state = stateIdle
+	}
+
+	if finalText == "" {
+		goIdle()
 		return
 	}
 
-	// Run postprocessors through provider
 	tokenProvider, ok := e.provider.(TokenStreamProvider)
 	if !ok {
-		e.buffer.ClearUI()
-		e.state = stateIdle
+		goIdle()
 		return
 	}
 
 	resp, err := tokenProvider.FinishTokenStream(providerCtx, finalText)
-	if err != nil {
-		e.buffer.ClearUI()
-		e.state = stateIdle
-		return
-	}
-
-	// Process the response like a normal completion
-	if resp == nil || len(resp.Completions) == 0 {
-		e.buffer.ClearUI()
-		e.state = stateIdle
+	if err != nil || resp == nil || len(resp.Completions) == 0 {
+		goIdle()
 		return
 	}
 
 	// For inline provider, there's always just one completion
 	completion := resp.Completions[0]
-
-	// Validate completion is for current buffer state
 	if completion.StartLine < 1 || completion.StartLine > len(req.Lines) {
-		e.buffer.ClearUI()
-		e.state = stateIdle
+		goIdle()
 		return
 	}
 
 	// Process through normal completion flow (handles staging etc.)
-	if e.processCompletion(completion) {
+	if e.processCompletion(completion) == completionShown {
 		e.state = stateHasCompletion
 	} else {
-		e.buffer.ClearUI()
-		e.state = stateIdle
+		goIdle()
 	}
 }

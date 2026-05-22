@@ -172,8 +172,13 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	)
 
 	// Build API request
+	model := p.config.ProviderModel
+	if model == "" {
+		model = mercuryapi.Model
+	}
+
 	apiReq := &mercuryapi.Request{
-		Model: mercuryapi.Model,
+		Model: model,
 		Messages: []mercuryapi.Message{
 			{Role: "user", Content: prompt},
 		},

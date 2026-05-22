@@ -82,18 +82,73 @@ func EstimateCharsFromTokens(tokens int) int {
 	return tokens * AvgCharsPerToken
 }
 
+// BalancedWindowAroundCursor returns inclusive [start, end] indices for the
+// largest window around cursorIdx whose total bytes (line lengths + newlines)
+// fit within maxBytes. The cursor line is always included; remaining budget is
+// split evenly before/after the cursor, with leftover from one side flowing to
+// the other. Returns (0, -1) for empty input so lines[start:end+1] yields an
+// empty slice.
+func BalancedWindowAroundCursor(lines []string, cursorIdx, maxBytes int) (int, int) {
+	if len(lines) == 0 {
+		return 0, -1
+	}
+	if cursorIdx < 0 {
+		cursorIdx = 0
+	}
+	if cursorIdx >= len(lines) {
+		cursorIdx = len(lines) - 1
+	}
+
+	cursorLineBytes := len(lines[cursorIdx]) + 1
+	halfBudget := (maxBytes - cursorLineBytes) / 2
+
+	startIdx := cursorIdx
+	bytesBefore := 0
+	for startIdx > 0 && bytesBefore < halfBudget {
+		newBytes := len(lines[startIdx-1]) + 1
+		if bytesBefore+newBytes > halfBudget {
+			break
+		}
+		startIdx--
+		bytesBefore += newBytes
+	}
+
+	budgetAfter := halfBudget + (halfBudget - bytesBefore)
+	endIdx := cursorIdx
+	bytesAfter := 0
+	for endIdx < len(lines)-1 && bytesAfter < budgetAfter {
+		newBytes := len(lines[endIdx+1]) + 1
+		if bytesAfter+newBytes > budgetAfter {
+			break
+		}
+		endIdx++
+		bytesAfter += newBytes
+	}
+
+	if leftover := budgetAfter - bytesAfter; leftover > 0 {
+		for startIdx > 0 {
+			newBytes := len(lines[startIdx-1]) + 1
+			if bytesBefore+newBytes > halfBudget+leftover {
+				break
+			}
+			startIdx--
+			bytesBefore += newBytes
+		}
+	}
+
+	return startIdx, endIdx
+}
+
 // TrimContentAroundCursor trims the content to fit within maxTokens while preserving
 // context around the cursor position. Returns the trimmed lines, adjusted cursor position,
 // trim offset, and whether trimming occurred.
 // An optional syntaxRanges parameter (1-indexed, innermost to outermost) causes the
 // window boundaries to snap to AST node boundaries when they fit within budget.
 func TrimContentAroundCursor(lines []string, cursorRow, cursorCol, maxTokens int, syntaxRanges []*types.LineRange) ([]string, int, int, int, bool) {
-	// Handle empty file
 	if len(lines) == 0 {
 		return lines, 0, cursorCol, 0, false
 	}
 
-	// Clamp cursor to valid range
 	if cursorRow < 0 {
 		cursorRow = 0
 	}
@@ -107,79 +162,21 @@ func TrimContentAroundCursor(lines []string, cursorRow, cursorCol, maxTokens int
 
 	maxChars := EstimateCharsFromTokens(maxTokens)
 
-	// Calculate total content size
 	totalChars := 0
 	for _, line := range lines {
-		totalChars += len(line) + 1 // +1 for newline
+		totalChars += len(line) + 1
 	}
-
-	// If content is already within limits, return as-is
 	if totalChars <= maxChars {
 		return lines, cursorRow, cursorCol, 0, false
 	}
 
-	// Balanced approach: allocate half budget before cursor, half after
-	// This ensures we see context both above AND below the cursor
-	cursorLineChars := len(lines[cursorRow]) + 1
-	remainingBudget := maxChars - cursorLineChars
-	halfBudget := remainingBudget / 2
-
-	// Expand BEFORE cursor (up to half budget)
-	startLine := cursorRow
-	charsBefore := 0
-	for startLine > 0 && charsBefore < halfBudget {
-		newChars := len(lines[startLine-1]) + 1
-		if charsBefore+newChars <= halfBudget {
-			startLine--
-			charsBefore += newChars
-		} else {
-			break
-		}
-	}
-
-	// Expand AFTER cursor (up to half budget + any unused from before)
-	unusedBefore := halfBudget - charsBefore
-	budgetAfter := halfBudget + unusedBefore
-	endLine := cursorRow
-	charsAfter := 0
-	for endLine < len(lines)-1 && charsAfter < budgetAfter {
-		newChars := len(lines[endLine+1]) + 1
-		if charsAfter+newChars <= budgetAfter {
-			endLine++
-			charsAfter += newChars
-		} else {
-			break
-		}
-	}
-
-	// If we have unused budget after expanding down, try expanding up more
-	unusedAfter := budgetAfter - charsAfter
-	if unusedAfter > 0 {
-		for startLine > 0 {
-			newChars := len(lines[startLine-1]) + 1
-			if charsBefore+newChars <= halfBudget+unusedAfter {
-				startLine--
-				charsBefore += newChars
-			} else {
-				break
-			}
-		}
-	}
-
-	// Snap to syntax boundaries if available
+	startLine, endLine := BalancedWindowAroundCursor(lines, cursorRow, maxChars)
 	startLine, endLine = SnapToSyntaxBoundaries(lines, startLine, endLine, maxChars, syntaxRanges)
 
-	// Extract the trimmed lines
 	trimmedLines := make([]string, endLine-startLine+1)
 	copy(trimmedLines, lines[startLine:endLine+1])
 
-	// Adjust cursor position
-	newCursorRow := cursorRow - startLine
-
-	// Return trim offset (how many lines were removed from the start)
-	trimOffset := startLine
-
-	return trimmedLines, newCursorRow, cursorCol, trimOffset, true
+	return trimmedLines, cursorRow - startLine, cursorCol, startLine, true
 }
 
 // DiffEntry interface for token limiting - matches types.DiffEntry

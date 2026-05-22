@@ -18,13 +18,26 @@ type Stage struct {
 	CursorCol    int                           // Cursor column (0-indexed)
 	CursorTarget *types.CursorPredictionTarget // Navigation target
 	IsLastStage  bool
+}
 
-	// Unexported fields for construction (not serialized)
-	rawChanges   []LineChange // Original changes with absolute line nums
-	startLine    int          // First change line (absolute, 1-indexed)
-	endLine      int          // Last change line (absolute, 1-indexed)
-	newLineStart int          // First new-file line whose content belongs to this stage
-	newLineEnd   int          // Last new-file line whose content belongs to this stage
+// stageBuilder holds the scratch state used while assembling a Stage.
+// It exists so the runtime Stage struct doesn't have to carry construction-only
+// fields. Once finalizeStages turns a builder into a Stage, the builder is
+// discarded.
+//
+// Three distinct coordinate systems live on this struct:
+//   - startLine/endLine: each change's MapKey (NewLineNum for non-deletions,
+//     OldLineNum for deletions). Used to track which raw changes belong here.
+//   - newLineStart/newLineEnd: new-file line range whose content forms Stage.Lines.
+//   - bufferStart/bufferEnd: buffer line range (old-file coords + baseLineOffset).
+type stageBuilder struct {
+	rawChanges   []LineChange
+	startLine    int
+	endLine      int
+	newLineStart int
+	newLineEnd   int
+	bufferStart  int
+	bufferEnd    int
 }
 
 // StagingResult contains the result of CreateStages
@@ -37,7 +50,6 @@ type StagingResult struct {
 type StagedCompletion struct {
 	Stages           []*Stage
 	CurrentIdx       int
-	SourcePath       string
 	CumulativeOffset int // Tracks line count drift after each stage accept (for unequal line counts)
 }
 
@@ -78,25 +90,25 @@ func CreateStages(p *StagingParams) *StagingResult {
 		return allChanges[i].change.MapKey() < allChanges[j].change.MapKey()
 	})
 
-	// Step 2: Group changes into stages (proximity + maxLines + viewport)
-	allStages := groupChangesIntoStages(allChanges, p.ProximityThreshold, p.MaxLines, p.ViewportBottom, p.BaseLineOffset, diff)
+	// Step 2: Group changes into stage builders (proximity + maxLines + viewport)
+	builders := groupChangesIntoStages(allChanges, p.ProximityThreshold, p.MaxLines, p.ViewportBottom, p.BaseLineOffset, diff)
 
-	if len(allStages) == 0 {
+	if len(builders) == 0 {
 		return nil
 	}
 
 	// Step 3: Sort stages by cursor distance
-	sort.SliceStable(allStages, func(i, j int) bool {
-		distI := stageDistanceFromCursor(allStages[i], p.CursorRow)
-		distJ := stageDistanceFromCursor(allStages[j], p.CursorRow)
+	sort.SliceStable(builders, func(i, j int) bool {
+		distI := distanceFromCursor(builders[i].bufferStart, builders[i].bufferEnd, p.CursorRow)
+		distJ := distanceFromCursor(builders[j].bufferStart, builders[j].bufferEnd, p.CursorRow)
 		if distI != distJ {
 			return distI < distJ
 		}
-		return allStages[i].startLine < allStages[j].startLine
+		return builders[i].startLine < builders[j].startLine
 	})
 
-	// Step 4: Finalize stages (content, cursor targets, stacked hints)
-	finalizeStages(allStages, p.NewLines, p.OldLines, p.FilePath, p.BaseLineOffset, diff, p.CursorRow, p.CursorCol, p.AvailableWidth)
+	// Step 4: Finalize builders into stages (content, cursor targets, stacked hints)
+	allStages := finalizeStages(builders, p.NewLines, p.OldLines, p.FilePath, p.BaseLineOffset, diff, p.CursorRow, p.CursorCol, p.AvailableWidth)
 
 	// Step 5: Check if first stage needs navigation UI
 	firstNeedsNav := StageNeedsNavigation(
@@ -115,62 +127,63 @@ type indexedChange struct {
 	bufferLine int
 }
 
-// groupChangesIntoStages groups sorted changes into partial Stage structs based on
+// groupChangesIntoStages groups sorted changes into stage builders based on
 // buffer-line proximity and stage line limits.
-func groupChangesIntoStages(changes []indexedChange, proximityThreshold int, maxLines int, viewportBottom int, baseLineOffset int, diff *DiffResult) []*Stage {
+func groupChangesIntoStages(changes []indexedChange, proximityThreshold int, maxLines int, viewportBottom int, baseLineOffset int, diff *DiffResult) []*stageBuilder {
 	if len(changes) == 0 {
 		return nil
 	}
 
-	var stages []*Stage
-	var currentStage *Stage
+	var builders []*stageBuilder
+	var current *stageBuilder
 	lastBufferLine := 0
+
+	startNew := func(ic indexedChange) {
+		current = &stageBuilder{
+			startLine:  ic.change.MapKey(),
+			endLine:    ic.change.MapKey(),
+			rawChanges: []LineChange{ic.change},
+		}
+		lastBufferLine = ic.bufferLine
+	}
 
 	for _, ic := range changes {
 		mapKey := ic.change.MapKey()
 
-		if currentStage == nil {
-			currentStage = &Stage{
-				startLine:  mapKey,
-				endLine:    mapKey,
-				rawChanges: []LineChange{ic.change},
+		if current == nil {
+			startNew(ic)
+			continue
+		}
+
+		gap := ic.bufferLine - lastBufferLine
+		if gap < 0 {
+			gap = -gap
+		}
+		stageLineCount := current.endLine - current.startLine + 1
+		exceedsMaxLines := maxLines > 0 && stageLineCount >= maxLines
+		// Additions past the viewport create virtual lines that overflow;
+		// deletions/modifications overlay existing lines, so they're safe.
+		additionPastViewport := viewportBottom > 0 && ic.bufferLine > viewportBottom && ic.change.Type == ChangeAddition
+
+		if gap <= proximityThreshold && !exceedsMaxLines && !additionPastViewport {
+			current.rawChanges = append(current.rawChanges, ic.change)
+			if mapKey > current.endLine {
+				current.endLine = mapKey
 			}
 			lastBufferLine = ic.bufferLine
 		} else {
-			gap := ic.bufferLine - lastBufferLine
-			if gap < 0 {
-				gap = -gap
-			}
-			stageLineCount := currentStage.endLine - currentStage.startLine + 1
-			exceedsMaxLines := maxLines > 0 && stageLineCount >= maxLines
-			// Additions past the viewport create virtual lines that overflow;
-			// deletions/modifications overlay existing lines, so they're safe.
-			additionPastViewport := viewportBottom > 0 && ic.bufferLine > viewportBottom && ic.change.Type == ChangeAddition
-			if gap <= proximityThreshold && !exceedsMaxLines && !additionPastViewport {
-				currentStage.rawChanges = append(currentStage.rawChanges, ic.change)
-				if mapKey > currentStage.endLine {
-					currentStage.endLine = mapKey
-				}
-				lastBufferLine = ic.bufferLine
-			} else {
-				computeStageRanges(currentStage, baseLineOffset, diff)
-				stages = append(stages, currentStage)
-				currentStage = &Stage{
-					startLine:  mapKey,
-					endLine:    mapKey,
-					rawChanges: []LineChange{ic.change},
-				}
-				lastBufferLine = ic.bufferLine
-			}
+			computeStageRanges(current, baseLineOffset, diff)
+			builders = append(builders, current)
+			startNew(ic)
 		}
 	}
 
-	if currentStage != nil {
-		computeStageRanges(currentStage, baseLineOffset, diff)
-		stages = append(stages, currentStage)
+	if current != nil {
+		computeStageRanges(current, baseLineOffset, diff)
+		builders = append(builders, current)
 	}
 
-	return stages
+	return builders
 }
 
 // StageNeedsNavigation determines if a stage requires cursor prediction UI.
@@ -185,19 +198,19 @@ func StageNeedsNavigation(stage *Stage, cursorRow, viewportTop, viewportBottom, 
 		}
 	}
 
-	distance := stageDistanceFromCursor(stage, cursorRow)
-	return distance > distThreshold
+	return distanceFromCursor(stage.BufferStart, stage.BufferEnd, cursorRow) > distThreshold
 }
 
-// stageDistanceFromCursor calculates the minimum distance from cursor to a stage.
-func stageDistanceFromCursor(stage *Stage, cursorRow int) int {
-	if cursorRow >= stage.BufferStart && cursorRow <= stage.BufferEnd {
+// distanceFromCursor returns the minimum distance from cursorRow to the
+// inclusive range [start, end]. Returns 0 if cursorRow is inside the range.
+func distanceFromCursor(start, end, cursorRow int) int {
+	if cursorRow >= start && cursorRow <= end {
 		return 0
 	}
-	if cursorRow < stage.BufferStart {
-		return stage.BufferStart - cursorRow
+	if cursorRow < start {
+		return start - cursorRow
 	}
-	return cursorRow - stage.BufferEnd
+	return cursorRow - end
 }
 
 // computeStageRanges sets BufferStart, BufferEnd, newLineStart, and newLineEnd on the
@@ -214,7 +227,7 @@ func stageDistanceFromCursor(stage *Stage, cursorRow int) int {
 //   - Expanded to include unchanged old lines in [oldStart, oldEnd] that map to new
 //     lines via OldToNew (skipped for pure same-anchor-addition stages, which insert
 //     without replacing any existing content).
-func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult) {
+func computeStageRanges(b *stageBuilder, baseLineOffset int, diff *DiffResult) {
 	minOldNonAdd := -1
 	maxOldNonAdd := -1
 	minAnchor := -1
@@ -224,7 +237,7 @@ func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult) {
 	newStart := 0
 	newEnd := 0
 
-	for _, change := range stage.rawChanges {
+	for _, change := range b.rawChanges {
 		// Track new-line range from every non-deletion change
 		if change.Type != ChangeDeletion && change.NewLineNum > 0 {
 			if newStart == 0 || change.NewLineNum < newStart {
@@ -280,7 +293,7 @@ func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult) {
 		// Mixed: start with non-addition range, extend for addition anchors
 		oldStart = minOldNonAdd
 		oldEnd = maxOldNonAdd
-		for _, change := range stage.rawChanges {
+		for _, change := range b.rawChanges {
 			if change.Type == ChangeAddition && change.OldLineNum > 0 {
 				if change.OldLineNum >= oldEnd {
 					oldEnd = change.OldLineNum
@@ -292,25 +305,37 @@ func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult) {
 		}
 	}
 
-	// For anchorless additions (OldLineNum=-1), derive the insertion
-	// point from the LineMapping using the change's NewLineNum.
-	if oldStart <= 0 && diff.LineMapping != nil {
-		for _, change := range stage.rawChanges {
-			if change.NewLineNum > 0 && change.NewLineNum <= len(diff.LineMapping.NewToOld) {
-				// Walk forward from NewLineNum to find the next mapped old line
-				for i := change.NewLineNum - 1; i < len(diff.LineMapping.NewToOld); i++ {
-					if diff.LineMapping.NewToOld[i] > 0 {
-						pos := diff.LineMapping.NewToOld[i]
-						if oldStart <= 0 || pos < oldStart {
-							oldStart = pos
-						}
-						break
-					}
+	// Anchorless additions (OldLineNum=-1): resolve each addition's insertion
+	// point by walking forward in NewToOld from its NewLineNum to the next
+	// mapped old line. The insertion belongs just before that old line; if
+	// no forward match exists, it goes past the end. Run unconditionally so
+	// mixed stages (anchorless addition combined with non-additions) extend
+	// the buffer range to include the insertion point — otherwise the
+	// untouched lines between the insertion point and the rest of the stage
+	// get duplicated when nvim_buf_set_lines applies the replacement.
+	if diff.LineMapping != nil {
+		for _, change := range b.rawChanges {
+			if change.Type != ChangeAddition || change.OldLineNum > 0 {
+				continue
+			}
+			if change.NewLineNum <= 0 {
+				continue
+			}
+			pos := -1
+			for i := change.NewLineNum - 1; i < len(diff.LineMapping.NewToOld); i++ {
+				if diff.LineMapping.NewToOld[i] > 0 {
+					pos = diff.LineMapping.NewToOld[i]
+					break
 				}
-				// If no forward match, insertion is past last old line
-				if oldStart <= 0 {
-					oldStart = len(diff.LineMapping.OldToNew) + 1
-				}
+			}
+			if pos < 0 {
+				pos = len(diff.LineMapping.OldToNew) + 1
+			}
+			if oldStart <= 0 || pos < oldStart {
+				oldStart = pos
+			}
+			if oldEnd > 0 && pos > oldEnd+1 {
+				oldEnd = pos - 1
 			}
 		}
 	}
@@ -318,14 +343,14 @@ func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult) {
 		oldEnd = oldStart
 	}
 	if oldStart <= 0 {
-		oldStart = stage.startLine
+		oldStart = b.startLine
 	}
 	if oldEnd <= 0 {
-		oldEnd = stage.endLine
+		oldEnd = b.endLine
 	}
 
-	stage.BufferStart = oldStart + baseLineOffset - 1
-	stage.BufferEnd = oldEnd + baseLineOffset - 1
+	b.bufferStart = oldStart + baseLineOffset - 1
+	b.bufferEnd = oldEnd + baseLineOffset - 1
 
 	// Expand new-line range to include unchanged old lines that fall within
 	// [oldStart, oldEnd] and map to new lines. These must be included in
@@ -352,29 +377,28 @@ func computeStageRanges(stage *Stage, baseLineOffset int, diff *DiffResult) {
 
 	if newStart == 0 {
 		// Pure deletion stage — no new content
-		stage.newLineStart = 1
-		stage.newLineEnd = 0
+		b.newLineStart = 1
+		b.newLineEnd = 0
 	} else {
-		stage.newLineStart = newStart
-		stage.newLineEnd = newEnd
+		b.newLineStart = newStart
+		b.newLineEnd = newEnd
 	}
 }
 
-// finalizeStages populates the remaining fields of partial stages.
+// finalizeStages turns each stage builder into a finalized Stage.
 // It extracts content, remaps changes to relative line numbers, computes groups,
 // and sets cursor targets based on sort order.
-func finalizeStages(stages []*Stage, newLines []string, oldLines []string, filePath string, baseLineOffset int, diff *DiffResult, cursorRow, cursorCol int, availableWidth int) {
-	for i, stage := range stages {
-		isLastStage := i == len(stages)-1
-
-		computeStageRanges(stage, baseLineOffset, diff)
+func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []string, filePath string, baseLineOffset int, diff *DiffResult, cursorRow, cursorCol int, availableWidth int) []*Stage {
+	stages := make([]*Stage, len(builders))
+	for i, b := range builders {
+		isLastStage := i == len(builders)-1
 
 		// Convert a single addition on the cursor line to a modification (append_chars).
 		// When the cursor sits on a whitespace-only line and the diff produces a
 		// pure addition (because the old content matched elsewhere as equal), we
 		// want inline ghost text rather than a virtual line.
-		if len(stage.rawChanges) == 1 {
-			change := stage.rawChanges[0]
+		if len(b.rawChanges) == 1 {
+			change := b.rawChanges[0]
 			if change.Type == ChangeAddition {
 				bufLine := diff.LineMapping.GetBufferLine(change, baseLineOffset)
 				oldIdx := bufLine - baseLineOffset // 0-indexed into oldLines
@@ -382,7 +406,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 					oldContent := oldLines[oldIdx]
 					if oldContent != "" && strings.TrimSpace(oldContent) == "" {
 						changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, change.Content)
-						stage.rawChanges[0] = LineChange{
+						b.rawChanges[0] = LineChange{
 							Type:       changeType,
 							OldLineNum: oldIdx + 1,
 							NewLineNum: change.NewLineNum,
@@ -391,7 +415,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 							ColStart:   colStart,
 							ColEnd:     colEnd,
 						}
-						computeStageRanges(stage, baseLineOffset, diff)
+						computeStageRanges(b, baseLineOffset, diff)
 					}
 				}
 			}
@@ -399,7 +423,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 
 		// Extract the new content using the pre-computed new-line range
 		var stageLines []string
-		for j := stage.newLineStart; j <= stage.newLineEnd && j-1 < len(newLines); j++ {
+		for j := b.newLineStart; j <= b.newLineEnd && j-1 < len(newLines); j++ {
 			if j > 0 {
 				stageLines = append(stageLines, newLines[j-1])
 			}
@@ -415,7 +439,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 		// their relative lines never overlap. Non-deletions occupy [1..nCount] and
 		// deletions occupy [nCount+1..], preserving inter-deletion gaps for grouping.
 		hasNonDeletions := false
-		for _, change := range stage.rawChanges {
+		for _, change := range b.rawChanges {
 			if change.Type != ChangeDeletion {
 				hasNonDeletions = true
 				break
@@ -426,11 +450,11 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 			nCount = len(stageLines)
 		}
 
-		for _, change := range stage.rawChanges {
+		for _, change := range b.rawChanges {
 			mapKey := change.MapKey()
 			var relativeLine int
 			if change.Type == ChangeDeletion {
-				rel := mapKey - stage.startLine + 1
+				rel := mapKey - b.startLine + 1
 				if nCount > 0 {
 					rel = nCount + rel
 				}
@@ -440,7 +464,7 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 				if newLineNum <= 0 {
 					newLineNum = mapKey
 				}
-				relativeLine = newLineNum - stage.newLineStart + 1
+				relativeLine = newLineNum - b.newLineStart + 1
 			}
 			relativeIdx := relativeLine - 1
 
@@ -459,30 +483,34 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 
 		// Compute groups, set BufferLine, validate render hints, and compute cursor position
 		ctx := &StageContext{
-			BufferStart:         stage.BufferStart,
+			BufferStart:         b.bufferStart,
 			CursorRow:           cursorRow,
 			CursorCol:           cursorCol,
 			LineNumToBufferLine: relativeToBufferLine,
 		}
 		groups, targetCursorLine, targetCursorCol := FinalizeStageGroups(remappedChanges, stageLines, ctx)
 
-		// Create cursor target
+		// Create cursor target. For the last stage, point to the end of NEW content
+		// (additions may extend past the old buffer end); otherwise point to the
+		// start of the next stage. Pure deletions have no new content — the line
+		// after the deleted range shifts down to bufferStart, but for a deletion
+		// at the end of the completion's view there's no surviving line at that
+		// position, so clamp to the last new line in the view.
 		var cursorTarget *types.CursorPredictionTarget
 		if isLastStage {
-			// For last stage, cursor target points to end of NEW content,
-			// not the old buffer end. This is important when additions extend
-			// beyond the original buffer.
-			newEndLine := stage.BufferStart + len(stageLines) - 1
+			targetLine := b.bufferStart + len(stageLines) - 1
+			if len(stageLines) == 0 {
+				targetLine = min(b.bufferStart, len(newLines)+baseLineOffset-1)
+			}
 			cursorTarget = &types.CursorPredictionTarget{
 				RelativePath:    filePath,
-				LineNumber:      int32(newEndLine),
+				LineNumber:      int32(targetLine),
 				ShouldRetrigger: true,
 			}
 		} else {
-			nextStage := stages[i+1]
 			cursorTarget = &types.CursorPredictionTarget{
 				RelativePath:    filePath,
-				LineNumber:      int32(nextStage.BufferStart),
+				LineNumber:      int32(builders[i+1].bufferStart),
 				ShouldRetrigger: false,
 			}
 		}
@@ -492,17 +520,19 @@ func finalizeStages(stages []*Stage, newLines []string, oldLines []string, fileP
 			setStackedHints(groups, availableWidth)
 		}
 
-		// Populate the stage's exported fields
-		stage.Lines = stageLines
-		stage.Changes = remappedChanges
-		stage.Groups = groups
-		stage.CursorLine = targetCursorLine
-		stage.CursorCol = targetCursorCol
-		stage.CursorTarget = cursorTarget
-		stage.IsLastStage = isLastStage
-
-		stage.rawChanges = nil
+		stages[i] = &Stage{
+			BufferStart:  b.bufferStart,
+			BufferEnd:    b.bufferEnd,
+			Lines:        stageLines,
+			Changes:      remappedChanges,
+			Groups:       groups,
+			CursorLine:   targetCursorLine,
+			CursorCol:    targetCursorCol,
+			CursorTarget: cursorTarget,
+			IsLastStage:  isLastStage,
+		}
 	}
+	return stages
 }
 
 // setStackedHints sets RenderHint="stacked" on modification groups when

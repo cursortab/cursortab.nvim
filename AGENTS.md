@@ -2,8 +2,9 @@
 
 @CONTRIBUTING.md
 
-**Important:** Never run `just verify-e2e` or pass `-verify`/`-verify-all`
-flags. Verification must always be done manually by the user.
+**Never run `just verify-e2e` (or `-verify`/`-verify-all` flags) on your own.**
+It marks fixtures as human-reviewed. Stop after `update-e2e`. Run verify only
+when the user explicitly asks.
 
 ## Code Style
 

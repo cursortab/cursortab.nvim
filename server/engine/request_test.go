@@ -1,11 +1,51 @@
 package engine
 
 import (
+	"context"
 	"cursortab/assert"
 	"cursortab/text"
 	"cursortab/types"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
 )
+
+// TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming verifies
+// that requestCompletion cancels any in-flight stream from a prior accept-during-
+// streaming. Without this, the leftover stream completes after the new request
+// starts, and handleStreamCompleteSimple sees acceptedDuringStreaming=true and
+// fires handleStreamCompleteAfterAccept against either the old stream or (for
+// line-stream providers) the new stream's accumulated text — overwriting state
+// the new request is in the middle of setting up.
+func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"existing"}
+	buf.row = 1
+	buf.col = 0
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.manuallyTriggered = true
+
+	streamCtx, streamCancel := context.WithCancel(context.Background())
+	eng.streamingState = &StreamingState{}
+	eng.streamingCancel = streamCancel
+	eng.acceptedDuringStreaming = true
+	eng.state = stateIdle
+
+	eng.requestCompletion(types.CompletionSourceTyping)
+
+	assert.False(t, eng.acceptedDuringStreaming, "flag should be cleared")
+
+	select {
+	case <-streamCtx.Done():
+	default:
+		t.Errorf("stream context should be cancelled before new request starts")
+	}
+}
 
 func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	buf := newMockBuffer()
@@ -30,7 +70,7 @@ func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 		ShouldRetrigger: true,
 	}
 
-	eng.doAcceptCompletion(Event{Type: EventAccept})
+	eng.acceptCompletion()
 
 	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction after accept")
 }
@@ -139,7 +179,7 @@ func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
 		Lines:      []string{"new 25"},
 	}}
 
-	eng.doAcceptCompletion(Event{Type: EventAccept})
+	eng.acceptCompletion()
 
 	assert.Equal(t, stateHasCursorTarget, eng.state, "should be HasCursorTarget showing prediction to line 25")
 	assert.Equal(t, 25, buf.showCursorTargetLine, "should show cursor target at line 25")
@@ -214,7 +254,7 @@ func TestAcceptLastStage_ClearsStalePrefetch_WhenOverlaps(t *testing.T) {
 		Lines:      []string{"new 15"},
 	}}
 
-	eng.doAcceptCompletion(Event{Type: EventAccept})
+	eng.acceptCompletion()
 
 	// Stale prefetch should be cleared because it overlaps with the applied stage.
 	// Then a new prefetch is requested (since ShouldRetrigger=true).
@@ -254,7 +294,7 @@ func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
 
 	initialSyncCalls := buf.syncCalls
 
-	eng.doPartialAcceptCompletion(Event{Type: EventPartialAccept})
+	eng.partialAcceptCompletion()
 
 	assert.True(t, buf.syncCalls > initialSyncCalls, "buffer should be synced after finish")
 	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction")
@@ -315,7 +355,7 @@ func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
 		},
 	}
 
-	eng.doPartialAcceptCompletion(Event{Type: EventPartialAccept})
+	eng.partialAcceptCompletion()
 
 	assert.NotNil(t, eng.stagedCompletion, "stagedCompletion should not be nil")
 	assert.Equal(t, 1, eng.stagedCompletion.CurrentIdx, "should be at stage 1")
@@ -446,6 +486,7 @@ func TestHandlePrefetchCursorPrediction_FarDistance(t *testing.T) {
 	assert.Equal(t, stateHasCursorTarget, eng.state, "should show cursor target when far")
 	assert.NotNil(t, eng.cursorTarget, "should have cursor target")
 	assert.Equal(t, int32(10), eng.cursorTarget.LineNumber, "cursor target should point to changed line")
+	assert.NotNil(t, eng.currentRejectedCompletion, "far prefetch cursor target should capture rejection candidate")
 	assert.Equal(t, prefetchReady, eng.prefetchState, "prefetch should be ready for later use")
 }
 
@@ -519,7 +560,7 @@ func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
 		},
 	}}
 
-	eng.doAcceptCompletion(Event{Type: EventAccept})
+	eng.acceptCompletion()
 
 	// Simulate buffer update
 	buf.lines[2] = "new line 3"
@@ -596,6 +637,82 @@ func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
 	assert.False(t, result, "should return false when prefetch content already in buffer")
 }
 
+func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{
+		"import numpy as np",
+		"import matplotlib.pyplot as plt",
+		"import pandas as pd",
+		"",
+		"def bubble_sort(arr):",
+		"",
+		"if __name__ == \"__main__\":",
+		"    pass",
+	}
+	buf.row = 5
+	buf.col = 0
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	stage := &text.Stage{
+		BufferStart: 6,
+		BufferEnd:   6,
+		Lines: []string{
+			"    n = len(arr)",
+			"    for i in range(n):",
+			"        for j in range(0, n-i-1):",
+			"            if arr[j] > arr[j+1]:",
+		},
+		Groups: []*text.Group{{
+			Type:       "addition",
+			BufferLine: 6,
+			StartLine:  1,
+			EndLine:    4,
+			Lines: []string{
+				"    n = len(arr)",
+				"    for i in range(n):",
+				"        for j in range(0, n-i-1):",
+				"            if arr[j] > arr[j+1]:",
+			},
+		}},
+		CursorTarget: &types.CursorPredictionTarget{
+			LineNumber:      10,
+			ShouldRetrigger: true,
+		},
+		IsLastStage: true,
+	}
+
+	eng.stagedCompletion = &text.StagedCompletion{
+		CurrentIdx: 0,
+		Stages:     []*text.Stage{stage},
+	}
+
+	eng.prefetchAtNMinusOne()
+	time.Sleep(10 * time.Millisecond)
+
+	prov.mu.Lock()
+	req := prov.lastRequest
+	prov.mu.Unlock()
+
+	assert.NotNil(t, req, "prefetch request should be issued")
+	assert.Equal(t, []string{
+		"import numpy as np",
+		"import matplotlib.pyplot as plt",
+		"import pandas as pd",
+		"",
+		"def bubble_sort(arr):",
+		"    n = len(arr)",
+		"    for i in range(n):",
+		"        for j in range(0, n-i-1):",
+		"            if arr[j] > arr[j+1]:",
+		"",
+		"if __name__ == \"__main__\":",
+		"    pass",
+	}, req.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
+}
+
 // TestAcceptLastStage_WaitsForInflightPrefetch tests that when accepting the last stage
 // and prefetch is still in-flight, the engine waits for it instead of going idle.
 func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
@@ -648,9 +765,75 @@ func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
 	// Prefetch is in-flight (not ready yet)
 	eng.prefetchState = prefetchInFlight
 
-	eng.doAcceptCompletion(Event{Type: EventAccept})
+	eng.acceptCompletion()
 
 	// Should wait for prefetch instead of triggering a new request
 	assert.Equal(t, prefetchWaitingForTab, eng.prefetchState, "should be waiting for prefetch")
 	assert.Equal(t, stateIdle, eng.state, "should clear UI while waiting")
+}
+
+// TestRequestPrefetch_NoRaceWithFileStateStoreWrites verifies that the
+// prefetch goroutine does not read shared engine state (specifically
+// fileStateStore) without synchronization. The event loop holds e.mu when
+// dispatching events; the prefetch goroutine must snapshot any required
+// state under that lock before launching, otherwise a concurrent file
+// switch will trigger a fatal "concurrent map iteration and map write"
+// runtime error. Run with `-race` to catch regressions.
+func TestRequestPrefetch_NoRaceWithFileStateStoreWrites(t *testing.T) {
+	buf := newMockBuffer()
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	for i := range 100 {
+		eng.fileStateStore[fmt.Sprintf("file%d.go", i)] = &FileState{
+			DiffHistories: []*types.DiffEntry{{Original: "a", Updated: "b", TimestampNs: 1}},
+			OriginalLines: []string{"line"},
+		}
+	}
+
+	drainStop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-drainStop:
+				return
+			case <-eng.eventChan:
+			}
+		}
+	}()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			eng.mu.Lock()
+			eng.fileStateStore[fmt.Sprintf("mut%d.go", i%50)] = &FileState{
+				DiffHistories: []*types.DiffEntry{{Original: "x", Updated: "y", TimestampNs: 1}},
+			}
+			eng.mu.Unlock()
+		}
+	}()
+
+	for range 100 {
+		eng.mu.Lock()
+		eng.requestPrefetch(types.CompletionSourceTyping, 1, 0, prefetchOpts{})
+		eng.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+
+	close(stop)
+	wg.Wait()
+	eng.mu.Lock()
+	eng.cancelPrefetch()
+	eng.mu.Unlock()
+	close(drainStop)
 }

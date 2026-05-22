@@ -90,6 +90,7 @@ type LimitedLogger struct {
 	file      *os.File
 	lineCount int
 	level     LogLevel
+	pid       int
 	mutex     sync.Mutex
 }
 
@@ -102,6 +103,7 @@ func NewLimitedLogger(file *os.File, level LogLevel) *LimitedLogger {
 		file:      file,
 		lineCount: 0,
 		level:     level,
+		pid:       os.Getpid(),
 	}
 
 	// Count existing lines in the file
@@ -121,7 +123,7 @@ func (ll *LimitedLogger) logWithLevel(level LogLevel, format string, v ...any) {
 		return
 	}
 	// Format with timestamp and write through Write() for proper line counting/rotation
-	msg := fmt.Sprintf("%s [%s] %s\n", time.Now().Format("2006/01/02 15:04:05"), level.String(), fmt.Sprintf(format, v...))
+	msg := fmt.Sprintf("%s [%s] [PID %d] %s\n", time.Now().Format("2006/01/02 15:04:05"), level.String(), ll.pid, fmt.Sprintf(format, v...))
 	ll.Write([]byte(msg))
 }
 

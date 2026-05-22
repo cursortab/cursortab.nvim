@@ -1,20 +1,20 @@
-User added a console.log with a label but no value. Model should complete it with the relevant variable. From Zed edit_prediction_cli: vscode--log-object-property.
+User added a console.log with a label but no value. The variable named in the label (`result`) is in scope and assigned on the very next line, so the completion is locally derivable from buffer context.
 id: typescript-complete-console-log
 language: typescript
 file: src/vs/editor/browser/widget/diffEditorWidget.ts
 row: 6
-col: 26
+col: 24
 viewportTop: 1
 viewportBottom: 20
 fim-row: 6
-fim-col: 27
+fim-col: 25
 -- buffer.txt --
 			if (currentToken === this._diffComputationToken
 				&& currentOriginalModel === this._originalEditor.getModel()
 				&& currentModifiedModel === this._modifiedEditor.getModel()
 			) {
 				this._setState(editorBrowser.DiffEditorState.DiffComputed);
-				console.log("did quit:")
+				console.log("result:")
 				this._diffComputationResult = result;
 				this._updateDecorationsRunner.schedule();
 				this._onDidUpdateDiff.fire();
@@ -26,7 +26,7 @@ fim-col: 27
 				this._diffComputationResult = result;
 <|new|>
 				this._setState(editorBrowser.DiffEditorState.DiffComputed);
-				console.log("did quit:")
+				console.log("result:")
 				this._diffComputationResult = result;
 -- steps --
 request-completion manual
@@ -36,7 +36,7 @@ request-completion manual
 				&& currentModifiedModel === this._modifiedEditor.getModel()
 			) {
 				this._setState(editorBrowser.DiffEditorState.DiffComputed);
-				console.log("did quit:", result.quitEarly)
+				console.log("result:", result)
 				this._diffComputationResult = result;
 				this._updateDecorationsRunner.schedule();
 				this._onDidUpdateDiff.fire();

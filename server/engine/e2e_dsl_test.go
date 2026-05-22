@@ -66,7 +66,7 @@ func ParseSteps(s string) ([]scenarioStep, error) {
 			continue
 		}
 
-		if strings.HasPrefix(line, "completion ") || strings.HasPrefix(line, "prefetch ") {
+		if strings.HasPrefix(line, "completion ") || strings.HasPrefix(line, "prefetch ") || strings.HasPrefix(line, "stash-prefetch ") {
 			step, newI, err := parseActionStep(lines, i)
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", i+1, err)

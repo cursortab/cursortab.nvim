@@ -1,6 +1,9 @@
 // Package fim implements a fill-in-the-middle completion provider.
 //
-// Prompt format (sent as a single text prompt to /v1/completions):
+// Two modes are supported:
+//
+// 1. Tokenized FIM (FIMTokens is non-nil). The provider concatenates content
+// and delimiter tokens into a single `prompt` string:
 //
 //	<|fim_prefix|>...lines before cursor...
 //	...text before cursor on current line...<|fim_suffix|>...text after cursor on current line...
@@ -21,8 +24,10 @@
 //	<|file_sep|>path/to/current.go
 //	<|fim_prefix|>...prefix...<|fim_suffix|>...suffix...<|fim_middle|>
 //
-// The FIM token names are configurable via FIMTokenConfig.
-// The model fills in text between the prefix and suffix.
+// 2. Prompt+suffix (FIMTokens is nil). The provider sends the text before the
+// cursor as `prompt` and the text after as `suffix` on the OpenAI completions
+// API (e.g. DeepSeek). No cross-file context is added in this mode.
+//
 // Lines are trimmed to a window around the cursor via the TrimContent preprocessor.
 package fim
 
@@ -57,7 +62,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		},
 	}
 
-	if config.FIMTokens.FileSep != "" {
+	if config.FIMTokens != nil && config.FIMTokens.FileSep != "" {
 		p.DiffBuilder = provider.FormatDiffHistory(provider.DiffHistoryOptions{
 			HeaderTemplate: config.FIMTokens.FileSep + "%s.diff\n",
 			Prefix:         "",
@@ -90,23 +95,11 @@ func setStreamContext() provider.Preprocessor {
 }
 
 func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
-	tokens := p.Config.FIMTokens
-	var prompt strings.Builder
+	// Build prefix and suffix content (common to both modes)
+	var prefixContent strings.Builder
+	var suffixContent strings.Builder
 
-	// Repo-level cross-file context (when repo_name and file_sep are configured)
-	if tokens.RepoName != "" && tokens.FileSep != "" {
-		buildRepoContext(&prompt, p, ctx)
-	}
-
-	// Core FIM prompt
-	if len(ctx.TrimmedLines) == 0 {
-		prompt.WriteString(tokens.Prefix)
-		prompt.WriteString(tokens.Suffix)
-		prompt.WriteString(tokens.Middle)
-	} else {
-		var prefixContent strings.Builder
-		var suffixContent strings.Builder
-
+	if len(ctx.TrimmedLines) > 0 {
 		for i := range ctx.CursorLine {
 			prefixContent.WriteString(ctx.TrimmedLines[i])
 			prefixContent.WriteString("\n")
@@ -123,13 +116,37 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 			suffixContent.WriteString("\n")
 			suffixContent.WriteString(ctx.TrimmedLines[i])
 		}
-
-		prompt.WriteString(tokens.Prefix)
-		prompt.WriteString(prefixContent.String())
-		prompt.WriteString(tokens.Suffix)
-		prompt.WriteString(suffixContent.String())
-		prompt.WriteString(tokens.Middle)
 	}
+
+	tokens := p.Config.FIMTokens
+
+	// Prompt+suffix mode (OpenAI completions API style): fim_tokens not configured
+	if tokens == nil {
+		return &openai.CompletionRequest{
+			Model:       p.Config.ProviderModel,
+			Prompt:      prefixContent.String(),
+			Suffix:      suffixContent.String(),
+			Temperature: p.Config.ProviderTemperature,
+			MaxTokens:   p.Config.ProviderMaxTokens,
+			TopK:        p.Config.ProviderTopK,
+			N:           1,
+			Echo:        false,
+		}
+	}
+
+	// Tokenized FIM mode: concatenate tokens into a single prompt
+	var prompt strings.Builder
+
+	// Repo-level cross-file context (when repo_name and file_sep are configured)
+	if tokens.RepoName != "" && tokens.FileSep != "" {
+		buildRepoContext(&prompt, p, ctx)
+	}
+
+	prompt.WriteString(tokens.Prefix)
+	prompt.WriteString(prefixContent.String())
+	prompt.WriteString(tokens.Suffix)
+	prompt.WriteString(suffixContent.String())
+	prompt.WriteString(tokens.Middle)
 
 	stop := []string{tokens.Prefix, tokens.Suffix, tokens.Middle}
 	if tokens.FileSep != "" {

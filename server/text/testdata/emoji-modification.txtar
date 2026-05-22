@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+Hello 🎉 world
+-- new.txt --
+Hello 🚀 world
+-- expected --
+stage @1 cursor=1:10
+  modification @1 1-1 replace_chars 8:10
+    + "Hello 🚀 world"
+    - "Hello 🎉 world"
+

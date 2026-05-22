@@ -2,6 +2,7 @@ package engine
 
 import (
 	"cursortab/assert"
+	"cursortab/text"
 	"cursortab/types"
 	"fmt"
 	"testing"
@@ -160,6 +161,46 @@ func TestHandleCursorTarget_FarAway(t *testing.T) {
 	assert.Equal(t, 10, buf.showCursorTargetLine, "showCursorTargetLine")
 }
 
+func TestHandleCursorTarget_StageNeedsNavigationCapturesRejectedCompletionCandidate(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{
+		"line 1", "line 2", "line 3", "line 4", "line 5",
+		"line 6", "line 7", "line 8", "line 9", "old line 10",
+	}
+	buf.row = 10
+	buf.viewportTop = 1
+	buf.viewportBottom = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+	eng.config.CursorPrediction.Enabled = true
+	eng.config.CursorPrediction.ProximityThreshold = 3
+
+	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 10}
+	eng.stagedCompletion = &text.StagedCompletion{
+		CurrentIdx: 0,
+		Stages: []*text.Stage{{
+			BufferStart: 10,
+			BufferEnd:   10,
+			Lines:       []string{"new line 10"},
+			Groups: []*text.Group{{
+				Type:       "modification",
+				BufferLine: 10,
+				StartLine:  1,
+				EndLine:    1,
+				Lines:      []string{"new line 10"},
+				OldLines:   []string{"old line 10"},
+			}},
+		}},
+	}
+
+	eng.handleCursorTarget()
+
+	assert.Equal(t, stateHasCursorTarget, eng.state, "state when next stage still needs navigation")
+	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line for next stage")
+	assert.NotNil(t, eng.currentRejectedCompletion, "stage cursor target should capture rejection candidate")
+}
+
 // TestProcessCompletion_TailTrimModelOverrun tests that when the model generates
 // content beyond the editable range, trailing lines that match post-editable
 // buffer content are trimmed, preventing duplicated code.
@@ -268,7 +309,7 @@ func TestProcessCompletion_NoSpuriousAdditions(t *testing.T) {
 		},
 	}
 
-	result := eng.processCompletion(comp)
+	result := eng.processCompletion(comp) == completionShown
 	assert.True(t, result, "processCompletion should show remaining changes")
 
 	if eng.stagedCompletion != nil && len(eng.stagedCompletion.Stages) > 0 {

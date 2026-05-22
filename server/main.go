@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 // CursorPredictionConfig holds cursor prediction settings
@@ -42,19 +41,19 @@ type FIMTokensConfig struct {
 
 // ProviderConfig holds provider-specific settings
 type ProviderConfig struct {
-	Type                 string          `json:"type"` // "inline", "fim", "sweep", "sweepapi", "zeta-2", "zeta", "copilot", "mercuryapi", "windsurf"
-	URL                  string          `json:"url"`
-	ApiKeyEnv            string          `json:"api_key_env"` // Environment variable name for API key
-	Model                string          `json:"model"`
-	Temperature          float64         `json:"temperature"`
-	ContextSize          int             `json:"context_size"` // Max input context size in tokens (0 = use max_tokens)
-	MaxTokens            int             `json:"max_tokens"`   // Max tokens to generate
-	TopK                 int             `json:"top_k"`
-	CompletionTimeout    int             `json:"completion_timeout"` // in milliseconds
-	MaxDiffHistoryTokens int             `json:"max_diff_history_tokens"`
-	CompletionPath       string          `json:"completion_path"`
-	FIMTokens            FIMTokensConfig `json:"fim_tokens"`
-	PrivacyMode          bool            `json:"privacy_mode"`
+	Type                 string           `json:"type"` // "inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "mercuryapi", "windsurf"
+	URL                  string           `json:"url"`
+	ApiKeyEnv            string           `json:"api_key_env"` // Environment variable name for API key
+	Model                string           `json:"model"`
+	Temperature          float64          `json:"temperature"`
+	ContextSize          int              `json:"context_size"` // Max input context size in tokens (0 = use max_tokens)
+	MaxTokens            int              `json:"max_tokens"`   // Max tokens to generate
+	TopK                 int              `json:"top_k"`
+	CompletionTimeout    int              `json:"completion_timeout"` // in milliseconds
+	MaxDiffHistoryTokens int              `json:"max_diff_history_tokens"`
+	CompletionPath       string           `json:"completion_path"`
+	FIMTokens            *FIMTokensConfig `json:"fim_tokens,omitempty"`
+	PrivacyMode          bool             `json:"privacy_mode"`
 }
 
 // DebugConfig holds debug settings
@@ -86,7 +85,7 @@ func validateEnum(value, field string, valid []string) error {
 // Validate checks that the config has valid values.
 // All config must come from the Lua client - no defaults are applied here.
 func (c *Config) Validate() error {
-	if err := validateEnum(c.Provider.Type, "provider.type", []string{"inline", "fim", "sweep", "sweepapi", "zeta-2", "zeta", "copilot", "mercuryapi", "windsurf"}); err != nil {
+	if err := validateEnum(c.Provider.Type, "provider.type", []string{"inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "mercuryapi", "windsurf"}); err != nil {
 		return err
 	}
 	if err := validateEnum(c.LogLevel, "log_level", []string{"trace", "debug", "info", "warn", "error"}); err != nil {
@@ -121,15 +120,18 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid provider.completion_path %q: must start with /", c.Provider.CompletionPath)
 	}
 
-	// Validate fim_tokens fields are all non-empty
-	if c.Provider.FIMTokens.Prefix == "" {
-		return fmt.Errorf("invalid provider.fim_tokens.prefix: must be non-empty")
-	}
-	if c.Provider.FIMTokens.Suffix == "" {
-		return fmt.Errorf("invalid provider.fim_tokens.suffix: must be non-empty")
-	}
-	if c.Provider.FIMTokens.Middle == "" {
-		return fmt.Errorf("invalid provider.fim_tokens.middle: must be non-empty")
+	// When fim_tokens is configured, prefix/suffix/middle must all be non-empty.
+	// Absence (nil) signals prompt+suffix mode and requires no validation.
+	if c.Provider.FIMTokens != nil {
+		if c.Provider.FIMTokens.Prefix == "" {
+			return fmt.Errorf("invalid provider.fim_tokens.prefix: must be non-empty")
+		}
+		if c.Provider.FIMTokens.Suffix == "" {
+			return fmt.Errorf("invalid provider.fim_tokens.suffix: must be non-empty")
+		}
+		if c.Provider.FIMTokens.Middle == "" {
+			return fmt.Errorf("invalid provider.fim_tokens.middle: must be non-empty")
+		}
 	}
 
 	return nil
@@ -164,10 +166,6 @@ func setupLogger(stateDir, logLevel string) *logger.LimitedLogger {
 	return logger.NewLimitedLogger(f, level)
 }
 
-func getSocketPath(stateDir string) string {
-	return filepath.Join(stateDir, "cursortab.sock")
-}
-
 func getPidPath(stateDir string) string {
 	return filepath.Join(stateDir, "cursortab.pid")
 }
@@ -184,15 +182,8 @@ func isDaemonRunning(stateDir string) (bool, int) {
 		return false, 0
 	}
 
-	// Check if process is still running
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false, 0
-	}
-
-	// On Unix, Signal(0) checks if process exists
-	err = process.Signal(syscall.Signal(0))
-	return err == nil, pid
+	running := isProcessRunning(pid)
+	return running, pid
 }
 
 // loadConfig parses config from CURSORTAB_CONFIG env var.

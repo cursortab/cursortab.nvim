@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -127,9 +128,11 @@ type Engine struct {
 	contextResultCh chan *types.ContextResult // async context gather for snapshot
 	metricsCh       chan metrics.Event
 
-	lastCompletionSource   types.CompletionSource
-	completionsSinceAccept int
-	pendingMetricsInfo     *types.MetricsInfo // stored from batch completion for showCurrentStage
+	lastCompletionSource      types.CompletionSource
+	completionsSinceAccept    int
+	pendingMetricsInfo        *types.MetricsInfo // stored from batch completion for showCurrentStage
+	rejectedCompletions       map[string][]*rejectedCompletion
+	currentRejectedCompletion *rejectedCompletion
 }
 
 // NewEngine creates a new Engine instance.
@@ -164,6 +167,7 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 		prefetchState:          prefetchNone,
 		stopped:                false,
 		fileStateStore:         make(map[string]*FileState),
+		rejectedCompletions:    make(map[string][]*rejectedCompletion),
 	}
 
 	// Initialize metrics: combine provider sender + community sender if available
@@ -181,7 +185,6 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 	}
 	if e.metricSender != nil {
 		e.metricsCh = make(chan metrics.Event, 64)
-		go e.metricsWorker()
 	}
 
 	return e, nil
@@ -199,6 +202,9 @@ func (e *Engine) Start(ctx context.Context) {
 	e.mu.Unlock()
 
 	go e.eventLoop(e.mainCtx)
+	if e.metricSender != nil {
+		go e.metricsWorker(e.mainCtx)
+	}
 	logger.Info("engine started")
 }
 
@@ -211,14 +217,8 @@ func (e *Engine) Stop() {
 		logger.Info("stopping engine...")
 
 		e.stopped = true
-		if e.currentCancel != nil {
-			e.currentCancel()
-			e.currentCancel = nil
-		}
-		if e.prefetchCancel != nil {
-			e.prefetchCancel()
-			e.prefetchCancel = nil
-		}
+		e.cancelCurrentRequest()
+		e.cancelPrefetch()
 		e.stopIdleTimer()
 		e.stopTextChangeTimer()
 		e.state = stateIdle
@@ -226,76 +226,60 @@ func (e *Engine) Stop() {
 		e.completions = nil
 		e.applyBatch = nil
 		e.stagedCompletion = nil
-		e.prefetchedCompletions = nil
-		e.prefetchedCursorTarget = nil
-		e.prefetchState = prefetchNone
 		e.completionOriginalLines = nil
-		// Cancel the main context BEFORE closing channels. In-flight
-		// goroutines (e.g. the prefetch sender at request.go:206) select on
-		// mainCtx.Done() vs eventChan <- …; if we closed the channel first
-		// they'd panic on a send-to-closed-channel. Canceling first gives
-		// them a chance to exit via the Done branch. We still close the
-		// channels afterward so the event loop's `<-eventChan` path and
-		// metricsWorker's `for range` exit cleanly.
+		// Cancel the main context to signal all in-flight goroutines and
+		// loops to exit. We deliberately do NOT close eventChan or metricsCh:
+		// senders use `select { case ch <- ...: case <-mainCtx.Done(): }` and
+		// closing the channel would race with that select (Go picks randomly
+		// between a closed-channel-send and a Done-channel-recv when both are
+		// ready). Letting the channels be GC'd avoids the panic class
+		// entirely; the eventLoop and metricsWorker exit on Done.
 		if e.mainCancel != nil {
 			e.mainCancel()
-		}
-		close(e.eventChan)
-		if e.metricsCh != nil {
-			close(e.metricsCh)
 		}
 
 		logger.Info("engine stopped")
 	})
 }
 
-// ClearOptions configures what to clear in clearState
-type ClearOptions struct {
-	CancelCurrent     bool
-	CancelPrefetch    bool
-	ClearStaged       bool
-	ClearCursorTarget bool
-	CallOnReject      bool
-}
-
-// clearState consolidates all state clearing into one method with configurable options
-func (e *Engine) clearState(opts ClearOptions) {
-	if opts.CancelCurrent && e.currentCancel != nil {
-		e.currentCancel()
-		e.currentCancel = nil
-	}
-	if opts.CancelPrefetch && e.prefetchCancel != nil {
-		e.prefetchCancel()
-		e.prefetchCancel = nil
-		e.prefetchState = prefetchNone
-		e.prefetchedCompletions = nil
-		e.prefetchedCursorTarget = nil
-	}
-	if opts.ClearCursorTarget {
-		e.cursorTarget = nil
-	}
-	if opts.CallOnReject {
-		e.buffer.ClearUI()
-		// Send reject metric if a completion was shown
-		if len(e.completions) > 0 {
-			e.sendMetric(metrics.EventRejected)
-		}
-	}
+// resetCompletionFields clears per-completion state. Used after accepting a
+// stage to prepare for the next one. Does not cancel requests, drop the staged
+// completion, or send metrics.
+func (e *Engine) resetCompletionFields() {
 	e.completions = nil
 	e.applyBatch = nil
-	if opts.ClearStaged {
-		e.stagedCompletion = nil
-	}
 	e.completionOriginalLines = nil
 	e.currentGroups = nil
+	e.currentRejectedCompletion = nil
 	e.manuallyTriggered = false
 	e.pendingMetricsInfo = nil
 	e.contextResultCh = nil
 }
 
-// clearAll clears everything including prefetch and staged completions
-func (e *Engine) clearAll() {
-	e.clearState(ClearOptions{CancelCurrent: true, CancelPrefetch: true, ClearStaged: true, ClearCursorTarget: true, CallOnReject: true})
+func (e *Engine) cancelCurrentRequest() {
+	if e.currentCancel != nil {
+		e.currentCancel()
+		e.currentCancel = nil
+	}
+}
+
+// cancelPrefetch cancels any in-flight prefetch and discards buffered results.
+// "Cancel" here means both: stop the request if running, and drop any completion
+// that was already returned but not yet consumed.
+func (e *Engine) cancelPrefetch() {
+	if e.prefetchCancel != nil {
+		e.prefetchCancel()
+		e.prefetchCancel = nil
+	}
+	e.clearPrefetchResult()
+}
+
+// clearPrefetchResult resets the in-memory prefetch result and state.
+// Does not cancel an in-flight prefetch (use cancelPrefetch for that).
+func (e *Engine) clearPrefetchResult() {
+	e.prefetchState = prefetchNone
+	e.prefetchedCompletions = nil
+	e.prefetchedCursorTarget = nil
 }
 
 // RegisterEventHandler registers the event handler for nvim RPC callbacks.
@@ -441,14 +425,14 @@ func (e *Engine) recordTextChangeAction() {
 	currentLines := e.buffer.Lines()
 
 	if e.lastBufferLines == nil {
-		e.lastBufferLines = copyLines(currentLines)
+		e.lastBufferLines = slices.Clone(currentLines)
 		return
 	}
 
 	// Classify the action based on diff
 	actionType := classifyEdit(e.lastBufferLines, currentLines)
 	if actionType == "" {
-		e.lastBufferLines = copyLines(currentLines)
+		e.lastBufferLines = slices.Clone(currentLines)
 		return
 	}
 
@@ -460,7 +444,7 @@ func (e *Engine) recordTextChangeAction() {
 		TimestampMs: e.clock.Now().UnixMilli(),
 	})
 
-	e.lastBufferLines = copyLines(currentLines)
+	e.lastBufferLines = slices.Clone(currentLines)
 }
 
 // recordCursorMovementAction records a cursor movement if position changed
@@ -796,8 +780,13 @@ func (e *Engine) captureSnapshot() *metrics.Snapshot {
 }
 
 // metricsWorker processes metrics events asynchronously.
-func (e *Engine) metricsWorker() {
-	for event := range e.metricsCh {
-		e.metricSender.SendMetric(e.mainCtx, event)
+func (e *Engine) metricsWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-e.metricsCh:
+			e.metricSender.SendMetric(ctx, event)
+		}
 	}
 }

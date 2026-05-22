@@ -1,0 +1,14 @@
+cursorRow: 1
+cursorCol: 0
+viewportTop: 1
+viewportBottom: 50
+-- old.txt --
+start REMOVED LARGE TEXT HERE end
+-- new.txt --
+start end
+-- expected --
+stage @1 cursor=1:6
+  modification @1 1-1 delete_chars 6:30
+    + "start end"
+    - "start REMOVED LARGE TEXT HERE end"
+

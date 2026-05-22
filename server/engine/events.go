@@ -43,54 +43,24 @@ type Event struct {
 	Data any
 }
 
-var eventTypeMap map[string]EventType
-
 func init() {
-	eventTypeMap = buildEventTypeMap()
-	// Also initialize transition map
 	transitionMap = make(map[transitionKey]*Transition)
 	for i := range transitions {
 		t := &transitions[i]
-		key := transitionKey{from: t.From, event: t.Event}
-		transitionMap[key] = t
+		transitionMap[transitionKey{from: t.From, event: t.Event}] = t
 	}
 }
 
-func buildEventTypeMap() map[string]EventType {
-	eventMap := make(map[string]EventType)
-
-	allEventTypes := []EventType{
-		EventEsc,
-		EventTextChanged,
-		EventTextChangeTimeout,
-		EventTrigger,
-		EventCursorMoved,
-		EventInsertEnter,
-		EventInsertLeave,
-		EventAccept,
-		EventPartialAccept,
-		EventFileSaved,
-		EventIdleTimeout,
-		EventCompletionReady,
-		EventCompletionError,
-		EventPrefetchReady,
-		EventPrefetchError,
-		EventStreamLine,
-		EventStreamComplete,
-		EventStreamError,
-	}
-
-	for _, eventType := range allEventTypes {
-		eventMap[string(eventType)] = eventType
-	}
-
-	return eventMap
-}
-
-// EventTypeFromString converts a string to EventType
+// EventTypeFromString returns the EventType for a known event string, or "" if unknown.
 func EventTypeFromString(s string) EventType {
-	if eventType, exists := eventTypeMap[s]; exists {
-		return eventType
+	switch EventType(s) {
+	case EventEsc, EventTextChanged, EventTextChangeTimeout, EventTrigger,
+		EventCursorMoved, EventInsertEnter, EventInsertLeave, EventAccept,
+		EventPartialAccept, EventFileSaved, EventIdleTimeout,
+		EventCompletionReady, EventCompletionError,
+		EventPrefetchReady, EventPrefetchError,
+		EventStreamLine, EventStreamComplete, EventStreamError:
+		return EventType(s)
 	}
 	return ""
 }
@@ -99,7 +69,7 @@ func EventTypeFromString(s string) EventType {
 type Transition struct {
 	From   state
 	Event  EventType
-	Action func(*Engine, Event)
+	Action func(*Engine)
 }
 
 // transitions defines all valid state transitions in the engine.
@@ -135,11 +105,11 @@ var transitions = []Transition{
 	{stateIdle, EventTrigger, (*Engine).doManualTrigger},
 	{stateIdle, EventIdleTimeout, (*Engine).doRequestIdleCompletion},
 	{stateIdle, EventCursorMoved, (*Engine).doResetIdleTimer},
-	{stateIdle, EventInsertEnter, (*Engine).doStopIdleTimer},
-	{stateIdle, EventInsertLeave, (*Engine).doStartIdleTimer},
-	{stateIdle, EventEsc, (*Engine).doStopIdleTimer},
+	{stateIdle, EventInsertEnter, (*Engine).stopIdleTimer},
+	{stateIdle, EventInsertLeave, (*Engine).startIdleTimer},
+	{stateIdle, EventEsc, (*Engine).stopIdleTimer},
 	{stateIdle, EventFileSaved, (*Engine).doFileSaved},
-	{stateIdle, EventTextChanged, (*Engine).doStartTextChangeTimer},
+	{stateIdle, EventTextChanged, (*Engine).startTextChangeTimer},
 
 	// From statePendingCompletion
 	{statePendingCompletion, EventTextChanged, (*Engine).doTextChangePending},
@@ -149,16 +119,16 @@ var transitions = []Transition{
 	{statePendingCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 
 	// From stateHasCompletion
-	{stateHasCompletion, EventAccept, (*Engine).doAcceptCompletion},
-	{stateHasCompletion, EventPartialAccept, (*Engine).doPartialAcceptCompletion},
+	{stateHasCompletion, EventAccept, (*Engine).acceptCompletion},
+	{stateHasCompletion, EventPartialAccept, (*Engine).partialAcceptCompletion},
 	{stateHasCompletion, EventEsc, (*Engine).doReject},
-	{stateHasCompletion, EventTextChanged, (*Engine).doTextChangeWithCompletion},
+	{stateHasCompletion, EventTextChanged, (*Engine).handleTextChangeImpl},
 	{stateHasCompletion, EventFileSaved, (*Engine).doFileSaved},
 	{stateHasCompletion, EventInsertLeave, (*Engine).doRejectAndStartIdleTimer},
 	{stateHasCompletion, EventCursorMoved, (*Engine).doResetIdleTimer},
 
 	// From stateHasCursorTarget
-	{stateHasCursorTarget, EventAccept, (*Engine).doAcceptCursorTarget},
+	{stateHasCursorTarget, EventAccept, (*Engine).acceptCursorTarget},
 	{stateHasCursorTarget, EventEsc, (*Engine).doReject},
 	{stateHasCursorTarget, EventTextChanged, (*Engine).doRejectAndDebounce},
 	{stateHasCursorTarget, EventFileSaved, (*Engine).doFileSaved},
@@ -195,7 +165,7 @@ func (e *Engine) dispatch(event Event) bool {
 		return false
 	}
 	if t.Action != nil {
-		t.Action(e, event)
+		t.Action(e)
 	}
 
 	// Post-dispatch: Record user actions for RecentUserActions
@@ -345,8 +315,7 @@ func (e *Engine) handleEvent(event Event) {
 	// (handles transitions not in the table, e.g. InsertEnter from PendingCompletion)
 	if !e.isModeEnabled() && e.state != stateIdle {
 		e.cancelStreaming()
-		e.clearAll()
-		e.state = stateIdle
+		e.reject()
 	}
 }
 
@@ -358,8 +327,7 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 			return true
 		}
 		if !e.isModeEnabled() {
-			e.clearAll()
-			e.state = stateIdle
+			e.reject()
 			return true
 		}
 		e.handleCompletionReadyImpl(event.Data.(*types.CompletionResponse))
@@ -398,85 +366,54 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 
 // Action functions for state transitions
 
-func (e *Engine) doRequestCompletion(event Event) {
+func (e *Engine) doRequestCompletion() {
 	e.requestCompletion(types.CompletionSourceTyping)
 }
 
-func (e *Engine) doManualTrigger(event Event) {
+func (e *Engine) doManualTrigger() {
 	e.manuallyTriggered = true
 	e.requestCompletion(types.CompletionSourceTyping)
 }
 
-func (e *Engine) doRequestIdleCompletion(event Event) {
+func (e *Engine) doRequestIdleCompletion() {
 	if e.state == stateIdle {
 		e.requestCompletion(types.CompletionSourceIdle)
 	}
 }
 
-func (e *Engine) doResetIdleTimer(event Event) {
+func (e *Engine) doResetIdleTimer() {
 	e.reject()
 	e.resetIdleTimer()
 }
 
-func (e *Engine) doStopIdleTimer(event Event) {
-	e.stopIdleTimer()
-}
-
-func (e *Engine) doStartIdleTimer(event Event) {
-	e.startIdleTimer()
-}
-
-func (e *Engine) doFileSaved(event Event) {
+func (e *Engine) doFileSaved() {
 	e.syncBuffer()
 	e.buffer.ClearDiffHistory()
 	e.saveCurrentFileState()
 }
 
-func (e *Engine) doStartTextChangeTimer(event Event) {
-	e.startTextChangeTimer()
-}
-
-func (e *Engine) doTextChangePending(event Event) {
-	if e.currentCancel != nil {
-		e.currentCancel()
-		e.currentCancel = nil
-	}
+func (e *Engine) doTextChangePending() {
+	e.cancelCurrentRequest()
 	e.state = stateIdle
 	e.startTextChangeTimer()
 }
 
-func (e *Engine) doReject(event Event) {
-	e.reject()
+func (e *Engine) doReject() {
+	e.rejectAndRemember()
 	e.stopIdleTimer()
 }
 
-func (e *Engine) doRejectAndDebounce(event Event) {
-	e.reject()
+func (e *Engine) doRejectAndDebounce() {
+	e.rejectAndRemember()
 	e.startTextChangeTimer()
 }
 
-func (e *Engine) doRejectAndStartIdleTimer(event Event) {
+func (e *Engine) doRejectAndStartIdleTimer() {
 	e.reject()
 	e.startIdleTimer()
 }
 
-func (e *Engine) doAcceptCompletion(event Event) {
-	e.acceptCompletion()
-}
-
-func (e *Engine) doAcceptCursorTarget(event Event) {
-	e.acceptCursorTarget()
-}
-
-func (e *Engine) doTextChangeWithCompletion(event Event) {
-	e.handleTextChangeImpl()
-}
-
-func (e *Engine) doPartialAcceptCompletion(event Event) {
-	e.partialAcceptCompletion()
-}
-
-func (e *Engine) doPartialAcceptStreaming(event Event) {
+func (e *Engine) doPartialAcceptStreaming() {
 	if e.streamingState != nil && e.streamingState.FirstStageRendered {
 		e.cancelLineStreamingKeepPartial()
 		e.partialAcceptCompletion()
@@ -485,9 +422,9 @@ func (e *Engine) doPartialAcceptStreaming(event Event) {
 
 // Streaming state action functions
 
-func (e *Engine) doRejectStreaming(event Event) {
+func (e *Engine) doRejectStreaming() {
 	e.cancelStreaming()
-	e.reject()
+	e.rejectAndRemember()
 	e.stopIdleTimer()
 }
 
@@ -498,22 +435,21 @@ func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) bool {
 	cancelFn()
 	e.syncBuffer()
 	matches, hasRemaining := e.checkTypingMatchesPrediction()
+	if matches && hasRemaining {
+		e.state = stateHasCompletion
+		return true
+	}
 	if matches {
-		if hasRemaining {
-			e.state = stateHasCompletion
-			return true
-		}
-		e.clearAll()
-		e.state = stateIdle
+		e.reject()
 		e.startTextChangeTimer()
 		return true
 	}
-	e.reject()
+	e.rejectAndRemember()
 	e.startTextChangeTimer()
 	return true
 }
 
-func (e *Engine) doRejectStreamingAndDebounce(event Event) {
+func (e *Engine) doRejectStreamingAndDebounce() {
 	if e.tokenStreamingState != nil && len(e.completions) > 0 {
 		e.cancelStreamAndCheckTyping(e.cancelTokenStreamingKeepPartial)
 		return
@@ -529,13 +465,13 @@ func (e *Engine) doRejectStreamingAndDebounce(event Event) {
 	e.startTextChangeTimer()
 }
 
-func (e *Engine) doRejectStreamingAndStartIdleTimer(event Event) {
+func (e *Engine) doRejectStreamingAndStartIdleTimer() {
 	e.cancelStreaming()
 	e.reject()
 	e.startIdleTimer()
 }
 
-func (e *Engine) doAcceptStreamingCompletion(event Event) {
+func (e *Engine) doAcceptStreamingCompletion() {
 	// For token streaming, cancel and keep partial (no continuation support)
 	if e.tokenStreamingState != nil {
 		e.cancelTokenStreamingKeepPartial()

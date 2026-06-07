@@ -1,6 +1,6 @@
-// Package windsurf implements the Windsurf (Codeium) completion provider.
+// Package windsurf implements the Windsurf completion provider.
 //
-// This provider communicates with the Windsurf/Codeium local language server
+// This provider communicates with the Windsurf local language server
 // over HTTP. The port is assigned randomly at runtime when the Neovim Codeium
 // extension starts; we discover it via lua/cursortab/bridge.lua which probes the
 // extension's internal state (codeium.s.port, codeium.s.healthy, api_key).
@@ -82,6 +82,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"cursortab/buffer"
@@ -169,6 +170,21 @@ var filetypeAliases = map[string]string{
 	"raku":   "perl",
 	"sh":     "shell",
 	"text":   "plaintext",
+}
+
+var extensionLanguages = map[string]string{
+	"go": "go", "py": "python", "js": "javascript", "ts": "typescript",
+	"tsx": "tsx", "jsx": "javascript", "java": "java", "rs": "rust",
+	"c": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "h": "c",
+	"hpp": "cpp", "lua": "lua", "rb": "ruby", "php": "php",
+	"sh": "shell", "bash": "shell", "sql": "sql", "md": "markdown",
+	"html": "html", "css": "css", "scss": "scss", "less": "less",
+	"vue": "vue", "svelte": "svelte", "kt": "kotlin", "swift": "swift",
+	"scala": "scala", "r": "r", "json": "json", "yaml": "yaml",
+	"yml": "yaml", "xml": "xml", "toml": "ini", "dockerfile": "dockerfile",
+	"makefile": "makefile", "ex": "elixir", "exs": "elixir",
+	"erl": "erlang", "clj": "clojure", "hs": "haskell",
+	"dart": "dart", "proto": "protobuf", "tex": "latex",
 }
 
 type windsurfPos struct {
@@ -267,7 +283,7 @@ type windsurfAcceptRequest struct {
 type Provider struct {
 	buffer     InfoProvider
 	httpClient *http.Client
-	reqCounter int
+	reqCounter int64
 }
 
 func NewProvider(buf InfoProvider) *Provider {
@@ -277,6 +293,10 @@ func NewProvider(buf InfoProvider) *Provider {
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+func (p *Provider) nextRequestID() int {
+	return int(atomic.AddInt64(&p.reqCounter, 1))
 }
 
 func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
@@ -320,7 +340,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		text += lineEnding
 	}
 
-	p.reqCounter++
+	reqID := p.nextRequestID()
 	wsReq := windsurfRequest{
 		Metadata: windsurfMetadata{
 			APIKey:           info.APIKey,
@@ -328,7 +348,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 			IDEVersion:       "0.10.0",
 			ExtensionName:    "neovim",
 			ExtensionVersion: "1.20.9",
-			RequestID:        p.reqCounter,
+			RequestID:        reqID,
 		},
 		EditorOptions: windsurfEditorOptions{
 			TabSize:      4,
@@ -337,7 +357,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		Document: windsurfDocument{
 			Text:           text,
 			EditorLanguage: language,
-			Language:       languageEnum[language],
+			Language:       LanguageEnum(language),
 			CursorPosition: windsurfPos{
 				Row: req.CursorRow - 1,
 				Col: req.CursorCol,
@@ -403,7 +423,7 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 		return
 	}
 
-	p.reqCounter++
+	reqID := p.nextRequestID()
 	acceptReq := windsurfAcceptRequest{
 		Metadata: windsurfMetadata{
 			APIKey:           info.APIKey,
@@ -411,7 +431,7 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 			IDEVersion:       "0.10.0",
 			ExtensionName:    "neovim",
 			ExtensionVersion: "1.20.9",
-			RequestID:        p.reqCounter,
+			RequestID:        reqID,
 		},
 		CompletionID: event.Info.ID,
 	}
@@ -634,6 +654,11 @@ func byteOffsetToLineCol(text string, offset int) (int, int) {
 	return line, offset - lineStart
 }
 
+// LanguageEnum returns the numeric language ID expected by the Windsurf API.
+func LanguageEnum(language string) int {
+	return languageEnum[language]
+}
+
 func resolveLanguage(filePath string) string {
 	parts := strings.Split(filePath, ".")
 	if len(parts) < 2 {
@@ -641,22 +666,7 @@ func resolveLanguage(filePath string) string {
 	}
 	ext := parts[len(parts)-1]
 
-	ftMap := map[string]string{
-		"go": "go", "py": "python", "js": "javascript", "ts": "typescript",
-		"tsx": "tsx", "jsx": "javascript", "java": "java", "rs": "rust",
-		"c": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "h": "c",
-		"hpp": "cpp", "lua": "lua", "rb": "ruby", "php": "php",
-		"sh": "shell", "bash": "shell", "sql": "sql", "md": "markdown",
-		"html": "html", "css": "css", "scss": "scss", "less": "less",
-		"vue": "vue", "svelte": "svelte", "kt": "kotlin", "swift": "swift",
-		"scala": "scala", "r": "r", "json": "json", "yaml": "yaml",
-		"yml": "yaml", "xml": "xml", "toml": "ini", "dockerfile": "dockerfile",
-		"makefile": "makefile", "ex": "elixir", "exs": "elixir",
-		"erl": "erlang", "clj": "clojure", "hs": "haskell",
-		"dart": "dart", "proto": "protobuf", "tex": "latex",
-	}
-
-	lang := ftMap[ext]
+	lang := extensionLanguages[ext]
 	if lang == "" {
 		base := strings.ToLower(parts[len(parts)-2] + "." + ext)
 		if base == "dockerfile" || base == "makefile" {

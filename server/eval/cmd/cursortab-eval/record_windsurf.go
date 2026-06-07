@@ -14,11 +14,12 @@ import (
 
 	"cursortab/eval/cassette"
 	"cursortab/eval/harness"
+	windsurfprovider "cursortab/provider/windsurf"
 
 	"github.com/neovim/go-client/nvim"
 )
 
-// recordWindsurfCmd captures Windsurf/Codeium responses by driving an
+// recordWindsurfCmd captures Windsurf responses by driving an
 // already-running Neovim session that has the Codeium extension active.
 //
 // Usage:
@@ -28,7 +29,7 @@ import (
 //	# (make sure Codeium/Windsurf is installed and running in that nvim)
 //
 //	# In another terminal:
-//	just eval-record-windsurf --nvim /tmp/nvim-eval.sock
+//	just eval-record-windsurf /tmp/nvim-eval.sock
 //
 // The recorder connects to that nvim instance, discovers the Windsurf server
 // port and API key via Lua, builds the completion request body from each
@@ -127,10 +128,7 @@ func getWindsurfInfo(n *nvim.Nvim) (*windsurfServerInfo, error) {
 		return &windsurfServerInfo{}, nil
 	}
 	healthy, _ := result["healthy"].(bool)
-	port := 0
-	if n, ok := result["port"].(uint64); ok {
-		port = int(n)
-	}
+	port := numberFromLua(result["port"])
 	apiKey, _ := result["api_key"].(string)
 
 	// Read the Codeium extension's current request counter so our IDs don't
@@ -147,6 +145,22 @@ func getWindsurfInfo(n *nvim.Nvim) (*windsurfServerInfo, error) {
 	return &windsurfServerInfo{Healthy: healthy, Port: port, APIKey: apiKey, LastReqID: lastReqID}, nil
 }
 
+func numberFromLua(value any) int {
+	switch n := value.(type) {
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	case uint64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
+
 type windsurfServerInfo struct {
 	Healthy   bool
 	Port      int
@@ -158,16 +172,12 @@ type windsurfServerInfo struct {
 // request-completion step, it builds a Windsurf HTTP request from the scenario's
 // buffer state and captures the response via a cassette.Recorder.
 func captureWindsurfForScenario(info *windsurfServerInfo, sc *harness.Scenario, timeout time.Duration) (*cassette.Cassette, error) {
-	cs := cassette.New("windsurf", "codeium-windsurf")
-	cs.Meta.Notes = fmt.Sprintf("recorded from nvim for %s", sc.ID)
-
 	client := &http.Client{Timeout: timeout}
 	recorder := cassette.NewRecorder(http.DefaultTransport)
 	recorder.RecordHeaders = true
 	client.Transport = recorder
 
 	language := sc.Language
-	langEnum := languageEnumFor(language)
 	lineEnding := "\n"
 	text := strings.Join(sc.Buffer.Lines, lineEnding)
 	if len(sc.Buffer.Lines) > 0 {
@@ -200,7 +210,7 @@ func captureWindsurfForScenario(info *windsurfServerInfo, sc *harness.Scenario, 
 				"document": map[string]any{
 					"text":            text,
 					"editor_language": language,
-					"language":        langEnum,
+					"language":        windsurfprovider.LanguageEnum(language),
 					"cursor_position": map[string]int{
 						"row": sc.Buffer.Row - 1,
 						"col": sc.Buffer.Col,
@@ -242,25 +252,36 @@ func captureWindsurfForScenario(info *windsurfServerInfo, sc *harness.Scenario, 
 		}
 	}
 
-	return recorder.Cassette("windsurf", "codeium-windsurf"), nil
+	cs := recorder.Cassette("windsurf", "codeium-windsurf")
+	cs.Meta.Notes = fmt.Sprintf("recorded from nvim for %s", sc.ID)
+	if err := redactWindsurfCassette(cs); err != nil {
+		return nil, err
+	}
+	return cs, nil
 }
 
-func languageEnumFor(lang string) int {
-	enum := map[string]int{
-		"c": 1, "clojure": 2, "coffeescript": 3, "cpp": 4, "csharp": 5,
-		"css": 6, "cudacpp": 7, "dockerfile": 8, "go": 9, "groovy": 10,
-		"handlebars": 11, "haskell": 12, "hcl": 13, "html": 14, "ini": 15,
-		"java": 16, "javascript": 17, "json": 18, "julia": 19, "kotlin": 20,
-		"latex": 21, "less": 22, "lua": 23, "makefile": 24, "markdown": 25,
-		"objectivec": 26, "objectivecpp": 27, "perl": 28, "php": 29,
-		"plaintext": 30, "protobuf": 31, "pbtxt": 32, "python": 33, "r": 34,
-		"ruby": 35, "rust": 36, "sass": 37, "scala": 38, "scss": 39,
-		"shell": 40, "sql": 41, "starlark": 42, "swift": 43, "tsx": 44,
-		"typescript": 45, "visualbasic": 46, "vue": 47, "xml": 48, "xsl": 49,
-		"yaml": 50, "svelte": 51,
+func redactWindsurfCassette(cs *cassette.Cassette) error {
+	for i := range cs.Interactions {
+		body, err := cassette.DecodeBody(cs.Interactions[i].Request.BodyB64)
+		if err != nil {
+			return fmt.Errorf("decode windsurf request body: %w", err)
+		}
+		redacted, err := redactWindsurfRequestBody(body)
+		if err != nil {
+			return err
+		}
+		cs.Interactions[i].Request.BodyB64 = cassette.EncodeBody(redacted)
 	}
-	if v, ok := enum[lang]; ok {
-		return v
+	return nil
+}
+
+func redactWindsurfRequestBody(body []byte) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("decode windsurf request body: %w", err)
 	}
-	return 0
+	if metadata, ok := payload["metadata"].(map[string]any); ok {
+		metadata["api_key"] = "<REDACTED>"
+	}
+	return json.Marshal(payload)
 }

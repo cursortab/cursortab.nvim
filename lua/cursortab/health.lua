@@ -74,8 +74,10 @@ function M.check()
 			vim.health.error("codeium server not initialized", { "Run :Codeium Auth to authenticate" })
 		elseif not codeium.s.healthy then
 			vim.health.warn("codeium server not healthy")
+		elseif not codeium.s.port then
+			vim.health.warn("codeium server port not available")
 		else
-			vim.health.ok("codeium server running (port: " .. codeium.s.port .. ")")
+			vim.health.ok("codeium server running (port: " .. tostring(codeium.s.port) .. ")")
 		end
 	end
 

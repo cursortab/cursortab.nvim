@@ -938,7 +938,7 @@ func getString(m map[string]any, key string) string {
 	return ""
 }
 
-// Helper function to safely get number from map, handling both int and float64
+// Helper function to safely get number from map, handling common msgpack number types
 func getNumber(m map[string]any, key string) int {
 	if val, ok := m[key].(int); ok {
 		return val
@@ -950,6 +950,9 @@ func getNumber(m map[string]any, key string) int {
 		return int(val)
 	}
 	if val, ok := m[key].(int64); ok {
+		return int(val)
+	}
+	if val, ok := m[key].(uint64); ok {
 		return int(val)
 	}
 	return -1

@@ -202,7 +202,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "zeta", "zeta-2", "copilot", "windsurf", or "mercuryapi"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -272,7 +272,8 @@ The plugin supports eight AI provider backends: Inline, FIM, Sweep, Zeta-2, Zeta
 | `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family  |
 | `zeta-2`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta-2` (SeedCoder-8B) |
 | `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta` (Qwen2.5-Coder)  |
-| `windsurf`   |   ✓    |     ✓      |     ✓      |         ✓         |           | Codeium                 |
+| `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot          |
+| `windsurf`   |   ✓    |     ✓      |            |                   |           | Windsurf AI             |
 | `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-edit-2`        |
 
 **Context Per Provider:**
@@ -463,7 +464,7 @@ require("cursortab").setup({
 <details>
 <summary>Details</summary>
 
-Windsurf (Codeium) completions using the local language server bundled by the
+Windsurf completions using the local language server bundled by the
 [windsurf.nvim](https://github.com/Exafunction/windsurf.nvim) plugin. The
 provider discovers the server's port and API key automatically via the plugin's
 internal state — no manual URL or key configuration needed.

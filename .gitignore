@@ -6,3 +6,4 @@ server/cursortab
 server/cursortab-eval
 .DS_Store
 **/e2e/report.html
+/tmp

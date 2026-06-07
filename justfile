@@ -53,6 +53,14 @@ eval-dry-record target *args:
 eval-record-copilot socket *args:
     cd server && go run ./eval/cmd/cursortab-eval record-copilot --scenarios eval/scenarios --nvim {{socket}} {{args}}
 
+# Record Windsurf cassettes by driving a running nvim session.
+# Requires an nvim instance started with `nvim --listen <socket>` where Windsurf
+# is installed and authenticated. Example:
+#   nvim --listen /tmp/nvim-eval.sock      # in one terminal
+#   just eval-record-windsurf /tmp/nvim-eval.sock --missing
+eval-record-windsurf socket *args:
+    cd server && go run ./eval/cmd/cursortab-eval record-windsurf --scenarios eval/scenarios --nvim {{socket}} {{args}}
+
 # Run the harness unit + integration tests (includes the record→replay end-to-end loop).
 eval-test *test_cases:
     cd server && go test ./eval/... {{ if test_cases == "" { "" } else { "-run " + replace(test_cases, " ", "|") } }}

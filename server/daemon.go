@@ -21,6 +21,7 @@ import (
 	"cursortab/provider/inline"
 	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
+	"cursortab/provider/windsurf"
 	"cursortab/provider/zeta"
 	"cursortab/provider/zeta2"
 	"cursortab/types"
@@ -96,6 +97,8 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = zeta2.NewProvider(providerConfig)
 	case types.ProviderTypeCopilot:
 		prov = copilot.NewProvider(buf)
+	case types.ProviderTypeWindsurf:
+		prov = windsurf.NewProvider(buf)
 	case types.ProviderTypeMercuryAPI:
 		prov = mercuryapi.NewProvider(providerConfig)
 	default:

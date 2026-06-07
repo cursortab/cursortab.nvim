@@ -11,6 +11,7 @@ import (
 	"cursortab/provider/fim"
 	"cursortab/provider/mercuryapi"
 	"cursortab/provider/sweep"
+	"cursortab/provider/windsurf"
 	"cursortab/provider/zeta"
 	"cursortab/provider/zeta2"
 	"cursortab/types"
@@ -88,6 +89,11 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 			copilotLSP = newCassetteCopilotLSP(cs)
 		}
 		return copilot.NewProvider(copilotLSP), nil
+	case "windsurf":
+		wsInfo := newCassetteWindsurfInfo()
+		p := windsurf.NewProvider(wsInfo)
+		p.SetHTTPTransport(transport)
+		return p, nil
 	default:
 		return nil, fmt.Errorf("harness: unknown provider type %q (target %q)", t.Type, t.Name)
 	}

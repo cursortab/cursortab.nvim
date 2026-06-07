@@ -10,6 +10,7 @@ local buffer = {}
 ---@field is_modifiable boolean
 ---@field is_readonly boolean
 ---@field filetype string
+---@field buffer_path string
 ---@field should_skip boolean Combined check result
 ---@field current_buf integer|nil
 ---@field current_win integer|nil
@@ -107,6 +108,7 @@ local buffer_state = {
 	is_modifiable = false,
 	is_readonly = false,
 	filetype = "",
+	buffer_path = "",
 	should_skip = true, -- Combined check result
 	current_buf = nil,
 	current_win = nil,
@@ -119,41 +121,54 @@ local function update_buffer_state()
 	---@type integer
 	local current_win = vim.api.nvim_get_current_win()
 
-	-- Only update if buffer or window actually changed
-	if buffer_state.current_buf == current_buf and buffer_state.current_win == current_win then
+	-- Recompute when any input to should_skip changes. A buffer/window can stay the
+	-- same while filetype, buffer-local options, or the buffer name settle later.
+	if vim.api.nvim_get_current_buf() ~= current_buf or vim.api.nvim_get_current_win() ~= current_win then
 		return
 	end
 
-	-- Re-check if we're still in the same buffer/window after defer
-	if vim.api.nvim_get_current_buf() ~= current_buf or vim.api.nvim_get_current_win() ~= current_win then
+	-- Check if in floating window
+	---@type table
+	local win_config = vim.api.nvim_win_get_config(current_win)
+	local is_floating_window = win_config.relative ~= ""
+
+	-- Check buffer properties
+	local is_modifiable = vim.api.nvim_get_option_value("modifiable", { buf = current_buf })
+	local is_readonly = vim.api.nvim_get_option_value("readonly", { buf = current_buf })
+	local filetype = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+	local buffer_path = vim.api.nvim_buf_get_name(current_buf)
+
+	if
+		buffer_state.current_buf == current_buf
+		and buffer_state.current_win == current_win
+		and buffer_state.is_floating_window == is_floating_window
+		and buffer_state.is_modifiable == is_modifiable
+		and buffer_state.is_readonly == is_readonly
+		and buffer_state.filetype == filetype
+		and buffer_state.buffer_path == buffer_path
+	then
 		return
 	end
 
 	-- Update cached state
 	buffer_state.current_buf = current_buf
 	buffer_state.current_win = current_win
-
-	-- Check if in floating window
-	---@type table
-	local win_config = vim.api.nvim_win_get_config(current_win)
-	buffer_state.is_floating_window = win_config.relative ~= ""
-
-	-- Check buffer properties
-	buffer_state.is_modifiable = vim.api.nvim_get_option_value("modifiable", { buf = current_buf })
-	buffer_state.is_readonly = vim.api.nvim_get_option_value("readonly", { buf = current_buf })
-	buffer_state.filetype = vim.api.nvim_get_option_value("filetype", { buf = current_buf })
+	buffer_state.is_floating_window = is_floating_window
+	buffer_state.is_modifiable = is_modifiable
+	buffer_state.is_readonly = is_readonly
+	buffer_state.filetype = filetype
+	buffer_state.buffer_path = buffer_path
 
 	-- Combined check: should we skip idle completions for this buffer?
 	local cfg = config.get()
 	local should_skip_filetype = is_ignored_filetype(buffer_state.filetype, cfg.behavior.ignore_filetypes)
 	local should_skip_path = false
-	local buf_path = vim.api.nvim_buf_get_name(current_buf)
-	if buf_path ~= "" then
+	if buffer_path ~= "" then
 		if #cfg.behavior.ignore_paths > 0 then
-			should_skip_path = matches_ignore_paths(buf_path, cfg.behavior.ignore_paths)
+			should_skip_path = matches_ignore_paths(buffer_path, cfg.behavior.ignore_paths)
 		end
 		if not should_skip_path and cfg.behavior.ignore_gitignored then
-			should_skip_path = is_gitignored(buf_path)
+			should_skip_path = is_gitignored(buffer_path)
 		end
 	end
 
@@ -174,6 +189,7 @@ end
 -- Check if current buffer should be skipped
 ---@return boolean
 function buffer.should_skip()
+	update_buffer_state()
 	return buffer_state.should_skip
 end
 

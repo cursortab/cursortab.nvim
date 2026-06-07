@@ -248,6 +248,7 @@ const (
 	ProviderTypeZeta2      ProviderType = "zeta-2"
 	ProviderTypeCopilot    ProviderType = "copilot"
 	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
+	ProviderTypeWindsurf   ProviderType = "windsurf"
 )
 
 // IsEditCompletion reports whether the provider produces edit-style (multi-line,
@@ -255,7 +256,7 @@ const (
 func (p ProviderType) IsEditCompletion() bool {
 	switch p {
 	case ProviderTypeSweep, ProviderTypeZeta, ProviderTypeZeta2,
-		ProviderTypeCopilot, ProviderTypeMercuryAPI:
+		ProviderTypeCopilot, ProviderTypeMercuryAPI, ProviderTypeWindsurf:
 		return true
 	}
 	return false

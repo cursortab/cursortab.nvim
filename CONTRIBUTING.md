@@ -142,6 +142,9 @@ just eval-rerecord <target> <scenario>
 
 # Copilot (requires a running nvim with Copilot attached)
 just eval-record-copilot /tmp/nvim.sock --missing
+
+# Windsurf (requires a running nvim with Windsurf authenticated)
+just eval-record-windsurf /tmp/nvim.sock --missing
 ```
 
 ### Adding a New Provider Type

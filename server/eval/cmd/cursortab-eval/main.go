@@ -36,6 +36,8 @@ func main() {
 		err = recordCmd(args)
 	case "record-copilot":
 		err = recordCopilotCmd(args)
+	case "record-windsurf":
+		err = recordWindsurfCmd(args)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -59,6 +61,7 @@ COMMANDS:
   run              Replay cassettes and emit quality reports
   record           Hit real provider APIs and capture cassettes (HTTP targets)
   record-copilot   Drive an external nvim session to capture Copilot NES cassettes
+  record-windsurf  Drive an external nvim session to capture Windsurf cassettes
   help             Show this help
 
 Run "cursortab-eval <command> --help" for command-specific flags.`)

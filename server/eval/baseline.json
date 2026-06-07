@@ -59,6 +59,12 @@
     "showRate": 0.64,
     "quietRate": 0.4
   },
+  "windsurf": {
+    "score": 0.13076328837372903,
+    "deltaChrF": 19.11155753154501,
+    "showRate": 0.52,
+    "quietRate": 1
+  },
   "zeta": {
     "score": 0.5616320137623684,
     "deltaChrF": 62.43438888168621,

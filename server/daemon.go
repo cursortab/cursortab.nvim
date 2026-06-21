@@ -126,12 +126,11 @@ func NewDaemon(config Config) (*Daemon, error) {
 			AutoAdvance:        config.Behavior.CursorPrediction.AutoAdvance,
 			ProximityThreshold: config.Behavior.CursorPrediction.ProximityThreshold,
 		},
-		MaxDiffTokens:          config.Provider.MaxDiffHistoryTokens,
-		MaxVisibleLines:        config.Behavior.MaxVisibleLines,
-		DisabledIn:             config.Behavior.DisabledIn,
-		CompleteInInsert:       config.Behavior.CompleteInInsert,
-		CompleteInNormal:       config.Behavior.CompleteInNormal,
-		EditCompletionProvider: types.ProviderType(config.Provider.Type).IsEditCompletion(),
+		MaxDiffTokens:    config.Provider.MaxDiffHistoryTokens,
+		MaxVisibleLines:  config.Behavior.MaxVisibleLines,
+		DisabledIn:       config.Behavior.DisabledIn,
+		CompleteInInsert: config.Behavior.CompleteInInsert,
+		CompleteInNormal: config.Behavior.CompleteInNormal,
 	}, engine.SystemClock, ctx.NewGatherer(buf), datasetSender)
 	if err != nil {
 		return nil, err

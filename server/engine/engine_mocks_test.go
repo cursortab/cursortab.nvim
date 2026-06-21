@@ -265,6 +265,7 @@ func (b *mockBatch) Execute() error {
 // mockProvider implements the Provider interface for testing
 type mockProvider struct {
 	mu              sync.Mutex
+	canDo           ProviderCanDo
 	completionResp  *types.CompletionResponse
 	completionErr   error
 	completionCalls int
@@ -273,6 +274,10 @@ type mockProvider struct {
 
 func newMockProvider() *mockProvider {
 	return &mockProvider{
+		canDo: ProviderCanDo{
+			CompleteWithTextRightOfCursor: true,
+			PrefetchAfterCursorTarget:     true,
+		},
 		completionResp: &types.CompletionResponse{
 			Completions: []*types.Completion{{
 				StartLine:  1,
@@ -283,8 +288,14 @@ func newMockProvider() *mockProvider {
 	}
 }
 
+func newMockProviderWithCanDo(canDo ProviderCanDo) *mockProvider {
+	p := newMockProvider()
+	p.canDo = canDo
+	return p
+}
+
 func (p *mockProvider) CanDo() ProviderCanDo {
-	return ProviderCanDo{}
+	return p.canDo
 }
 
 func (p *mockProvider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
@@ -397,9 +408,8 @@ func createTestEngine(buf *mockBuffer, prov *mockProvider, clock *mockClock) *En
 			AutoAdvance:        true,
 			ProximityThreshold: 3,
 		},
-		CompleteInInsert:       true,
-		CompleteInNormal:       true,
-		EditCompletionProvider: true,
+		CompleteInInsert: true,
+		CompleteInNormal: true,
 	}, clock, nil, nil)
 	return eng
 }

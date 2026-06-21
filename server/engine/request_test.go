@@ -75,6 +75,37 @@ func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction after accept")
 }
 
+func TestAcceptCompletion_DoesNotPrefetchWithoutProviderCapability(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProviderWithCanDo(ProviderCanDo{
+		CompleteWithTextRightOfCursor: true,
+	})
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.state = stateHasCompletion
+	eng.completions = []*types.Completion{{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"hello world"},
+	}}
+	eng.applyBatch = &mockBatch{}
+	eng.stagedCompletion = nil
+	eng.cursorTarget = &types.CursorPredictionTarget{
+		LineNumber:      5,
+		ShouldRetrigger: true,
+	}
+
+	eng.acceptCompletion()
+
+	assert.Equal(t, prefetchNone, eng.prefetchState, "provider capability should gate cursor-target prefetch")
+	assert.Equal(t, 0, prov.completionCalls, "prefetch request should not be issued")
+}
+
 func TestPrefetchReady_DoesNotInterruptActiveCompletion(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"line 1", "line 2", "line 3", "line 4", "line 5"}

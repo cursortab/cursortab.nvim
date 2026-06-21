@@ -206,7 +206,6 @@ func runTarget(sc *Scenario, t Target, cfg Config) *TargetOutcome {
 		},
 		CompleteInInsert:       true,
 		CompleteInNormal:       true,
-		EditCompletionProvider: t.Type != "fim" && t.Type != "inline",
 		DisableProviderMetrics: true,
 	}, fc, nil, nil)
 	if err != nil {

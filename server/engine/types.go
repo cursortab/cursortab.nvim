@@ -302,6 +302,5 @@ type EngineConfig struct {
 	CompleteInInsert       bool     // Show completions in insert mode
 	CompleteInNormal       bool     // Show completions in normal mode
 	DisabledIn             []string // Treesitter scopes where completions are suppressed
-	EditCompletionProvider bool     // True for edit-prediction providers (sweep, zeta, zeta-2, mercuryapi, copilot NES, windsurf)
 	DisableProviderMetrics bool     // Skip wiring provider as metrics.Sender (eval harness sets this)
 }

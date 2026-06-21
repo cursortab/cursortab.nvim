@@ -344,9 +344,9 @@ func (e *Engine) handleDeferredCursorTarget() {
 // prefetchAtNMinusOne triggers prefetch when showing the last stage.
 // Applies the last stage's edit to the buffer snapshot so the model sees the
 // post-accept state, and centers the request on the cursor target position.
-// Disabled for insertion-only providers (FIM/inline) which duplicate content on prefetch.
+// Disabled for providers that cannot prefetch after a cursor-target accept.
 func (e *Engine) prefetchAtNMinusOne() {
-	if !e.config.EditCompletionProvider {
+	if !e.provider.CanDo().PrefetchAfterCursorTarget {
 		return
 	}
 	if e.stagedCompletion == nil {
@@ -375,9 +375,9 @@ func (e *Engine) prefetchAtNMinusOne() {
 
 // prefetchAtCursorTarget triggers prefetch after accepting to cursor target position.
 // This speculatively requests the next completion at the target location.
-// Disabled for insertion-only providers (FIM/inline) which duplicate content on prefetch.
+// Disabled for providers that cannot prefetch after a cursor-target accept.
 func (e *Engine) prefetchAtCursorTarget() {
-	if !e.config.EditCompletionProvider {
+	if !e.provider.CanDo().PrefetchAfterCursorTarget {
 		return
 	}
 	if e.cursorTarget == nil || !e.cursorTarget.ShouldRetrigger {

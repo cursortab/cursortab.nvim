@@ -23,26 +23,15 @@ func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
 	}
 }
 
-func inputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
+func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
-		Trigger: req.Source,
 		Current: sourcectx.CurrentSnapshot{
-			Workspace: sourcectx.WorkspaceRef{
-				Path: req.WorkspacePath,
-				ID:   req.WorkspaceID,
-			},
 			File: sourcectx.FileSnapshot{
-				Path:    req.FilePath,
-				Lines:   req.Lines,
-				Version: req.Version,
+				Lines: lines,
 			},
 			Cursor: sourcectx.CursorPosition{
-				Row: req.CursorRow,
-				Col: req.CursorCol,
-			},
-			View: sourcectx.ViewConstraints{
-				ViewportHeight:  req.ViewportHeight,
-				MaxVisibleLines: req.MaxVisibleLines,
+				Row: cursorRow,
+				Col: cursorCol,
 			},
 		},
 	}
@@ -183,11 +172,7 @@ func TestParseCompletion_SingleLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"hello world"},
-			CursorRow: 1,
-			CursorCol: 5,
-		}),
+		Input: completionInput([]string{"hello world"}, 1, 5),
 		Result: &openai.StreamResult{
 			Text: " there",
 		},
@@ -209,11 +194,7 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"func main() {"},
-			CursorRow: 1,
-			CursorCol: 13,
-		}),
+		Input: completionInput([]string{"func main() {"}, 1, 13),
 		Result: &openai.StreamResult{
 			Text: "\n  fmt.Println()\n",
 		},
@@ -448,11 +429,7 @@ func TestParseCompletion_SingleLineWithAfterCursor(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"func()"},
-			CursorRow: 1,
-			CursorCol: 4, // After "func"
-		}),
+		Input: completionInput([]string{"func()"}, 1, 4),
 		Result: &openai.StreamResult{
 			Text: "tion",
 		},

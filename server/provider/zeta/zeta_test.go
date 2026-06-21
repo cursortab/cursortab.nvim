@@ -23,26 +23,15 @@ func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
 	}
 }
 
-func inputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
+func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
-		Trigger: req.Source,
 		Current: sourcectx.CurrentSnapshot{
-			Workspace: sourcectx.WorkspaceRef{
-				Path: req.WorkspacePath,
-				ID:   req.WorkspaceID,
-			},
 			File: sourcectx.FileSnapshot{
-				Path:    req.FilePath,
-				Lines:   req.Lines,
-				Version: req.Version,
+				Lines: lines,
 			},
 			Cursor: sourcectx.CursorPosition{
-				Row: req.CursorRow,
-				Col: req.CursorCol,
-			},
-			View: sourcectx.ViewConstraints{
-				ViewportHeight:  req.ViewportHeight,
-				MaxVisibleLines: req.MaxVisibleLines,
+				Row: cursorRow,
+				Col: cursorCol,
 			},
 		},
 	}
@@ -166,18 +155,15 @@ func TestParseCompletion_WithEditableRegion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines: []string{"line 1", "line 2"},
-		}),
-		Result: &openai.StreamResult{
-			Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
-		},
+	ctx := &provider.BatchContext{
+		Input:       completionInput([]string{"line 1", "line 2"}, 0, 0),
 		WindowStart: 0,
 		WindowEnd:   2,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
+	})
 
 	assert.True(t, ok, "should succeed")
 	assert.NotNil(t, resp, "should have response")
@@ -189,20 +175,15 @@ func TestParseCompletion_NoEditableMarker(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"line 1"},
-			CursorRow: 1,
-			CursorCol: 6,
-		}),
-		Result: &openai.StreamResult{
-			Text: " completion",
-		},
+	ctx := &provider.BatchContext{
+		Input:       completionInput([]string{"line 1"}, 1, 6),
 		WindowStart: 0,
 		WindowEnd:   1,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: " completion",
+	})
 
 	assert.True(t, ok, "should succeed")
 	assert.NotNil(t, resp, "should have response")
@@ -214,20 +195,15 @@ func TestParseCompletion_StripsMarkers(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"original"},
-			CursorRow: 1,
-			CursorCol: 0,
-		}),
-		Result: &openai.StreamResult{
-			Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
-		},
+	ctx := &provider.BatchContext{
+		Input:       completionInput([]string{"original"}, 1, 0),
 		WindowStart: 0,
 		WindowEnd:   1,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
+	})
 
 	assert.True(t, ok, "should succeed")
 	// The cursor marker should be stripped
@@ -242,18 +218,15 @@ func TestParseCompletion_IdenticalContent(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines: []string{"line 1", "line 2"},
-		}),
-		Result: &openai.StreamResult{
-			Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
-		},
+	ctx := &provider.BatchContext{
+		Input:       completionInput([]string{"line 1", "line 2"}, 0, 0),
 		WindowStart: 0,
 		WindowEnd:   2,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
+	})
 
 	assert.True(t, ok, "should succeed")
 	assert.Nil(t, resp.Completions, "no completions for identical content")
@@ -266,11 +239,7 @@ func TestParseSimpleCompletion(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"hello"},
-			CursorRow: 1,
-			CursorCol: 5,
-		}),
+		Input: completionInput([]string{"hello"}, 1, 5),
 		Result: &openai.StreamResult{
 			Text: " world",
 		},
@@ -291,11 +260,7 @@ func TestParseSimpleCompletion_MultiLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"start"},
-			CursorRow: 1,
-			CursorCol: 5,
-		}),
+		Input: completionInput([]string{"start"}, 1, 5),
 		Result: &openai.StreamResult{
 			Text: " middle\nend",
 		},

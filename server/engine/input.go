@@ -94,24 +94,6 @@ func buildContextSourceInput(current ctx.CurrentSnapshot, snapshot ctx.FileConte
 	}
 }
 
-func (e *Engine) buildCompletionRequest(input ctx.CompletionInput) *types.CompletionRequest {
-	current := input.Current
-	return &types.CompletionRequest{
-		Source:          input.Trigger,
-		WorkspacePath:   current.Workspace.Path,
-		WorkspaceID:     current.Workspace.ID,
-		FilePath:        current.File.Path,
-		Lines:           slices.Clone(current.File.Lines),
-		Version:         current.File.Version,
-		PreviousLines:   slices.Clone(e.buffer.PreviousLines()),
-		OriginalLines:   slices.Clone(e.buffer.OriginalLines()),
-		CursorRow:       current.Cursor.Row,
-		CursorCol:       current.Cursor.Col,
-		ViewportHeight:  current.View.ViewportHeight,
-		MaxVisibleLines: current.View.MaxVisibleLines,
-	}
-}
-
 func cloneDiffEntries(entries []*types.DiffEntry) []*types.DiffEntry {
 	if entries == nil {
 		return nil

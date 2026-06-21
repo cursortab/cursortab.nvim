@@ -7,50 +7,7 @@ import (
 	"strings"
 
 	"cursortab/logger"
-	"cursortab/types"
 )
-
-// gitDiff gathers staged diff context for commit message editing.
-type gitDiff struct{}
-
-func (g *gitDiff) Gather(ctx context.Context, req *SourceRequest) *types.ContextResult {
-	if !strings.HasSuffix(req.FilePath, "COMMIT_EDITMSG") {
-		return nil
-	}
-
-	workDir := req.WorkspacePath
-	if workDir == "" {
-		return nil
-	}
-
-	// Try full diff first
-	fullDiff := runGit(ctx, workDir, "diff", "--cached")
-	if fullDiff == "" {
-		return nil
-	}
-
-	// Use full diff if small enough
-	if len(fullDiff) <= req.MaxDiffBytes {
-		return &types.ContextResult{
-			GitDiff: &types.GitDiffContext{Diff: fullDiff},
-		}
-	}
-
-	// Large diff: extract only changed symbols with minimal context
-	minimalDiff := runGit(ctx, workDir, "diff", "--cached", "-U0")
-	if minimalDiff == "" {
-		return nil
-	}
-
-	symbols := extractChangedSymbols(minimalDiff, req.MaxChangedSymbols)
-	if len(symbols) == 0 {
-		return nil
-	}
-
-	return &types.ContextResult{
-		GitDiff: &types.GitDiffContext{Diff: strings.Join(symbols, "\n")},
-	}
-}
 
 // runGit executes a git command and returns its stdout, or "" on error.
 func runGit(ctx context.Context, dir string, args ...string) string {

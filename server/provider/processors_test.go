@@ -128,127 +128,6 @@ func TestFormatDiffHistoryOriginalUpdated_NoChange(t *testing.T) {
 	assert.Equal(t, "", result, "should be empty when original equals updated")
 }
 
-// --- Preprocessor Tests ---
-
-func TestTrimContent_SmallFile(t *testing.T) {
-	prov := &Provider{
-		Config: &types.ProviderConfig{
-			ProviderMaxTokens: 1000,
-		},
-	}
-
-	ctx := &StreamState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				File:   sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2", "line 3"}},
-				Cursor: sourcectx.CursorPosition{Row: 2, Col: 5},
-			},
-		},
-	}
-
-	preprocessor := TrimContent()
-	err := preprocessor(prov, ctx)
-
-	assert.NoError(t, err, "TrimContent should not return error")
-
-	// Small file shouldn't be trimmed
-	assert.Equal(t, 3, len(ctx.TrimmedLines), "TrimmedLines length")
-	assert.Equal(t, 1, ctx.CursorLine, "CursorLine")
-}
-
-func TestTrimContent_LargeFile(t *testing.T) {
-	prov := &Provider{
-		Config: &types.ProviderConfig{
-			ProviderMaxTokens: 50, // Small token limit to force trimming
-		},
-	}
-
-	// Create a large file
-	lines := make([]string, 100)
-	for i := range lines {
-		lines[i] = "this is a long line with some content"
-	}
-
-	ctx := &StreamState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				File:   sourcectx.FileSnapshot{Lines: lines},
-				Cursor: sourcectx.CursorPosition{Row: 50, Col: 0},
-			},
-		},
-	}
-
-	preprocessor := TrimContent()
-	err := preprocessor(prov, ctx)
-
-	assert.NoError(t, err, "TrimContent should not return error")
-
-	// Should be trimmed
-	assert.True(t, len(ctx.TrimmedLines) < 100, "TrimmedLines should be trimmed")
-}
-
-func TestSkipIfTextAfterCursor(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
-	tests := []struct {
-		name      string
-		lines     []string
-		cursorRow int
-		cursorCol int
-		wantSkip  bool
-	}{
-		{
-			name:      "text after cursor",
-			lines:     []string{"hello world"},
-			cursorRow: 1,
-			cursorCol: 5, // cursor at "hello|world"
-			wantSkip:  true,
-		},
-		{
-			name:      "cursor at end of line",
-			lines:     []string{"hello"},
-			cursorRow: 1,
-			cursorCol: 5, // cursor at "hello|"
-			wantSkip:  false,
-		},
-		{
-			name:      "cursor beyond line length",
-			lines:     []string{"hi"},
-			cursorRow: 1,
-			cursorCol: 10, // cursor beyond line
-			wantSkip:  false,
-		},
-		{
-			name:      "empty line",
-			lines:     []string{""},
-			cursorRow: 1,
-			cursorCol: 0,
-			wantSkip:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := &StreamState{
-				Input: sourcectx.CompletionInput{
-					Current: sourcectx.CurrentSnapshot{
-						File:   sourcectx.FileSnapshot{Lines: tt.lines},
-						Cursor: sourcectx.CursorPosition{Row: tt.cursorRow, Col: tt.cursorCol},
-					},
-				},
-			}
-
-			preprocessor := SkipIfTextAfterCursor()
-			err := preprocessor(prov, ctx)
-
-			gotSkip := err == ErrSkipCompletion
-			assert.Equal(t, tt.wantSkip, gotSkip, "SkipIfTextAfterCursor skip status")
-		})
-	}
-}
-
-// --- Postprocessor Tests ---
-
 func TestRejectEmpty(t *testing.T) {
 	prov := &Provider{Name: "test"}
 
@@ -265,12 +144,7 @@ func TestRejectEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &StreamState{
-				Result: &openai.StreamResult{Text: tt.text},
-			}
-
-			postprocessor := RejectEmpty()
-			_, done := postprocessor(prov, ctx)
+			_, done := RejectEmptyBatch(prov, &openai.StreamResult{Text: tt.text})
 
 			assert.Equal(t, tt.wantDone, done, "RejectEmpty done status")
 		})
@@ -292,15 +166,10 @@ func TestRejectTruncated(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &StreamState{
-				Result: &openai.StreamResult{
-					Text:         "some content",
-					FinishReason: tt.finishReason,
-				},
-			}
-
-			postprocessor := RejectTruncated()
-			_, done := postprocessor(prov, ctx)
+			_, done := RejectTruncatedBatch(prov, &openai.StreamResult{
+				Text:         "some content",
+				FinishReason: tt.finishReason,
+			})
 
 			assert.Equal(t, tt.wantDone, done, "RejectTruncated done status")
 		})
@@ -356,26 +225,23 @@ func TestDropLastLineIfTruncated(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &StreamState{
-				WindowStart: 0,
-				Result: &openai.StreamResult{
-					Text:         tt.text,
-					FinishReason: tt.finishReason,
-					StoppedEarly: tt.stoppedEarly,
-				},
+			batchCtx := &BatchContext{WindowStart: 0}
+			result := &openai.StreamResult{
+				Text:         tt.text,
+				FinishReason: tt.finishReason,
+				StoppedEarly: tt.stoppedEarly,
 			}
 
-			postprocessor := DropLastLineIfTruncated()
-			_, done := postprocessor(prov, ctx)
+			_, done := DropLastLineIfTruncatedBatch(prov, batchCtx, result)
 
 			assert.Equal(t, tt.wantDone, done, "DropLastLineIfTruncated done status")
 
 			if !done && tt.wantTextAfter != "" {
-				assert.Equal(t, tt.wantTextAfter, ctx.Result.Text, "Result.Text")
+				assert.Equal(t, tt.wantTextAfter, result.Text, "Result.Text")
 			}
 
 			if !done && tt.wantEndLineInc > 0 {
-				assert.Equal(t, tt.wantEndLineInc, ctx.EndLineInc, "EndLineInc")
+				assert.Equal(t, tt.wantEndLineInc, batchCtx.EndLineInc, "EndLineInc")
 			}
 		})
 	}
@@ -541,7 +407,7 @@ func TestAnchorTruncation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &StreamState{
+			batchCtx := &BatchContext{
 				WindowStart: 0,
 				WindowEnd:   len(oldLines),
 				Input: sourcectx.CompletionInput{
@@ -549,14 +415,13 @@ func TestAnchorTruncation(t *testing.T) {
 						File: sourcectx.FileSnapshot{Lines: oldLines},
 					},
 				},
-				Result: &openai.StreamResult{
-					Text:         tt.text,
-					FinishReason: tt.finishReason,
-				},
+			}
+			result := &openai.StreamResult{
+				Text:         tt.text,
+				FinishReason: tt.finishReason,
 			}
 
-			postprocessor := AnchorTruncation(tt.threshold)
-			_, done := postprocessor(prov, ctx)
+			_, done := AnchorTruncationBatch(prov, batchCtx, result, tt.threshold)
 
 			assert.Equal(t, tt.wantDone, done, "AnchorTruncation done status")
 		})
@@ -594,7 +459,7 @@ func TestValidateAnchorPosition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &StreamState{
+			batchCtx := &BatchContext{
 				WindowStart: 0,
 				WindowEnd:   len(oldLines),
 				Input: sourcectx.CompletionInput{
@@ -602,13 +467,12 @@ func TestValidateAnchorPosition(t *testing.T) {
 						File: sourcectx.FileSnapshot{Lines: oldLines},
 					},
 				},
-				Result: &openai.StreamResult{
-					Text: tt.firstLine + "\nmore content",
-				},
+			}
+			result := &openai.StreamResult{
+				Text: tt.firstLine + "\nmore content",
 			}
 
-			postprocessor := ValidateAnchorPosition(tt.maxAnchorRatio)
-			_, done := postprocessor(prov, ctx)
+			_, done := ValidateAnchorPositionBatch(prov, batchCtx, result, tt.maxAnchorRatio)
 
 			assert.Equal(t, tt.wantDone, done, "ValidateAnchorPosition done status")
 		})

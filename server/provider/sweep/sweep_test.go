@@ -16,7 +16,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{}},
@@ -25,7 +25,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 		TrimmedLines: []string{},
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := p.BuildBatch(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "<|file_sep|>original/main.go"), "should have original marker")
 	assert.True(t, strings.Contains(req.Prompt, "<|file_sep|>current/main.go"), "should have current marker")
@@ -38,7 +38,7 @@ func TestBuildPrompt_WithContent(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"line 1", "line 2"}},
@@ -49,7 +49,7 @@ func TestBuildPrompt_WithContent(t *testing.T) {
 		WindowEnd:    2,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := p.BuildBatch(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "line 1\nline 2"), "should contain file content")
 }
@@ -60,7 +60,7 @@ func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"line 1"}},
@@ -81,7 +81,7 @@ func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 		WindowEnd:    1,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := p.BuildBatch(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "other.go.diff"), "should have diff section")
 	assert.True(t, strings.Contains(req.Prompt, "original:\nold code"), "should have original in diff")
@@ -94,20 +94,19 @@ func TestParseCompletion_NoChange(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2"}},
 			},
 		},
-		Result: &openai.StreamResult{
-			Text: "line 1\nline 2", // Same as original
-		},
 		WindowStart: 0,
 		WindowEnd:   2,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: "line 1\nline 2",
+	})
 
 	assert.True(t, ok, "should succeed")
 	assert.Nil(t, resp.Completions, "no completions when text is same")
@@ -119,20 +118,19 @@ func TestParseCompletion_WithChange(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2"}},
 			},
 		},
-		Result: &openai.StreamResult{
-			Text: "line 1\nmodified line 2",
-		},
 		WindowStart: 0,
 		WindowEnd:   2,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: "line 1\nmodified line 2",
+	})
 
 	assert.True(t, ok, "should succeed")
 	assert.NotNil(t, resp, "should have response")
@@ -145,20 +143,19 @@ func TestParseCompletion_StripsStopTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Lines: []string{"line 1"}},
 			},
 		},
-		Result: &openai.StreamResult{
-			Text: "modified line 1<|file_sep|>",
-		},
 		WindowStart: 0,
 		WindowEnd:   1,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := p.ParseBatch(p, ctx, &openai.StreamResult{
+		Text: "modified line 1<|file_sep|>",
+	})
 
 	assert.True(t, ok, "should succeed")
 	assert.NotNil(t, resp, "should have response")
@@ -170,20 +167,19 @@ func TestParseCompletion_InvalidWindow(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.BatchContext{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Lines: []string{"line 1"}},
 			},
 		},
-		Result: &openai.StreamResult{
-			Text: "modified",
-		},
 		WindowStart: 5, // Invalid
 		WindowEnd:   2,
 	}
 
-	resp, ok := parseCompletion(p, ctx)
+	resp, ok := parseBatchCompletion(p, ctx, &openai.StreamResult{
+		Text: "modified",
+	})
 
 	assert.True(t, ok, "should succeed but return empty")
 	assert.Nil(t, resp.Completions, "should have no completions for invalid window")

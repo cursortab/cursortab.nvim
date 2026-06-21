@@ -8,7 +8,6 @@ import (
 	"cursortab/logger"
 	"cursortab/types"
 	"cursortab/utils"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -62,6 +61,16 @@ type BatchContext struct {
 	Prefill       string
 	EditableStart int
 	EditableEnd   int
+
+	StreamOldLines []string
+	StreamBaseOff  int
+	FirstLinePfx   string
+	LastLineSfx    string
+
+	CursorMarker     string
+	CursorMarkerSeen bool
+	CursorMarkerLine int
+	CursorMarkerCol  int
 }
 
 type StreamState struct {
@@ -83,8 +92,8 @@ type StreamState struct {
 
 	// Per-line cursor-marker stripping (e.g. Zeta2's <|user_cursor|> sentinel).
 	// Providers that need to strip in-band markers from every streamed line set
-	// CursorMarker in a preprocessor. TransformLine then strips the marker and
-	// records the position of its first occurrence in CursorMarkerLine /
+	// CursorMarker while building the batch prompt. TransformLine then strips
+	// the marker and records the position of its first occurrence in CursorMarkerLine /
 	// CursorMarkerCol (measured in the post-strip line sequence and the
 	// post-strip byte column, respectively). LinesReceived counts every line
 	// that has flowed through TransformLine so far, giving the marker's line
@@ -179,9 +188,6 @@ type Provider struct {
 	StreamingType                 engine.StreamingType // Type of streaming (None, Lines, Tokens)
 	CompleteWithTextRightOfCursor bool
 	PrefetchAfterCursorTarget     bool
-	Preprocessors                 []Preprocessor
-	PromptBuilder                 PromptBuilder
-	Postprocessors                []Postprocessor
 	BuildBatch                    BatchBuilder
 	ParseBatch                    BatchParser
 	Validators                    []Validator        // Validators run on first line during streaming
@@ -337,26 +343,6 @@ func (p *Provider) EmptyResponse() *types.CompletionResponse {
 	}
 }
 
-// BuildCompletion creates a completion response, returning empty if it's a no-op.
-// startLine and endLineInc are 1-indexed.
-func (p *Provider) BuildCompletion(ctx *StreamState, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
-	currentLines := ctx.Input.Current.File.Lines
-	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
-		return p.EmptyResponse(), true
-	}
-
-	completion := &types.Completion{
-		StartLine:  startLine,
-		EndLineInc: endLineInc,
-		Lines:      lines,
-	}
-
-	return &types.CompletionResponse{
-		Completions:  []*types.Completion{completion},
-		CursorTarget: nil,
-	}, true
-}
-
 func (p *Provider) BuildBatchCompletion(ctx *BatchContext, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
 	currentLines := ctx.Input.Current.File.Lines
 	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
@@ -403,18 +389,33 @@ func (p *Provider) GetStreamingType() engine.StreamingType {
 }
 
 func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *StreamState, error) {
-	pctx := &StreamState{Input: input}
-
-	for _, pre := range p.Preprocessors {
-		if err := pre(p, pctx); err != nil {
-			if errors.Is(err, ErrSkipCompletion) {
-				return nil, pctx, ErrSkipCompletion
-			}
-			return nil, nil, fmt.Errorf("%s: %w", p.Name, err)
-		}
+	if p.BuildBatch == nil {
+		return nil, nil, fmt.Errorf("%s: batch flow is not configured", p.Name)
 	}
 
-	completionReq := p.PromptBuilder(p, pctx)
+	batchCtx, skip := p.prepareBatch(input)
+	if skip {
+		return nil, &StreamState{Input: input}, ErrSkipCompletion
+	}
+
+	completionReq := p.BuildBatch(p, batchCtx)
+	pctx := &StreamState{
+		Input:          batchCtx.Input,
+		TrimmedLines:   batchCtx.TrimmedLines,
+		WindowStart:    batchCtx.WindowStart,
+		WindowEnd:      batchCtx.WindowEnd,
+		CursorLine:     batchCtx.CursorLine,
+		MaxLines:       batchCtx.MaxLines,
+		EndLineInc:     batchCtx.EndLineInc,
+		Prefill:        batchCtx.Prefill,
+		StreamOldLines: batchCtx.StreamOldLines,
+		StreamBaseOff:  batchCtx.StreamBaseOff,
+		FirstLinePfx:   batchCtx.FirstLinePfx,
+		LastLineSfx:    batchCtx.LastLineSfx,
+		CursorMarker:   batchCtx.CursorMarker,
+		EditableStart:  batchCtx.EditableStart,
+		EditableEnd:    batchCtx.EditableEnd,
+	}
 	return completionReq, pctx, nil
 }
 
@@ -427,10 +428,32 @@ func (p *Provider) finishStream(providerState engine.ProviderStreamState, result
 	pctx.Result = result
 	p.logResponse(result)
 
-	for _, post := range p.Postprocessors {
-		if resp, done := post(p, pctx); done {
-			return resp, nil
-		}
+	if p.ParseBatch == nil {
+		return p.EmptyResponse(), fmt.Errorf("%s: batch parser is not configured", p.Name)
+	}
+
+	batchCtx := &BatchContext{
+		Input:            pctx.Input,
+		TrimmedLines:     pctx.TrimmedLines,
+		WindowStart:      pctx.WindowStart,
+		WindowEnd:        pctx.WindowEnd,
+		CursorLine:       pctx.CursorLine,
+		MaxLines:         pctx.MaxLines,
+		EndLineInc:       pctx.EndLineInc,
+		Prefill:          pctx.Prefill,
+		EditableStart:    pctx.EditableStart,
+		EditableEnd:      pctx.EditableEnd,
+		StreamOldLines:   pctx.StreamOldLines,
+		StreamBaseOff:    pctx.StreamBaseOff,
+		FirstLinePfx:     pctx.FirstLinePfx,
+		LastLineSfx:      pctx.LastLineSfx,
+		CursorMarker:     pctx.CursorMarker,
+		CursorMarkerSeen: pctx.CursorMarkerSeen,
+		CursorMarkerLine: pctx.CursorMarkerLine,
+		CursorMarkerCol:  pctx.CursorMarkerCol,
+	}
+	if resp, done := p.ParseBatch(p, batchCtx, result); done {
+		return resp, nil
 	}
 	return p.EmptyResponse(), nil
 }

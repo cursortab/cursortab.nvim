@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"cursortab/buffer"
-	"cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
@@ -131,7 +130,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		DisabledIn:       config.Behavior.DisabledIn,
 		CompleteInInsert: config.Behavior.CompleteInInsert,
 		CompleteInNormal: config.Behavior.CompleteInNormal,
-	}, engine.SystemClock, ctx.NewGatherer(buf), datasetSender)
+	}, engine.SystemClock, datasetSender)
 	if err != nil {
 		return nil, err
 	}

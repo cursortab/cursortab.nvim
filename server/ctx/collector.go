@@ -3,7 +3,11 @@ package ctx
 import (
 	"context"
 	"fmt"
+	"time"
 )
+
+// GatherTimeout is the maximum time allowed for all context sources to complete.
+const GatherTimeout = 200 * time.Millisecond
 
 // Collect executes the requested materials with one shared timeout.
 func Collect(parent context.Context, input ContextSourceInput, requirements ContextRequirements) (CollectedContext, error) {

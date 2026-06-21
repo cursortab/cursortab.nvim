@@ -22,36 +22,6 @@ type CursorPredictionTarget struct {
 	ShouldRetrigger bool
 }
 
-// CompletionRequest contains all the context needed for unified completion requests
-type CompletionRequest struct {
-	Source        CompletionSource
-	WorkspacePath string
-	WorkspaceID   string
-	// File context
-	FilePath string
-	Lines    []string
-	Version  int
-	// PreviousLines is the file content before the most recent edit
-	PreviousLines []string
-	// OriginalLines is the file content when first opened (checkpoint baseline)
-	OriginalLines []string
-	// Multi-file diff histories in the same workspace
-	FileDiffHistories []*FileDiffHistory
-	// Cursor position
-	CursorRow int // 1-indexed
-	CursorCol int // 0-indexed
-	// Viewport constraint: only set when staging is disabled (0 = no limit)
-	ViewportHeight int
-	// MaxVisibleLines limits max visible lines per completion (0 = no limit)
-	MaxVisibleLines int
-	// AdditionalContext holds gathered context from context sources (diagnostics, etc.)
-	AdditionalContext *ContextResult
-	// RecentBufferSnapshots contains snapshots of recently accessed files for cross-file context
-	RecentBufferSnapshots []*RecentBufferSnapshot
-	// UserActions contains recent user edit actions for the current file
-	UserActions []*UserAction
-}
-
 // CompletionResponse contains both completions and cursor prediction target
 type CompletionResponse struct {
 	Completions  []*Completion
@@ -134,37 +104,6 @@ type TreesitterSymbol struct {
 // Contains either the full unified diff (when small) or extracted symbol lines.
 type GitDiffContext struct {
 	Diff string // Full unified diff or symbol summary in git diff format
-}
-
-// ContextResult holds gathered context from context sources
-type ContextResult struct {
-	Diagnostics *Diagnostics       // LSP diagnostics (nil if unavailable)
-	Treesitter  *TreesitterContext // Treesitter scope context (nil if unavailable)
-	GitDiff     *GitDiffContext    // Staged git diff (nil if not COMMIT_EDITMSG)
-}
-
-// GetDiagnostics returns diagnostics from AdditionalContext, or nil if unavailable
-func (r *CompletionRequest) GetDiagnostics() *Diagnostics {
-	if r.AdditionalContext == nil {
-		return nil
-	}
-	return r.AdditionalContext.Diagnostics
-}
-
-// GetTreesitter returns treesitter context from AdditionalContext, or nil if unavailable
-func (r *CompletionRequest) GetTreesitter() *TreesitterContext {
-	if r.AdditionalContext == nil {
-		return nil
-	}
-	return r.AdditionalContext.Treesitter
-}
-
-// GetGitDiff returns git diff context from AdditionalContext, or nil if unavailable
-func (r *CompletionRequest) GetGitDiff() *GitDiffContext {
-	if r.AdditionalContext == nil {
-		return nil
-	}
-	return r.AdditionalContext.GitDiff
 }
 
 // FileDiffHistory represents cumulative diffs for a specific file in the workspace
@@ -250,17 +189,6 @@ const (
 	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
 	ProviderTypeWindsurf   ProviderType = "windsurf"
 )
-
-// IsEditCompletion reports whether the provider produces edit-style (multi-line,
-// region-replacing) completions, as opposed to inline/FIM single-point fills.
-func (p ProviderType) IsEditCompletion() bool {
-	switch p {
-	case ProviderTypeSweep, ProviderTypeZeta, ProviderTypeZeta2,
-		ProviderTypeCopilot, ProviderTypeMercuryAPI, ProviderTypeWindsurf:
-		return true
-	}
-	return false
-}
 
 // FIMTokenConfig holds FIM (Fill-in-the-Middle) token configuration.
 // When the provider's FIMTokens is non-nil, tokenized FIM mode is used and

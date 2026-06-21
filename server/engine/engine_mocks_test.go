@@ -420,7 +420,7 @@ func createTestEngine(buf *mockBuffer, prov *mockProvider, clock *mockClock) *En
 		},
 		CompleteInInsert: true,
 		CompleteInNormal: true,
-	}, clock, nil, nil)
+	}, clock, nil)
 	return eng
 }
 

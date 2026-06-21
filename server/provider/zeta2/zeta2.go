@@ -89,10 +89,6 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		StreamingType:                 provider.StreamingLines,
 		CompleteWithTextRightOfCursor: true,
 		PrefetchAfterCursorTarget:     true,
-		Preprocessors: []provider.Preprocessor{
-			armCursorMarkerStripping(),
-			provider.TrimContent(),
-		},
 		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
 			Diagnostics: true,
 			Treesitter:  true,
@@ -100,16 +96,10 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 			RecentFiles: true,
 			EditHistory: true,
 		}),
-		DiffBuilder:   buildEditHistory,
-		PromptBuilder: buildPrompt,
-		BuildBatch:    buildBatch,
-		ParseBatch:    parseBatch,
-		Postprocessors: []provider.Postprocessor{
-			provider.RejectEmpty(),
-			provider.StripRepetition(),
-			parseCompletion,
-		},
-		StopTokens: []string{endMarker, strings.TrimSuffix(endMarker, "\n")},
+		DiffBuilder: buildEditHistory,
+		BuildBatch:  buildBatch,
+		ParseBatch:  parseBatch,
+		StopTokens:  []string{endMarker, strings.TrimSuffix(endMarker, "\n")},
 	}
 }
 
@@ -128,38 +118,11 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 	}
 }
 
-// armCursorMarkerStripping tells the engine's streaming transform to strip
-// <|user_cursor|> sentinels from every streamed line and record the marker's
-// position. Zeta2's SeedCoder model emits the marker in its output to signal
-// where the cursor should land after the edit is applied; we strip it before
-// the stage builder sees it (to keep it out of the user's buffer) and use
-// the captured position to populate a CursorPredictionTarget in parseCompletion.
-func armCursorMarkerStripping() provider.Preprocessor {
-	return func(p *provider.Provider, ctx *provider.StreamState) error {
-		ctx.CursorMarker = cursorMarker
-		return nil
-	}
-}
-
-func buildPrompt(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
-	prompt := assemblePrompt(p, ctx)
-
-	return &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
-		Prompt:      prompt,
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
-		Stop:        p.StopTokens,
-		N:           1,
-		Echo:        false,
-	}
-}
-
 func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) string {
 	trimmed := ctx.TrimmedLines
 	input := ctx.Input
 	current := input.Current
+	ctx.CursorMarker = cursorMarker
 	if len(trimmed) == 0 {
 		var b strings.Builder
 		b.WriteString(fimSuffix)
@@ -184,106 +147,6 @@ func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) strin
 	editLines := trimmed[editableStart:editableEnd]
 	suffixLines := trimmed[editableEnd:]
 
-	var b strings.Builder
-
-	b.WriteString(fimSuffix)
-	suffixText := ""
-	if len(suffixLines) > 0 {
-		suffixText = strings.Join(suffixLines, "\n")
-		b.WriteString(suffixText)
-	}
-	ensureTrailingNewline(&b, suffixText)
-
-	b.WriteString(fimPrefix)
-
-	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
-		writeRecentFilesPseudoFiles(&b, recentFiles.Files)
-	}
-	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
-		writeDiagnosticsPseudoFile(&b, diagnostics.Data)
-	}
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
-		writeTreesitterPseudoFile(&b, treesitter.Data)
-	}
-	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
-		writeGitDiffPseudoFile(&b, gitDiff.Data)
-	}
-
-	if editHistoryMaterial, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
-		editHistory := p.DiffBuilder(editHistoryMaterial.Files)
-		if editHistory != "" {
-			b.WriteString(fileMarker)
-			b.WriteString("edit_history\n")
-			b.WriteString(editHistory)
-			if !strings.HasSuffix(editHistory, "\n") {
-				b.WriteString("\n")
-			}
-			b.WriteString("\n")
-		}
-	}
-
-	b.WriteString(fileMarker)
-	b.WriteString(current.File.Path)
-	b.WriteString("\n")
-
-	if len(beforeLines) > 0 {
-		b.WriteString(strings.Join(beforeLines, "\n"))
-		b.WriteString("\n")
-	}
-
-	b.WriteString(currentMarker)
-	editableText := formatEditableWithCursor(editLines, ctx.CursorLine-editableStart, current.Cursor.Col)
-	b.WriteString(editableText)
-	ensureTrailingNewline(&b, editableText)
-	b.WriteString(separator)
-	b.WriteString(fimMiddle)
-
-	return b.String()
-}
-
-// assemblePrompt builds the full SeedCoder FIM prompt in SPM order.
-func assemblePrompt(p *provider.Provider, ctx *provider.StreamState) string {
-	trimmed := ctx.TrimmedLines
-	input := ctx.Input
-	current := input.Current
-	if len(trimmed) == 0 {
-		// Empty buffer: minimal prompt with just the cursor position.
-		var b strings.Builder
-		b.WriteString(fimSuffix)
-		b.WriteString("\n")
-		b.WriteString(fimPrefix)
-		b.WriteString(fileMarker)
-		b.WriteString(current.File.Path)
-		b.WriteString("\n")
-		b.WriteString(currentMarker)
-		b.WriteString(cursorMarker)
-		b.WriteString("\n")
-		b.WriteString(separator)
-		b.WriteString(fimMiddle)
-		return b.String()
-	}
-
-	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(input.Context))
-	ctx.EditableStart = editableStart
-	ctx.EditableEnd = editableEnd
-
-	beforeLines := trimmed[:editableStart]
-	editLines := trimmed[editableStart:editableEnd]
-	suffixLines := trimmed[editableEnd:]
-
-	// Tell the engine's streaming pipeline to diff incoming lines against the
-	// editable region only, not the full trimmed window. The model replaces
-	// just this slice; lines in the fim-suffix / fim-prefix sections stay
-	// unchanged. Without this, the IncrementalStageBuilder compares against
-	// the full trimmed window and fabricates phantom deletions for every line
-	// beyond the editable region.
-	//
-	// Strip trailing blank lines from the old editable region. The editable
-	// range often includes section-separator blanks at its boundary that the
-	// model won't reproduce (they're invisible in the CURRENT block output
-	// because formatEditableWithCursor's join merges them with the trailing
-	// newline). Keeping them in old lines causes the diff to flag the missing
-	// blanks as phantom deletions.
 	streamOld := editLines
 	for len(streamOld) > 0 && strings.TrimSpace(streamOld[len(streamOld)-1]) == "" {
 		streamOld = streamOld[:len(streamOld)-1]
@@ -293,7 +156,6 @@ func assemblePrompt(p *provider.Provider, ctx *provider.StreamState) string {
 
 	var b strings.Builder
 
-	// Suffix section: <[fim-suffix]>{code after editable}\n
 	b.WriteString(fimSuffix)
 	suffixText := ""
 	if len(suffixLines) > 0 {
@@ -302,13 +164,8 @@ func assemblePrompt(p *provider.Provider, ctx *provider.StreamState) string {
 	}
 	ensureTrailingNewline(&b, suffixText)
 
-	// Prefix section: <[fim-prefix]>{context pseudo-files}{edit_history}{cursor file section}
 	b.WriteString(fimPrefix)
 
-	// Context pseudo-files: slotted in ahead of edit_history, each as a
-	// <filename>{path} block. This matches where Zed's V0211SeedCoder expects
-	// LSP-driven related files — we don't have LSP resolution, so we stuff
-	// whatever structured context we have into the same slot.
 	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
 		writeRecentFilesPseudoFiles(&b, recentFiles.Files)
 	}
@@ -335,7 +192,6 @@ func assemblePrompt(p *provider.Provider, ctx *provider.StreamState) string {
 		}
 	}
 
-	// Cursor file section: <filename>path\n{before}<<<<<<< CURRENT\n{editable with cursor}\n=======\n
 	b.WriteString(fileMarker)
 	b.WriteString(current.File.Path)
 	b.WriteString("\n")
@@ -617,53 +473,6 @@ func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai
 	return parseBatchCompletion(p, ctx, result)
 }
 
-// parseCompletion extracts the new editable region from the model output.
-// The raw text is expected to be the replacement content for the CURRENT
-// block, possibly terminated by ">>>>>>> UPDATED\n" or the literal
-// "NO_EDITS" sentinel.
-func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
-	raw := ctx.Result.Text
-
-	// Strip the trailing end marker if the model emitted it (with or without newline).
-	raw = strings.TrimSuffix(raw, endMarker)
-	raw = strings.TrimSuffix(raw, strings.TrimSuffix(endMarker, "\n"))
-
-	// NO_EDITS sentinel: the model is telling us there's no prediction.
-	if strings.HasPrefix(strings.TrimSpace(raw), noEditsMarker) {
-		return p.EmptyResponse(), true
-	}
-
-	// Strip the cursor marker from the batch-path response. In the streaming
-	// path TransformLine already strips markers before accumulation, so this
-	// is a no-op on clean text. Lines that consist solely of the marker are
-	// removed entirely to avoid phantom trailing empty lines.
-	raw = stripCursorMarker(raw, cursorMarker)
-
-	if raw == "" {
-		return p.EmptyResponse(), true
-	}
-
-	newLines := text.SplitLines(raw)
-	if len(newLines) == 0 {
-		return p.EmptyResponse(), true
-	}
-
-	editableStart := ctx.EditableStart
-	editableEnd := ctx.EditableEnd
-	if editableEnd == 0 {
-		// Non-streaming path or cache miss — compute from scratch.
-		editableStart, editableEnd = computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Input.Context))
-	}
-	startLine := ctx.WindowStart + editableStart + 1 // 1-indexed
-	endLineInc := ctx.WindowStart + editableEnd      // already 1-indexed inclusive (end is exclusive)
-
-	resp, ok := p.BuildCompletion(ctx, startLine, endLineInc, newLines)
-	if ok && resp != nil && len(resp.Completions) > 0 && ctx.CursorMarkerSeen {
-		resp.CursorTarget = buildCursorTarget(ctx, editableStart, newLines)
-	}
-	return resp, ok
-}
-
 // stripCursorMarker removes the cursor marker from the response text. Lines
 // that consist solely of the marker (with optional surrounding whitespace)
 // are dropped entirely so they don't produce phantom empty lines in the
@@ -697,7 +506,7 @@ func stripCursorMarker(text, marker string) string {
 // region in the post-edit buffer. The absolute buffer row (1-indexed) is:
 //
 //	WindowStart + editableStart + CursorMarkerLine + 1
-func buildCursorTarget(ctx *provider.StreamState, editableStart int, newLines []string) *types.CursorPredictionTarget {
+func buildCursorTarget(ctx *provider.BatchContext, editableStart int, newLines []string) *types.CursorPredictionTarget {
 	lineIdx := ctx.CursorMarkerLine
 	if lineIdx < 0 {
 		lineIdx = 0
@@ -754,5 +563,9 @@ func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, resu
 	startLine := ctx.WindowStart + editableStart + 1
 	endLineInc := ctx.WindowStart + editableEnd
 
-	return p.BuildBatchCompletion(ctx, startLine, endLineInc, newLines)
+	resp, ok := p.BuildBatchCompletion(ctx, startLine, endLineInc, newLines)
+	if ok && resp != nil && len(resp.Completions) > 0 && ctx.CursorMarkerSeen {
+		resp.CursorTarget = buildCursorTarget(ctx, editableStart, newLines)
+	}
+	return resp, ok
 }

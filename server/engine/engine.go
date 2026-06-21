@@ -103,9 +103,6 @@ type Engine struct {
 	tokenStreamingState *TokenStreamingState
 	tokenStreamChan     <-chan string // Token stream channel (nil when not streaming)
 
-	// Context gatherer for additional completion context
-	contextGatherer *ctx.Gatherer
-
 	// Mode tracking
 	inInsertMode      bool
 	manuallyTriggered bool
@@ -137,7 +134,7 @@ type Engine struct {
 
 // NewEngine creates a new Engine instance.
 // communitySender is optional — pass nil to disable community metrics.
-func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, contextGatherer *ctx.Gatherer, communitySender metrics.Sender) (*Engine, error) {
+func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, communitySender metrics.Sender) (*Engine, error) {
 	workspacePath, err := os.Getwd()
 	if err != nil {
 		logger.Warn("error getting current directory, using home: %v", err)
@@ -151,7 +148,6 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 		provider:               provider,
 		buffer:                 buf,
 		clock:                  clock,
-		contextGatherer:        contextGatherer,
 		state:                  stateIdle,
 		ctx:                    nil,
 		eventChan:              make(chan Event, 100),

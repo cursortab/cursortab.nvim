@@ -22,26 +22,15 @@ func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
 	}
 }
 
-func inputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
+func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
-		Trigger: req.Source,
 		Current: sourcectx.CurrentSnapshot{
-			Workspace: sourcectx.WorkspaceRef{
-				Path: req.WorkspacePath,
-				ID:   req.WorkspaceID,
-			},
 			File: sourcectx.FileSnapshot{
-				Path:    req.FilePath,
-				Lines:   req.Lines,
-				Version: req.Version,
+				Lines: lines,
 			},
 			Cursor: sourcectx.CursorPosition{
-				Row: req.CursorRow,
-				Col: req.CursorCol,
-			},
-			View: sourcectx.ViewConstraints{
-				ViewportHeight:  req.ViewportHeight,
-				MaxVisibleLines: req.MaxVisibleLines,
+				Row: cursorRow,
+				Col: cursorCol,
 			},
 		},
 	}
@@ -148,11 +137,7 @@ func TestParseCompletion(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"func main() {"},
-			CursorRow: 1,
-			CursorCol: 13,
-		}),
+		Input: completionInput([]string{"func main() {"}, 1, 13),
 		Result: &openai.StreamResult{
 			Text: " fmt.Println()",
 		},
@@ -173,11 +158,7 @@ func TestParseCompletion_CursorClamped(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"abc"},
-			CursorRow: 1,
-			CursorCol: 100, // Beyond line length
-		}),
+		Input: completionInput([]string{"abc"}, 1, 100),
 		Result: &openai.StreamResult{
 			Text: "def",
 		},
@@ -233,11 +214,7 @@ func TestParseCompletion_WhitespaceOnlyCursorLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.StreamState{
-		Input: inputFromRequest(&types.CompletionRequest{
-			Lines:     []string{"def bubble_sort(arr):", "    "},
-			CursorRow: 2,
-			CursorCol: 4, // End of "    " (auto-indent)
-		}),
+		Input: completionInput([]string{"def bubble_sort(arr):", "    "}, 2, 4),
 		Result: &openai.StreamResult{
 			Text: "    n = len(arr)", // Model includes indentation since prompt had it stripped
 		},

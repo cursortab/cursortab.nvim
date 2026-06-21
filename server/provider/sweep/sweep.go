@@ -66,9 +66,6 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		StreamingType:                 provider.StreamingLines,
 		CompleteWithTextRightOfCursor: true,
 		PrefetchAfterCursorTarget:     true,
-		Preprocessors: []provider.Preprocessor{
-			provider.TrimContent(),
-		},
 		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
 			Diagnostics: true,
 			Treesitter:  true,
@@ -77,17 +74,9 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 			EditHistory: true,
 			UserActions: true,
 		}),
-		DiffBuilder:   provider.FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n"),
-		PromptBuilder: buildPrompt,
-		BuildBatch:    buildBatch,
-		ParseBatch:    parseBatch,
-		Postprocessors: []provider.Postprocessor{
-			provider.RejectEmpty(),
-			provider.StripRepetition(),
-			provider.ValidateAnchorPosition(0.25),
-			provider.AnchorTruncation(0.75),
-			parseCompletion,
-		},
+		DiffBuilder: provider.FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n"),
+		BuildBatch:  buildBatch,
+		ParseBatch:  parseBatch,
 		Validators: []provider.Validator{
 			provider.ValidateFirstLineAnchor(0.25),
 		},
@@ -97,19 +86,6 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 
 func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
 	return buildPromptFromBatch(p, ctx, func(prefill string) {
-		ctx.Prefill = prefill
-	})
-}
-
-func buildPrompt(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
-	return buildPromptFromBatch(p, &provider.BatchContext{
-		Input:        ctx.Input,
-		TrimmedLines: ctx.TrimmedLines,
-		WindowStart:  ctx.WindowStart,
-		WindowEnd:    ctx.WindowEnd,
-		CursorLine:   ctx.CursorLine,
-		MaxLines:     ctx.MaxLines,
-	}, func(prefill string) {
 		ctx.Prefill = prefill
 	})
 }
@@ -420,19 +396,6 @@ func formatGitDiffSection(gd *types.GitDiffContext) string {
 		return ""
 	}
 	return "<|file_sep|>context/staged_diff\n" + gd.Diff
-}
-
-func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
-	return parseBatchCompletion(p, &provider.BatchContext{
-		Input:        ctx.Input,
-		TrimmedLines: ctx.TrimmedLines,
-		WindowStart:  ctx.WindowStart,
-		WindowEnd:    ctx.WindowEnd,
-		CursorLine:   ctx.CursorLine,
-		MaxLines:     ctx.MaxLines,
-		EndLineInc:   ctx.EndLineInc,
-		Prefill:      ctx.Prefill,
-	}, ctx.Result)
 }
 
 func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {

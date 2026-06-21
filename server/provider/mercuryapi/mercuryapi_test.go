@@ -14,26 +14,16 @@ import (
 	"cursortab/types"
 )
 
-func completionInputForTest(req *types.CompletionRequest) sourcectx.CompletionInput {
+func completionInputForTest(filePath string, lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
-		Trigger: req.Source,
 		Current: sourcectx.CurrentSnapshot{
-			Workspace: sourcectx.WorkspaceRef{
-				Path: req.WorkspacePath,
-				ID:   req.WorkspaceID,
-			},
 			File: sourcectx.FileSnapshot{
-				Path:    req.FilePath,
-				Lines:   req.Lines,
-				Version: req.Version,
+				Path:  filePath,
+				Lines: lines,
 			},
 			Cursor: sourcectx.CursorPosition{
-				Row: req.CursorRow,
-				Col: req.CursorCol,
-			},
-			View: sourcectx.ViewConstraints{
-				ViewportHeight:  req.ViewportHeight,
-				MaxVisibleLines: req.MaxVisibleLines,
+				Row: cursorRow,
+				Col: cursorCol,
 			},
 		},
 	}
@@ -330,14 +320,7 @@ func TestProviderGetCompletion(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	req := &types.CompletionRequest{
-		FilePath:  "test.go",
-		Lines:     []string{"func original() {}"},
-		CursorRow: 1,
-		CursorCol: 5,
-	}
-
-	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 1, len(resp.Completions), "completions count")
 	assert.Equal(t, 1, resp.Completions[0].StartLine, "start line")
@@ -366,14 +349,7 @@ func TestProviderGetCompletionUsesConfiguredModel(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	req := &types.CompletionRequest{
-		FilePath:  "test.go",
-		Lines:     []string{"func original() {}"},
-		CursorRow: 1,
-		CursorCol: 5,
-	}
-
-	_, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
+	_, err := provider.GetCompletion(context.Background(), completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
 	assert.NoError(t, err, "GetCompletion")
 }
 
@@ -392,14 +368,7 @@ func TestProviderGetCompletionEmpty(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	req := &types.CompletionRequest{
-		FilePath:  "test.go",
-		Lines:     []string{"code"},
-		CursorRow: 1,
-		CursorCol: 0,
-	}
-
-	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest("test.go", []string{"code"}, 1, 0))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 0, len(resp.Completions), "should be empty")
 }
@@ -420,14 +389,7 @@ func TestProviderGetCompletionNoOp(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	req := &types.CompletionRequest{
-		FilePath:  "test.go",
-		Lines:     []string{"unchanged"},
-		CursorRow: 1,
-		CursorCol: 0,
-	}
-
-	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest("test.go", []string{"unchanged"}, 1, 0))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 0, len(resp.Completions), "should be empty for no-op")
 }
@@ -435,14 +397,7 @@ func TestProviderGetCompletionNoOp(t *testing.T) {
 func TestProviderEmptyLines(t *testing.T) {
 	provider := NewProvider(&types.ProviderConfig{})
 
-	req := &types.CompletionRequest{
-		FilePath:  "test.go",
-		Lines:     []string{},
-		CursorRow: 1,
-		CursorCol: 0,
-	}
-
-	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest("test.go", []string{}, 1, 0))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 0, len(resp.Completions), "should be empty")
 }
@@ -568,14 +523,7 @@ func TestMultilineCompletion(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	req := &types.CompletionRequest{
-		FilePath:  "test.go",
-		Lines:     []string{"original"},
-		CursorRow: 1,
-		CursorCol: 0,
-	}
-
-	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest("test.go", []string{"original"}, 1, 0))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 1, len(resp.Completions), "completions count")
 	assert.Equal(t, 3, len(resp.Completions[0].Lines), "should have 3 lines")

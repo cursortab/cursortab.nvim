@@ -128,6 +128,14 @@ func (b *mockBuffer) DiskLines() []string {
 	return nil
 }
 
+func (b *mockBuffer) Diagnostics() *types.Diagnostics {
+	return nil
+}
+
+func (b *mockBuffer) TreesitterSymbols(row int, col int, maxSiblings int) *types.TreesitterContext {
+	return nil
+}
+
 func (b *mockBuffer) SetFileContext(ctx buffer.FileContext) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

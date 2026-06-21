@@ -409,17 +409,6 @@ func (e *Engine) recordUserAction(action *types.UserAction) {
 	e.userActions = append(e.userActions, action)
 }
 
-// getUserActionsForFile returns all tracked actions for the given file path
-func (e *Engine) getUserActionsForFile(filePath string) []*types.UserAction {
-	var result []*types.UserAction
-	for _, a := range e.userActions {
-		if a.FilePath == filePath {
-			result = append(result, a)
-		}
-	}
-	return result
-}
-
 // recordTextChangeAction classifies and records a text change action
 func (e *Engine) recordTextChangeAction() {
 	currentLines := e.buffer.Lines()

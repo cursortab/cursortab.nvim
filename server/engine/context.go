@@ -211,21 +211,3 @@ func firstN(lines []string, n int) []string {
 	}
 	return slices.Clone(lines[:n])
 }
-
-// getRecentBufferSnapshots returns up to limit recent buffer snapshots
-// excluding the current file, sorted by most recently accessed
-func (e *Engine) getRecentBufferSnapshots(excludePath string, limit int) []*types.RecentBufferSnapshot {
-	entries := e.fileStatesByRecency(func(path string, state *FileState) bool {
-		return path != excludePath && len(state.FirstLines) > 0
-	})
-
-	var result []*types.RecentBufferSnapshot
-	for i := 0; i < limit && i < len(entries); i++ {
-		result = append(result, &types.RecentBufferSnapshot{
-			FilePath:    entries[i].path,
-			Lines:       entries[i].state.FirstLines,
-			TimestampMs: entries[i].state.LastAccessNs / 1e6, // ns to ms
-		})
-	}
-	return result
-}

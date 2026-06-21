@@ -26,6 +26,8 @@ type Buffer interface {
 	OriginalLines() []string
 	DiffHistories() []*types.DiffEntry
 	DiskLines() []string
+	Diagnostics() *types.Diagnostics
+	TreesitterSymbols(row int, col int, maxSiblings int) *types.TreesitterContext
 	SetFileContext(ctx buffer.FileContext)
 	HasChanges(startLine, endLineInc int, lines []string) bool
 	PrepareCompletion(startLine, endLineInc int, lines []string, groups []*text.Group) buffer.Batch

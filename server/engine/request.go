@@ -68,24 +68,11 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	e.lastCompletionSource = source
 
-	req := &types.CompletionRequest{
-		Source:                source,
-		WorkspacePath:         e.WorkspacePath,
-		WorkspaceID:           e.WorkspaceID,
-		FilePath:              e.buffer.Path(),
-		Lines:                 e.buffer.Lines(),
-		Version:               e.buffer.Version(),
-		PreviousLines:         e.buffer.PreviousLines(),
-		OriginalLines:         e.buffer.OriginalLines(),
-		FileDiffHistories:     e.getAllFileDiffHistories(),
-		CursorRow:             e.buffer.Row(),
-		CursorCol:             e.buffer.Col(),
-		ViewportHeight:        e.getViewportHeightConstraint(),
-		MaxVisibleLines:       e.config.MaxVisibleLines,
-		AdditionalContext:     e.gatherContext(e.buffer.Path()),
-		RecentBufferSnapshots: e.getRecentBufferSnapshots(e.buffer.Path(), e.contextLimits.MaxRecentSnapshots),
-		UserActions:           e.getUserActionsForFile(e.buffer.Path()),
-	}
+	input, sourceInput := e.buildCompletionInput(completionInputOptions{
+		kind:   ctx.RequestCompletion,
+		source: source,
+	})
+	req := e.buildCompletionRequest(input, sourceInput)
 
 	// Check if provider supports streaming
 	if streamProvider, ok := e.provider.(LineStreamProvider); ok {
@@ -104,13 +91,13 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 	// Fallback to batch mode
 	e.state = statePendingCompletion
 
-	ctx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
 	e.currentCancel = cancel
 
 	go func() {
 		defer cancel()
 
-		result, err := e.provider.GetCompletion(ctx, req)
+		result, err := e.provider.GetCompletion(reqCtx, req)
 
 		if err != nil {
 			select {
@@ -165,36 +152,26 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 	// Sync buffer to ensure latest context
 	e.syncBuffer()
 
-	ctx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
 	e.prefetchCancel = cancel
 	e.prefetchState = prefetchInFlight
 
-	// Snapshot required values under the event loop's lock so the goroutine
-	// doesn't race with concurrent mutations of buffer state or fileStateStore.
-	lines := opts.Lines
-	if lines == nil {
-		lines = slices.Clone(e.buffer.Lines())
-	}
-	req := &types.CompletionRequest{
-		Source:            source,
-		WorkspacePath:     e.WorkspacePath,
-		WorkspaceID:       e.WorkspaceID,
-		FilePath:          e.buffer.Path(),
-		Lines:             lines,
-		Version:           e.buffer.Version(),
-		PreviousLines:     slices.Clone(e.buffer.PreviousLines()),
-		FileDiffHistories: e.getAllFileDiffHistories(),
-		CursorRow:         overrideRow,
-		CursorCol:         overrideCol,
-		ViewportHeight:    e.getViewportHeightConstraint(),
-		MaxVisibleLines:   e.config.MaxVisibleLines,
-		AdditionalContext: e.gatherContext(e.buffer.Path()),
-	}
+	// Build the frozen request input before the goroutine starts so it cannot
+	// race with later buffer or file-state mutations.
+	input, sourceInput := e.buildCompletionInput(completionInputOptions{
+		kind:              ctx.RequestPrefetch,
+		source:            source,
+		lines:             opts.Lines,
+		cursorRow:         overrideRow,
+		cursorCol:         overrideCol,
+		hasCursorOverride: true,
+	})
+	req := e.buildCompletionRequest(input, sourceInput)
 
 	go func() {
 		defer cancel()
 
-		result, err := e.provider.GetCompletion(ctx, req)
+		result, err := e.provider.GetCompletion(reqCtx, req)
 
 		if err != nil {
 			select {

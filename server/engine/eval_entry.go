@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	sourcectx "cursortab/ctx"
 	"cursortab/logger"
 	"cursortab/types"
 )
@@ -72,24 +73,11 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 	}
 	e.lastCompletionSource = types.CompletionSourceTyping
 
-	req := &types.CompletionRequest{
-		Source:                types.CompletionSourceTyping,
-		WorkspacePath:         e.WorkspacePath,
-		WorkspaceID:           e.WorkspaceID,
-		FilePath:              e.buffer.Path(),
-		Lines:                 e.buffer.Lines(),
-		Version:               e.buffer.Version(),
-		PreviousLines:         e.buffer.PreviousLines(),
-		OriginalLines:         e.buffer.OriginalLines(),
-		FileDiffHistories:     e.getAllFileDiffHistories(),
-		CursorRow:             e.buffer.Row(),
-		CursorCol:             e.buffer.Col(),
-		ViewportHeight:        e.getViewportHeightConstraint(),
-		MaxVisibleLines:       e.config.MaxVisibleLines,
-		AdditionalContext:     e.gatherContext(e.buffer.Path()),
-		RecentBufferSnapshots: e.getRecentBufferSnapshots(e.buffer.Path(), e.contextLimits.MaxRecentSnapshots),
-		UserActions:           e.getUserActionsForFile(e.buffer.Path()),
-	}
+	input, sourceInput := e.buildCompletionInput(completionInputOptions{
+		kind:   sourcectx.RequestEval,
+		source: types.CompletionSourceTyping,
+	})
+	req := e.buildCompletionRequest(input, sourceInput)
 
 	start := time.Now()
 	resp, err := e.provider.GetCompletion(ctx, req)

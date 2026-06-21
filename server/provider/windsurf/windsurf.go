@@ -328,7 +328,15 @@ func (p *Provider) GetContextLimits() engine.ContextLimits {
 	}
 }
 
-func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+func (p *Provider) GetCompletion(reqCtx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+	return p.getCompletion(reqCtx, currentSnapshotFromRequest(req))
+}
+
+func (p *Provider) GetCompletionInput(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+	return p.getCompletion(reqCtx, input.Current)
+}
+
+func (p *Provider) getCompletion(reqCtx context.Context, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
 	defer logger.Trace("windsurf.GetCompletion")()
 
 	info, err := p.buffer.GetWindsurfInfo()
@@ -341,44 +349,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		return p.emptyResponse(), nil
 	}
 
-	lineEnding := "\n"
-	language := resolveLanguage(req.FilePath)
-
-	absFilePath, _ := filepath.Abs(req.FilePath)
-	absWorkspacePath, _ := filepath.Abs(req.WorkspacePath)
-
-	text := strings.Join(req.Lines, lineEnding)
-	if len(req.Lines) > 0 {
-		text += lineEnding
-	}
-
-	reqID := p.nextRequestID()
-	wsReq := windsurfRequest{
-		Metadata: windsurfMetadata{
-			APIKey:           info.APIKey,
-			IDEName:          "neovim",
-			IDEVersion:       "0.10.0",
-			ExtensionName:    "neovim",
-			ExtensionVersion: "1.20.9",
-			RequestID:        reqID,
-		},
-		EditorOptions: windsurfEditorOptions{
-			TabSize:      4,
-			InsertSpaces: true,
-		},
-		Document: windsurfDocument{
-			Text:           text,
-			EditorLanguage: language,
-			Language:       LanguageEnum(language),
-			CursorPosition: windsurfPos{
-				Row: req.CursorRow - 1,
-				Col: req.CursorCol,
-			},
-			AbsoluteURI:  "file://" + absFilePath,
-			WorkspaceURI: "file://" + absWorkspacePath,
-			LineEnding:   lineEnding,
-		},
-	}
+	wsReq := buildWindsurfRequest(info, current, p.nextRequestID())
 
 	body, err := json.Marshal(wsReq)
 	if err != nil {
@@ -388,7 +359,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCompletions", info.Port)
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		logger.Error("windsurf: failed to create request: %v", err)
 		return p.emptyResponse(), nil
@@ -419,7 +390,66 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		return p.emptyResponse(), nil
 	}
 
-	return p.convertResponse(&wsResp, req)
+	return p.convertResponse(&wsResp, current)
+}
+
+func currentSnapshotFromRequest(req *types.CompletionRequest) ctx.CurrentSnapshot {
+	if req == nil {
+		return ctx.CurrentSnapshot{}
+	}
+	return ctx.CurrentSnapshot{
+		Workspace: ctx.WorkspaceRef{
+			Path: req.WorkspacePath,
+			ID:   req.WorkspaceID,
+		},
+		File: ctx.FileSnapshot{
+			Path:    req.FilePath,
+			Lines:   req.Lines,
+			Version: req.Version,
+		},
+		Cursor: ctx.CursorPosition{
+			Row: req.CursorRow,
+			Col: req.CursorCol,
+		},
+		View: ctx.ViewConstraints{
+			ViewportHeight:  req.ViewportHeight,
+			MaxVisibleLines: req.MaxVisibleLines,
+		},
+	}
+}
+
+func buildWindsurfRequest(info *buffer.WindsurfInfo, current ctx.CurrentSnapshot, reqID int) windsurfRequest {
+	lineEnding := "\n"
+	language := resolveLanguage(current.File.Path)
+	absFilePath, _ := filepath.Abs(current.File.Path)
+	absWorkspacePath, _ := filepath.Abs(current.Workspace.Path)
+
+	return windsurfRequest{
+		Metadata: windsurfMetadata{
+			APIKey:           info.APIKey,
+			IDEName:          "neovim",
+			IDEVersion:       "0.10.0",
+			ExtensionName:    "neovim",
+			ExtensionVersion: "1.20.9",
+			RequestID:        reqID,
+		},
+		EditorOptions: windsurfEditorOptions{
+			TabSize:      4,
+			InsertSpaces: true,
+		},
+		Document: windsurfDocument{
+			Text:           buildDocumentText(current.File.Lines),
+			EditorLanguage: language,
+			Language:       LanguageEnum(language),
+			CursorPosition: windsurfPos{
+				Row: current.Cursor.Row - 1,
+				Col: current.Cursor.Col,
+			},
+			AbsoluteURI:  "file://" + absFilePath,
+			WorkspaceURI: "file://" + absWorkspacePath,
+			LineEnding:   lineEnding,
+		},
+	}
 }
 
 func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
@@ -471,7 +501,7 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	resp.Body.Close()
 }
 
-func (p *Provider) convertResponse(wsResp *windsurfResponse, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+func (p *Provider) convertResponse(wsResp *windsurfResponse, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
 	if len(wsResp.CompletionItems) == 0 {
 		return p.emptyResponse(), nil
 	}
@@ -480,7 +510,7 @@ func (p *Provider) convertResponse(wsResp *windsurfResponse, req *types.Completi
 	var metricsInfo *types.MetricsInfo
 
 	for i, item := range wsResp.CompletionItems {
-		completion := p.convertSingleItem(item, req, i)
+		completion := p.convertSingleItem(item, current, i)
 		if completion != nil {
 			completions = append(completions, completion)
 			if metricsInfo == nil && item.Completion.CompletionID != "" {
@@ -501,14 +531,15 @@ func (p *Provider) convertResponse(wsResp *windsurfResponse, req *types.Completi
 	}, nil
 }
 
-func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.CompletionRequest, idx int) *types.Completion {
-	documentText := buildDocumentText(req.Lines)
+func (p *Provider) convertSingleItem(item windsurfCompletionItem, current ctx.CurrentSnapshot, idx int) *types.Completion {
+	lines := current.File.Lines
+	documentText := buildDocumentText(lines)
 	startOffset, endOffset, ok := p.resolveItemOffsets(item, idx, len(documentText))
 	if !ok {
 		return nil
 	}
 
-	startLine, endLine, ok := p.resolveReplacementLines(item, req, startOffset, endOffset, documentText, idx)
+	startLine, endLine, ok := p.resolveReplacementLines(lines, startOffset, endOffset, documentText, idx)
 	if !ok {
 		return nil
 	}
@@ -526,14 +557,14 @@ func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.Com
 	// above, so the suffix must be preserved here to avoid truncation of the
 	// line tail.
 	endCol, _ := strconv.Atoi(item.Range.EndPosition.Col)
-	if endCol > 0 && endLine >= 1 && endLine <= len(req.Lines) {
-		lastOrigLine := req.Lines[endLine-1]
+	if endCol > 0 && endLine >= 1 && endLine <= len(lines) {
+		lastOrigLine := lines[endLine-1]
 		if endCol < len(lastOrigLine) && len(newLines) > 0 {
 			newLines[len(newLines)-1] += lastOrigLine[endCol:]
 		}
 	}
 
-	origLines := req.Lines[startLine-1 : endLine]
+	origLines := lines[startLine-1 : endLine]
 	if slices.Equal(newLines, origLines) {
 		logger.Debug("windsurf: item %d is no-op", idx)
 		return nil
@@ -572,7 +603,7 @@ func (p *Provider) resolveItemOffsets(item windsurfCompletionItem, idx, document
 	return startOffset, endOffset, true
 }
 
-func (p *Provider) resolveReplacementLines(item windsurfCompletionItem, req *types.CompletionRequest, startOffset, endOffset int, documentText string, idx int) (int, int, bool) {
+func (p *Provider) resolveReplacementLines(lines []string, startOffset, endOffset int, documentText string, idx int) (int, int, bool) {
 	startLine, _ := byteOffsetToLineCol(documentText, startOffset)
 	endLine, endCol := byteOffsetToLineCol(documentText, endOffset)
 
@@ -580,26 +611,25 @@ func (p *Provider) resolveReplacementLines(item windsurfCompletionItem, req *typ
 		endLine--
 	}
 
-	if startLine < 1 || startLine > len(req.Lines)+1 {
+	if startLine < 1 || startLine > len(lines)+1 {
 		logger.Debug("windsurf: item %d start line %d out of bounds", idx, startLine)
 		return 0, 0, false
 	}
 
-	if len(req.Lines) == 0 {
+	if len(lines) == 0 {
 		return 1, 1, true
 	}
 
-	if startLine > len(req.Lines) {
-		startLine = len(req.Lines)
+	if startLine > len(lines) {
+		startLine = len(lines)
 	}
-	if endLine > len(req.Lines) {
-		endLine = len(req.Lines)
+	if endLine > len(lines) {
+		endLine = len(lines)
 	}
 	if endLine < startLine {
 		endLine = startLine
 	}
 
-	_ = item
 	return startLine, endLine, true
 }
 

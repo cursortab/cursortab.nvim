@@ -134,7 +134,15 @@ func (p *Provider) GetContextLimits() engine.ContextLimits {
 }
 
 // GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+func (p *Provider) GetCompletion(reqCtx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+	return p.getCompletion(reqCtx, currentSnapshotFromRequest(req))
+}
+
+func (p *Provider) GetCompletionInput(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+	return p.getCompletion(reqCtx, input.Current)
+}
+
+func (p *Provider) getCompletion(reqCtx context.Context, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
 	defer logger.Trace("copilot.GetCompletion")()
 
 	// Check if Copilot client is available
@@ -154,12 +162,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		return p.emptyResponse(), nil
 	}
 
-	// Build URI from file path
-	uri := "file://" + req.FilePath
-	if !strings.HasPrefix(req.FilePath, "/") {
-		// Relative path - prepend workspace
-		uri = "file://" + req.WorkspacePath + "/" + req.FilePath
-	}
+	uri := buildDocumentURI(current)
 
 	// Generate unique request ID
 	reqID := atomic.AddInt64(&p.reqIDCounter, 1)
@@ -183,7 +186,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	p.mu.Unlock()
 
 	logger.Debug("copilot request:\n  ReqID: %d\n  URI: %s\n  CursorRow: %d\n  CursorCol: %d",
-		reqID, uri, req.CursorRow, req.CursorCol)
+		reqID, uri, current.Cursor.Row, current.Cursor.Col)
 	if err := p.buffer.SendCopilotNESRequest(reqID, uri); err != nil {
 		logger.Error("failed to send NES request: %v", err)
 		return p.emptyResponse(), nil
@@ -191,7 +194,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	// Wait for response with context timeout
 	select {
-	case <-ctx.Done():
+	case <-reqCtx.Done():
 		logger.Debug("copilot: request cancelled")
 		return p.emptyResponse(), nil
 	case result := <-p.pendingResult:
@@ -201,8 +204,41 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 		}
 
 		p.logResponse(result.Edits)
-		return p.convertEdits(result.Edits, req)
+		return p.convertEdits(result.Edits, current)
 	}
+}
+
+func currentSnapshotFromRequest(req *types.CompletionRequest) ctx.CurrentSnapshot {
+	if req == nil {
+		return ctx.CurrentSnapshot{}
+	}
+	return ctx.CurrentSnapshot{
+		Workspace: ctx.WorkspaceRef{
+			Path: req.WorkspacePath,
+			ID:   req.WorkspaceID,
+		},
+		File: ctx.FileSnapshot{
+			Path:    req.FilePath,
+			Lines:   req.Lines,
+			Version: req.Version,
+		},
+		Cursor: ctx.CursorPosition{
+			Row: req.CursorRow,
+			Col: req.CursorCol,
+		},
+		View: ctx.ViewConstraints{
+			ViewportHeight:  req.ViewportHeight,
+			MaxVisibleLines: req.MaxVisibleLines,
+		},
+	}
+}
+
+func buildDocumentURI(current ctx.CurrentSnapshot) string {
+	filePath := current.File.Path
+	if strings.HasPrefix(filePath, "/") {
+		return "file://" + filePath
+	}
+	return "file://" + current.Workspace.Path + "/" + filePath
 }
 
 // HandleNESResponse is called by the RPC handler when Copilot responds
@@ -272,7 +308,7 @@ func (p *Provider) logResponse(edits []CopilotEdit) {
 
 // convertEdits transforms Copilot LSP edits to cursortab's CompletionResponse format.
 // Processes all edits and returns multiple completions for staging to handle.
-func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+func (p *Provider) convertEdits(edits []CopilotEdit, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
 	if len(edits) == 0 {
 		return p.emptyResponse(), nil
 	}
@@ -285,7 +321,7 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 			logger.Debug("copilot: edit %d has command: %s", i, edit.Command.Command)
 		}
 
-		completion := p.convertSingleEdit(edit, req, i)
+		completion := p.convertSingleEdit(edit, current, i)
 		if completion != nil {
 			completions = append(completions, completion)
 		}
@@ -303,20 +339,22 @@ func (p *Provider) convertEdits(edits []CopilotEdit, req *types.CompletionReques
 }
 
 // convertSingleEdit converts a single Copilot edit to a Completion
-func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequest, editIdx int) *types.Completion {
+func (p *Provider) convertSingleEdit(edit CopilotEdit, current ctx.CurrentSnapshot, editIdx int) *types.Completion {
+	lines := current.File.Lines
+
 	// Convert 0-indexed LSP range to 1-indexed buffer lines
 	startLine := edit.Range.Start.Line + 1
 	endLine := edit.Range.End.Line + 1
 
 	// Bounds check
-	if startLine < 1 || startLine > len(req.Lines)+1 {
+	if startLine < 1 || startLine > len(lines)+1 {
 		logger.Debug("copilot: edit %d start line %d out of bounds", editIdx, startLine)
 		return nil
 	}
 
 	// Handle case where end line is beyond buffer (insertion at end)
-	if endLine > len(req.Lines) {
-		endLine = len(req.Lines)
+	if endLine > len(lines) {
+		endLine = len(lines)
 	}
 	if endLine < startLine {
 		endLine = startLine
@@ -324,9 +362,9 @@ func (p *Provider) convertSingleEdit(edit CopilotEdit, req *types.CompletionRequ
 
 	// Get original lines being replaced (0-indexed slice)
 	var origLines []string
-	if edit.Range.Start.Line < len(req.Lines) {
-		endIdx := min(edit.Range.End.Line+1, len(req.Lines))
-		origLines = req.Lines[edit.Range.Start.Line:endIdx]
+	if edit.Range.Start.Line < len(lines) {
+		endIdx := min(edit.Range.End.Line+1, len(lines))
+		origLines = lines[edit.Range.Start.Line:endIdx]
 	}
 	if len(origLines) == 0 {
 		origLines = []string{""}

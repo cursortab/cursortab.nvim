@@ -2,9 +2,17 @@ package copilot
 
 import (
 	"cursortab/assert"
-	"cursortab/types"
+	"cursortab/ctx"
 	"testing"
 )
+
+func makeCurrent(lines []string) ctx.CurrentSnapshot {
+	return ctx.CurrentSnapshot{
+		File: ctx.FileSnapshot{
+			Lines: lines,
+		},
+	}
+}
 
 func TestApplyCharacterEdit_FullLineReplacement(t *testing.T) {
 	p := &Provider{}
@@ -218,11 +226,9 @@ func TestConvertEdits_EmptyEdits(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
-	req := &types.CompletionRequest{
-		Lines: []string{"test"},
-	}
+	current := makeCurrent([]string{"test"})
 
-	resp, err := p.convertEdits([]CopilotEdit{}, req)
+	resp, err := p.convertEdits([]CopilotEdit{}, current)
 
 	assert.NoError(t, err, "no error")
 	assert.Nil(t, resp.Completions, "no completions for empty edits")
@@ -232,10 +238,7 @@ func TestConvertEdits_SingleLineEdit(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
-	req := &types.CompletionRequest{
-		Lines:   []string{"hello"},
-		Version: 1,
-	}
+	current := makeCurrent([]string{"hello"})
 	edits := []CopilotEdit{{
 		Text: "hello world",
 		Range: CopilotRange{
@@ -245,7 +248,7 @@ func TestConvertEdits_SingleLineEdit(t *testing.T) {
 		TextDoc: CopilotDoc{Version: 1},
 	}}
 
-	resp, err := p.convertEdits(edits, req)
+	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
 	assert.Len(t, 1, resp.Completions, "one completion")
@@ -259,10 +262,7 @@ func TestConvertEdits_MultiLineEdit(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
-	req := &types.CompletionRequest{
-		Lines:   []string{"line 1", "line 2"},
-		Version: 1,
-	}
+	current := makeCurrent([]string{"line 1", "line 2"})
 	edits := []CopilotEdit{{
 		Text: "modified 1\nmodified 2\nmodified 3",
 		Range: CopilotRange{
@@ -272,7 +272,7 @@ func TestConvertEdits_MultiLineEdit(t *testing.T) {
 		TextDoc: CopilotDoc{Version: 1},
 	}}
 
-	resp, err := p.convertEdits(edits, req)
+	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
 	assert.Len(t, 1, resp.Completions, "one completion")
@@ -283,10 +283,7 @@ func TestConvertEdits_NoOpEdit(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
-	req := &types.CompletionRequest{
-		Lines:   []string{"hello"},
-		Version: 1,
-	}
+	current := makeCurrent([]string{"hello"})
 	edits := []CopilotEdit{{
 		Text: "hello", // Same content
 		Range: CopilotRange{
@@ -296,7 +293,7 @@ func TestConvertEdits_NoOpEdit(t *testing.T) {
 		TextDoc: CopilotDoc{Version: 1},
 	}}
 
-	resp, err := p.convertEdits(edits, req)
+	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
 	assert.Nil(t, resp.Completions, "no completions for no-op")
@@ -306,10 +303,7 @@ func TestConvertEdits_StartLineOutOfBounds(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
-	req := &types.CompletionRequest{
-		Lines:   []string{"hello"},
-		Version: 1,
-	}
+	current := makeCurrent([]string{"hello"})
 	edits := []CopilotEdit{{
 		Text: "new",
 		Range: CopilotRange{
@@ -319,7 +313,7 @@ func TestConvertEdits_StartLineOutOfBounds(t *testing.T) {
 		TextDoc: CopilotDoc{Version: 1},
 	}}
 
-	resp, err := p.convertEdits(edits, req)
+	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
 	assert.Nil(t, resp.Completions, "no completions for out of bounds")
@@ -329,10 +323,7 @@ func TestConvertEdits_MultipleEdits(t *testing.T) {
 	p := &Provider{
 		pendingResult: make(chan *CopilotResult, 1),
 	}
-	req := &types.CompletionRequest{
-		Lines:   []string{"line 1", "line 2", "line 3"},
-		Version: 1,
-	}
+	current := makeCurrent([]string{"line 1", "line 2", "line 3"})
 	edits := []CopilotEdit{
 		{
 			Text: "modified 1",
@@ -352,7 +343,7 @@ func TestConvertEdits_MultipleEdits(t *testing.T) {
 		},
 	}
 
-	resp, err := p.convertEdits(edits, req)
+	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
 	assert.Len(t, 2, resp.Completions, "two completions")

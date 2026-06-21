@@ -6,6 +6,7 @@ import (
 
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/text"
 	"cursortab/types"
@@ -18,15 +19,32 @@ func newTestProvider() *provider.Provider {
 	})
 }
 
+func testInputFromRequest(req *types.CompletionRequest, materials ...sourcectx.ContextMaterial) sourcectx.CompletionInput {
+	return sourcectx.CompletionInput{
+		Current: sourcectx.CurrentSnapshot{
+			File: sourcectx.FileSnapshot{
+				Path:    req.FilePath,
+				Lines:   req.Lines,
+				Version: req.Version,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: req.CursorRow,
+				Col: req.CursorCol,
+			},
+		},
+		Context: sourcectx.CollectedContext(materials),
+	}
+}
+
 func TestAssemblePrompt_EmptyBuffer(t *testing.T) {
 	p := newTestProvider()
 	req := &types.CompletionRequest{
 		FilePath: "main.go",
 		Lines:    []string{},
 	}
-	ctx := &provider.Context{Request: req, TrimmedLines: []string{}}
+	ctx := &provider.Context{Input: testInputFromRequest(req), Request: req, TrimmedLines: []string{}}
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	assert.True(t, strings.HasPrefix(prompt, fimSuffix), "starts with fim-suffix")
 	assert.True(t, strings.Contains(prompt, fimPrefix), "contains fim-prefix")
@@ -54,6 +72,7 @@ func TestAssemblePrompt_StructuralOrder(t *testing.T) {
 		CursorCol: 17,
 	}
 	ctx := &provider.Context{
+		Input:        testInputFromRequest(req),
 		Request:      req,
 		TrimmedLines: lines,
 		WindowStart:  0,
@@ -61,7 +80,7 @@ func TestAssemblePrompt_StructuralOrder(t *testing.T) {
 		CursorLine:   3,
 	}
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	// SPM order: suffix, then prefix, then middle.
 	suffixIdx := strings.Index(prompt, fimSuffix)
@@ -91,12 +110,13 @@ func TestAssemblePrompt_CursorPositionInLine(t *testing.T) {
 		CursorCol: 5, // right after "hello"
 	}
 	ctx := &provider.Context{
+		Input:        testInputFromRequest(req),
 		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   0,
 	}
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 	assert.True(t, strings.Contains(prompt, "hello"+cursorMarker+" world"),
 		"cursor marker inserted at column")
 }
@@ -116,6 +136,7 @@ func TestAssemblePrompt_SuffixContainsPostEditableLines(t *testing.T) {
 		CursorCol: 0,
 	}
 	ctx := &provider.Context{
+		Input:        testInputFromRequest(req),
 		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   10,
@@ -126,7 +147,7 @@ func TestAssemblePrompt_SuffixContainsPostEditableLines(t *testing.T) {
 	_ = end
 	assert.True(t, end < len(lines), "editable end leaves room for suffix content")
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 	afterEditable := lines[end]
 	suffixSection := prompt[strings.Index(prompt, fimSuffix)+len(fimSuffix) : strings.Index(prompt, fimPrefix)]
 	assert.True(t, strings.Contains(suffixSection, afterEditable),
@@ -438,27 +459,28 @@ func TestParseCompletion_ReplacesEditableRegion(t *testing.T) {
 func TestAssemblePrompt_WithEditHistory(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"x", "y", "z"}
+	editHistory := []*types.FileDiffHistory{
+		{
+			FileName: "main.go",
+			DiffHistory: []*types.DiffEntry{
+				{Original: "old", Updated: "new", TimestampNs: 1},
+			},
+		},
+	}
 	req := &types.CompletionRequest{
 		FilePath:  "main.go",
 		Lines:     lines,
 		CursorRow: 2,
 		CursorCol: 1,
-		FileDiffHistories: []*types.FileDiffHistory{
-			{
-				FileName: "main.go",
-				DiffHistory: []*types.DiffEntry{
-					{Original: "old", Updated: "new", TimestampNs: 1},
-				},
-			},
-		},
 	}
 	ctx := &provider.Context{
+		Input:        testInputFromRequest(req, sourcectx.EditHistory{Files: editHistory}),
 		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   1,
 	}
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 	assert.True(t, strings.Contains(prompt, fileMarker+"edit_history\n"),
 		"edit_history section present")
 	assert.True(t, strings.Contains(prompt, "--- a/main.go\n"), "unified diff header")
@@ -728,42 +750,47 @@ func TestParseCompletion_NoCursorTargetWhenMarkerAbsent(t *testing.T) {
 func TestAssemblePrompt_ContextOrderingAndCoexistence(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"package main", "", "func main() {}"}
+	recentFiles := []*types.RecentBufferSnapshot{
+		{FilePath: "helper.go", Lines: []string{"package main", "func help() {}"}},
+	}
+	diagnostics := &types.Diagnostics{
+		Items: []*types.Diagnostic{
+			{Severity: types.SeverityError, Message: "oops", Source: "gopls", Range: &types.CursorRange{StartLine: 3}},
+		},
+	}
+	treesitter := &types.TreesitterContext{
+		EnclosingSignature: "func main()",
+		Imports:            []string{"import \"fmt\""},
+	}
+	gitDiff := &types.GitDiffContext{Diff: "some diff"}
+	editHistory := []*types.FileDiffHistory{
+		{
+			FileName: "main.go",
+			DiffHistory: []*types.DiffEntry{
+				{Original: "old", Updated: "new", TimestampNs: 1},
+			},
+		},
+	}
 	req := &types.CompletionRequest{
 		FilePath:  "main.go",
 		Lines:     lines,
 		CursorRow: 3,
 		CursorCol: 13,
-		RecentBufferSnapshots: []*types.RecentBufferSnapshot{
-			{FilePath: "helper.go", Lines: []string{"package main", "func help() {}"}},
-		},
-		AdditionalContext: &types.ContextResult{
-			Diagnostics: &types.Diagnostics{
-				Items: []*types.Diagnostic{
-					{Severity: types.SeverityError, Message: "oops", Source: "gopls", Range: &types.CursorRange{StartLine: 3}},
-				},
-			},
-			Treesitter: &types.TreesitterContext{
-				EnclosingSignature: "func main()",
-				Imports:            []string{"import \"fmt\""},
-			},
-			GitDiff: &types.GitDiffContext{Diff: "some diff"},
-		},
-		FileDiffHistories: []*types.FileDiffHistory{
-			{
-				FileName: "main.go",
-				DiffHistory: []*types.DiffEntry{
-					{Original: "old", Updated: "new", TimestampNs: 1},
-				},
-			},
-		},
 	}
 	ctx := &provider.Context{
+		Input: testInputFromRequest(req,
+			sourcectx.RecentFiles{Files: recentFiles},
+			sourcectx.Diagnostics{Data: diagnostics},
+			sourcectx.Treesitter{Data: treesitter},
+			sourcectx.GitDiff{Data: gitDiff},
+			sourcectx.EditHistory{Files: editHistory},
+		),
 		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   2,
 	}
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	// Every context section present.
 	assert.True(t, strings.Contains(prompt, fileMarker+"helper.go\n"), "recent file present")

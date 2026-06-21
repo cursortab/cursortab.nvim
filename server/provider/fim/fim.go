@@ -37,6 +37,7 @@ import (
 	"strings"
 
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 )
@@ -64,6 +65,13 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	}
 
 	if config.FIMTokens != nil && config.FIMTokens.FileSep != "" {
+		p.BuildContextRequirements = provider.Materials(provider.MaterialOptions{
+			Diagnostics: true,
+			Treesitter:  true,
+			GitDiff:     true,
+			RecentFiles: true,
+			EditHistory: true,
+		})
 		p.DiffBuilder = provider.FormatDiffHistory(provider.DiffHistoryOptions{
 			HeaderTemplate: config.FIMTokens.FileSep + "%s.diff\n",
 			Prefix:         "",
@@ -85,7 +93,7 @@ func setStreamContext() provider.Preprocessor {
 		}
 
 		currentLine := ctx.TrimmedLines[ctx.CursorLine]
-		cursorCol := min(ctx.Request.CursorCol, len(currentLine))
+		cursorCol := min(ctx.Input.Current.Cursor.Col, len(currentLine))
 
 		ctx.StreamOldLines = ctx.TrimmedLines[ctx.CursorLine:]
 		ctx.StreamBaseOff = ctx.WindowStart + ctx.CursorLine
@@ -108,7 +116,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 
 		if ctx.CursorLine < len(ctx.TrimmedLines) {
 			currentLine := ctx.TrimmedLines[ctx.CursorLine]
-			cursorCol := min(ctx.Request.CursorCol, len(currentLine))
+			cursorCol := min(ctx.Input.Current.Cursor.Col, len(currentLine))
 			prefixContent.WriteString(currentLine[:cursorCol])
 			suffixContent.WriteString(currentLine[cursorCol:])
 		}
@@ -168,12 +176,13 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 
 // buildRepoContext prepends cross-file context using repo-level FIM tokens.
 func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Context) {
-	req := ctx.Request
+	input := ctx.Input
+	current := input.Current
 	fileSep := p.Config.FIMTokens.FileSep
 	repoName := p.Config.FIMTokens.RepoName
 
 	// Repo name header
-	workspace := filepath.Base(req.WorkspacePath)
+	workspace := filepath.Base(current.Workspace.Path)
 	if workspace == "" || workspace == "." {
 		workspace = "repo"
 	}
@@ -182,23 +191,28 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Co
 	b.WriteString("\n")
 
 	// Recent files
-	for _, snap := range req.RecentBufferSnapshots {
-		b.WriteString(fileSep)
-		b.WriteString(snap.FilePath)
-		b.WriteString("\n")
-		b.WriteString(strings.Join(snap.Lines, "\n"))
-		b.WriteString("\n")
+	if recent, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+		for _, snap := range recent.Files {
+			b.WriteString(fileSep)
+			b.WriteString(snap.FilePath)
+			b.WriteString("\n")
+			b.WriteString(strings.Join(snap.Lines, "\n"))
+			b.WriteString("\n")
+		}
 	}
 
 	// Diagnostics
-	if diagText := provider.FormatDiagnosticsText(req.GetDiagnostics()); diagText != "" {
-		b.WriteString(fileSep)
-		b.WriteString("context/diagnostics\n")
-		b.WriteString(diagText)
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+		if diagText := provider.FormatDiagnosticsText(diagnostics.Data); diagText != "" {
+			b.WriteString(fileSep)
+			b.WriteString("context/diagnostics\n")
+			b.WriteString(diagText)
+		}
 	}
 
 	// Treesitter context
-	if ts := req.GetTreesitter(); ts != nil {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok && treesitter.Data != nil {
+		ts := treesitter.Data
 		hasContent := ts.EnclosingSignature != "" || len(ts.Siblings) > 0 || len(ts.Imports) > 0
 		if hasContent {
 			b.WriteString(fileSep)
@@ -216,23 +230,23 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Co
 	}
 
 	// Diff history
-	if p.DiffBuilder != nil {
-		if diffSection := p.DiffBuilder(req.FileDiffHistories); diffSection != "" {
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
+		if diffSection := p.DiffBuilder(editHistory.Files); diffSection != "" {
 			b.WriteString(diffSection)
 		}
 	}
 
 	// Git diff (staged changes)
-	if gd := req.GetGitDiff(); gd != nil && gd.Diff != "" {
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok && gitDiff.Data != nil && gitDiff.Data.Diff != "" {
 		b.WriteString(fileSep)
 		b.WriteString("context/staged_diff\n")
-		b.WriteString(gd.Diff)
+		b.WriteString(gitDiff.Data.Diff)
 		b.WriteString("\n")
 	}
 
 	// Current file header
 	b.WriteString(fileSep)
-	b.WriteString(req.FilePath)
+	b.WriteString(current.File.Path)
 	b.WriteString("\n")
 }
 

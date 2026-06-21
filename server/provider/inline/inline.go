@@ -63,7 +63,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 
 	if ctx.CursorLine < len(ctx.TrimmedLines) {
 		currentLine := ctx.TrimmedLines[ctx.CursorLine]
-		cursorCol := ctx.Request.CursorCol
+		cursorCol := ctx.Input.Current.Cursor.Col
 		var prefix string
 		if cursorCol <= len(currentLine) {
 			prefix = currentLine[:cursorCol]

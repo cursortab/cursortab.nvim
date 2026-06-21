@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -155,7 +154,7 @@ func TestBuildFileContextSnapshot_DoesNotProcessOrTrimDiffHistory(t *testing.T) 
 	assert.Equal(t, "other", snapshot.CurrentFile.DiffHistories[1].Original, "second raw entry retained")
 }
 
-func TestBuildCompletionRequest_UsesSharedSnapshotBridge(t *testing.T) {
+func TestBuildCompletionRequest_LeavesPublicContextOutOfRequest(t *testing.T) {
 	buf := newMockBuffer()
 	buf.path = "current.go"
 	buf.previousLines = []string{"previous"}
@@ -179,11 +178,11 @@ func TestBuildCompletionRequest_UsesSharedSnapshotBridge(t *testing.T) {
 		{ActionType: types.ActionDeleteChar, FilePath: "other.go", LineNumber: 2},
 	}
 
-	input, sourceInput := eng.buildCompletionInput(completionInputOptions{
+	input, _ := eng.buildCompletionInput(completionInputOptions{
 		kind:   ctx.RequestCompletion,
 		source: types.CompletionSourceTyping,
 	})
-	req := eng.buildCompletionRequest(input, sourceInput)
+	req := eng.buildCompletionRequest(input)
 
 	assert.Equal(t, input.Trigger, req.Source, "request source")
 	assert.Equal(t, input.Current.File.Path, req.FilePath, "request file path")
@@ -191,16 +190,12 @@ func TestBuildCompletionRequest_UsesSharedSnapshotBridge(t *testing.T) {
 	assert.Equal(t, input.Current.Cursor.Col, req.CursorCol, "request col")
 	assert.Equal(t, []string{"previous"}, req.PreviousLines, "legacy previous lines")
 	assert.Equal(t, []string{"original"}, req.OriginalLines, "legacy original lines")
-	assert.Len(t, 1, req.RecentBufferSnapshots, "legacy recent snapshots")
-	assert.Equal(t, []string{"recent"}, req.RecentBufferSnapshots[0].Lines, "legacy recent lines from snapshot")
-	assert.Len(t, 1, req.UserActions, "legacy user actions filtered to current file")
-	assert.Equal(t, "current.go", req.UserActions[0].FilePath, "legacy user action file")
+	assert.Nil(t, req.AdditionalContext, "request no longer carries gathered context")
+	assert.Nil(t, req.RecentBufferSnapshots, "request no longer carries recent files")
+	assert.Nil(t, req.UserActions, "request no longer carries user actions")
+	assert.Nil(t, req.FileDiffHistories, "request no longer carries edit history")
 	assert.Equal(t, []string{"line 1", "line 2", "line 3"}, req.Lines, "request lines")
 
 	req.Lines[0] = "mutated request"
 	assert.Equal(t, []string{"line 1", "line 2", "line 3"}, input.Current.File.Lines, "request bridge clones lines")
-	assert.True(t, len(req.FileDiffHistories) >= 1, "legacy diff history remains populated")
-	assert.True(t, slices.ContainsFunc(req.FileDiffHistories, func(history *types.FileDiffHistory) bool {
-		return history.FileName == "current.go"
-	}), "legacy current diff history")
 }

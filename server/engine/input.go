@@ -3,10 +3,8 @@ package engine
 import (
 	"slices"
 
-	"cursortab/buffer"
 	"cursortab/ctx"
 	"cursortab/types"
-	"cursortab/utils"
 )
 
 type completionInputOptions struct {
@@ -96,92 +94,22 @@ func buildContextSourceInput(current ctx.CurrentSnapshot, snapshot ctx.FileConte
 	}
 }
 
-func (e *Engine) buildCompletionRequest(input ctx.CompletionInput, sourceInput ctx.ContextSourceInput) *types.CompletionRequest {
+func (e *Engine) buildCompletionRequest(input ctx.CompletionInput) *types.CompletionRequest {
 	current := input.Current
-	snapshot := sourceInput.Snapshot
 	return &types.CompletionRequest{
-		Source:                input.Trigger,
-		WorkspacePath:         current.Workspace.Path,
-		WorkspaceID:           current.Workspace.ID,
-		FilePath:              current.File.Path,
-		Lines:                 slices.Clone(current.File.Lines),
-		Version:               current.File.Version,
-		PreviousLines:         slices.Clone(e.buffer.PreviousLines()),
-		OriginalLines:         slices.Clone(e.buffer.OriginalLines()),
-		FileDiffHistories:     legacyFileDiffHistories(snapshot, e.config.MaxDiffTokens),
-		CursorRow:             current.Cursor.Row,
-		CursorCol:             current.Cursor.Col,
-		ViewportHeight:        current.View.ViewportHeight,
-		MaxVisibleLines:       current.View.MaxVisibleLines,
-		AdditionalContext:     e.gatherContext(current.File.Path),
-		RecentBufferSnapshots: legacyRecentBufferSnapshots(snapshot, e.contextLimits.MaxRecentSnapshots),
-		UserActions:           legacyUserActionsForFile(snapshot, current.File.Path),
+		Source:          input.Trigger,
+		WorkspacePath:   current.Workspace.Path,
+		WorkspaceID:     current.Workspace.ID,
+		FilePath:        current.File.Path,
+		Lines:           slices.Clone(current.File.Lines),
+		Version:         current.File.Version,
+		PreviousLines:   slices.Clone(e.buffer.PreviousLines()),
+		OriginalLines:   slices.Clone(e.buffer.OriginalLines()),
+		CursorRow:       current.Cursor.Row,
+		CursorCol:       current.Cursor.Col,
+		ViewportHeight:  current.View.ViewportHeight,
+		MaxVisibleLines: current.View.MaxVisibleLines,
 	}
-}
-
-func legacyFileDiffHistories(snapshot ctx.FileContextSnapshot, maxDiffTokens int) []*types.FileDiffHistory {
-	var result []*types.FileDiffHistory
-	for i := len(snapshot.RecentFiles) - 1; i >= 0; i-- {
-		file := snapshot.RecentFiles[i]
-		if len(file.DiffHistories) == 0 {
-			continue
-		}
-		diffs := buffer.ProcessDiffHistory(cloneDiffEntries(file.DiffHistories), snapshot.NowNs)
-		if len(diffs) > 0 {
-			result = append(result, &types.FileDiffHistory{
-				FileName:    file.Path,
-				DiffHistory: diffs,
-			})
-		}
-	}
-	if snapshot.CurrentFile.Path != "" && len(snapshot.CurrentFile.DiffHistories) > 0 {
-		diffs := buffer.ProcessDiffHistory(cloneDiffEntries(snapshot.CurrentFile.DiffHistories), snapshot.NowNs)
-		if maxDiffTokens > 0 {
-			diffs = utils.TrimDiffEntries(diffs, maxDiffTokens)
-		}
-		if len(diffs) > 0 {
-			result = append(result, &types.FileDiffHistory{
-				FileName:    snapshot.CurrentFile.Path,
-				DiffHistory: diffs,
-			})
-		}
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
-
-func legacyRecentBufferSnapshots(snapshot ctx.FileContextSnapshot, limit int) []*types.RecentBufferSnapshot {
-	if limit < 0 {
-		return nil
-	}
-	var result []*types.RecentBufferSnapshot
-	for _, file := range snapshot.RecentFiles {
-		if len(result) >= limit {
-			break
-		}
-		if len(file.FirstLines) == 0 {
-			continue
-		}
-		result = append(result, &types.RecentBufferSnapshot{
-			FilePath:    file.Path,
-			Lines:       slices.Clone(file.FirstLines),
-			TimestampMs: file.LastAccessNs / 1e6,
-		})
-	}
-	return result
-}
-
-func legacyUserActionsForFile(snapshot ctx.FileContextSnapshot, filePath string) []*types.UserAction {
-	var result []*types.UserAction
-	for _, action := range snapshot.UserActions {
-		if action != nil && action.FilePath == filePath {
-			clone := *action
-			result = append(result, &clone)
-		}
-	}
-	return result
 }
 
 func cloneDiffEntries(entries []*types.DiffEntry) []*types.DiffEntry {

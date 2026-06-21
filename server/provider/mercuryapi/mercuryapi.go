@@ -58,7 +58,7 @@ import (
 	"strings"
 
 	"cursortab/client/mercuryapi"
-	"cursortab/ctx"
+	sourcectx "cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
@@ -111,8 +111,21 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 	}
 }
 
-func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
-	return nil
+func (p *Provider) ContextRequirements(_ sourcectx.RequestKind) sourcectx.ContextRequirements {
+	limits := p.GetContextLimits()
+	return sourcectx.ContextRequirements{
+		sourcectx.Diagnostics{},
+		sourcectx.Treesitter{MaxSiblings: limits.MaxSiblings},
+		sourcectx.GitDiff{
+			MaxBytes:          limits.MaxDiffBytes,
+			MaxChangedSymbols: limits.MaxChangedSymbols,
+		},
+		sourcectx.RecentFiles{
+			Limit:      limits.MaxRecentSnapshots,
+			FirstLines: limits.FileChunkLines,
+		},
+		sourcectx.EditHistory{},
+	}
 }
 
 // GetContextLimits implements engine.Provider
@@ -156,31 +169,58 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 
 // GetCompletion implements engine.Provider
 func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	defer logger.Trace("mercuryapi.GetCompletion")()
+	return p.GetCompletionInput(ctx, completionInputFromRequest(req))
+}
 
-	if len(req.Lines) == 0 {
+func (p *Provider) GetCompletionInput(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
+	defer logger.Trace("mercuryapi.GetCompletion")()
+	current := input.Current
+	lines := current.File.Lines
+
+	if len(lines) == 0 {
 		return &types.CompletionResponse{}, nil
 	}
 
 	// Calculate editable and context regions
 	var syntaxRanges []*types.LineRange
-	if ts := req.GetTreesitter(); ts != nil {
-		syntaxRanges = ts.SyntaxRanges
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok && treesitter.Data != nil {
+		syntaxRanges = treesitter.Data.SyntaxRanges
 	}
-	editableStart, editableEnd, contextStart, contextEnd := computeRegions(req.Lines, req.CursorRow, syntaxRanges)
+	editableStart, editableEnd, contextStart, contextEnd := computeRegions(lines, current.Cursor.Row, syntaxRanges)
+
+	var diffHistories []*types.FileDiffHistory
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok {
+		diffHistories = editHistory.Files
+	}
+	var recentSnapshots []*types.RecentBufferSnapshot
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+		recentSnapshots = recentFiles.Files
+	}
+	var diagnostics *types.Diagnostics
+	if diagnosticsMaterial, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+		diagnostics = diagnosticsMaterial.Data
+	}
+	var treesitter *types.TreesitterContext
+	if treesitterMaterial, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+		treesitter = treesitterMaterial.Data
+	}
+	var gitDiff *types.GitDiffContext
+	if gitDiffMaterial, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+		gitDiff = gitDiffMaterial.Data
+	}
 
 	// Build the prompt
 	prompt := buildPrompt(
-		req.FilePath,
-		req.Lines,
+		current.File.Path,
+		lines,
 		editableStart, editableEnd,
 		contextStart, contextEnd,
-		req.CursorRow, req.CursorCol,
-		req.FileDiffHistories,
-		req.RecentBufferSnapshots,
-		req.GetDiagnostics(),
-		req.GetTreesitter(),
-		req.GetGitDiff(),
+		current.Cursor.Row, current.Cursor.Col,
+		diffHistories,
+		recentSnapshots,
+		diagnostics,
+		treesitter,
+		gitDiff,
 	)
 
 	// Build API request
@@ -214,7 +254,7 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 
 	newLines := strings.Split(completionText, "\n")
 
-	originalEditable := req.Lines[editableStart-1 : editableEnd]
+	originalEditable := lines[editableStart-1 : editableEnd]
 	if slices.Equal(newLines, originalEditable) {
 		return &types.CompletionResponse{}, nil
 	}
@@ -234,6 +274,34 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 			Deletions: deletions,
 		},
 	}, nil
+}
+
+func completionInputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
+	if req == nil {
+		return sourcectx.CompletionInput{}
+	}
+	return sourcectx.CompletionInput{
+		Trigger: req.Source,
+		Current: sourcectx.CurrentSnapshot{
+			Workspace: sourcectx.WorkspaceRef{
+				Path: req.WorkspacePath,
+				ID:   req.WorkspaceID,
+			},
+			File: sourcectx.FileSnapshot{
+				Path:    req.FilePath,
+				Lines:   req.Lines,
+				Version: req.Version,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: req.CursorRow,
+				Col: req.CursorCol,
+			},
+			View: sourcectx.ViewConstraints{
+				ViewportHeight:  req.ViewportHeight,
+				MaxVisibleLines: req.MaxVisibleLines,
+			},
+		},
+	}
 }
 
 func (p *Provider) logRequest(req *mercuryapi.Request, editableStart, editableEnd, contextStart, contextEnd int) {

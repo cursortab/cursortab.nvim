@@ -3,6 +3,7 @@ package sweep
 import (
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 	"strings"
@@ -16,9 +17,10 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			FilePath: "main.go",
-			Lines:    []string{},
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{}},
+			},
 		},
 		TrimmedLines: []string{},
 	}
@@ -37,9 +39,10 @@ func TestBuildPrompt_WithContent(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			FilePath: "main.go",
-			Lines:    []string{"line 1", "line 2"},
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"line 1", "line 2"}},
+			},
 		},
 		TrimmedLines: []string{"line 1", "line 2"},
 		WindowStart:  0,
@@ -58,16 +61,19 @@ func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			FilePath: "main.go",
-			Lines:    []string{"line 1"},
-			FileDiffHistories: []*types.FileDiffHistory{
-				{
-					FileName: "other.go",
-					DiffHistory: []*types.DiffEntry{
-						{Original: "old code", Updated: "new code"},
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"line 1"}},
+			},
+			Context: sourcectx.CollectedContext{
+				sourcectx.EditHistory{Files: []*types.FileDiffHistory{
+					{
+						FileName: "other.go",
+						DiffHistory: []*types.DiffEntry{
+							{Original: "old code", Updated: "new code"},
+						},
 					},
-				},
+				}},
 			},
 		},
 		TrimmedLines: []string{"line 1"},

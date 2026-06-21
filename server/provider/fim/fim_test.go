@@ -3,6 +3,7 @@ package fim
 import (
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 	"strings"
@@ -35,6 +36,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
+		Input:        sourcectx.CompletionInput{},
 		Request:      &types.CompletionRequest{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
@@ -57,8 +59,10 @@ func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 5,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 5},
+			},
 		},
 		TrimmedLines: []string{"hello world"},
 		CursorLine:   0,
@@ -83,8 +87,10 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 4,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 4},
+			},
 		},
 		TrimmedLines: []string{"line 1", "line 2", "line 3"},
 		CursorLine:   1,
@@ -111,8 +117,10 @@ func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 100, // Beyond line length
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 100}, // Beyond line length
+			},
 		},
 		TrimmedLines: []string{"short"},
 		CursorLine:   0,
@@ -189,24 +197,26 @@ func TestBuildPrompt_RepoContext(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			WorkspacePath: "/home/user/myproject",
-			FilePath:      "main.go",
-			CursorCol:     5,
-			RecentBufferSnapshots: []*types.RecentBufferSnapshot{
-				{FilePath: "utils.go", Lines: []string{"package main", "", "func helper() {}"}},
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Workspace: sourcectx.WorkspaceRef{Path: "/home/user/myproject"},
+				File:      sourcectx.FileSnapshot{Path: "main.go"},
+				Cursor:    sourcectx.CursorPosition{Col: 5},
 			},
-			AdditionalContext: &types.ContextResult{
-				Diagnostics: &types.Diagnostics{
+			Context: sourcectx.CollectedContext{
+				sourcectx.RecentFiles{Files: []*types.RecentBufferSnapshot{
+					{FilePath: "utils.go", Lines: []string{"package main", "", "func helper() {}"}},
+				}},
+				sourcectx.Diagnostics{Data: &types.Diagnostics{
 					Items: []*types.Diagnostic{
 						{Message: "undefined: foo", Severity: types.SeverityError, Source: "gopls", Range: &types.CursorRange{StartLine: 10}},
 					},
-				},
-				Treesitter: &types.TreesitterContext{
+				}},
+				sourcectx.Treesitter{Data: &types.TreesitterContext{
 					EnclosingSignature: "func main()",
 					Siblings:           []*types.TreesitterSymbol{{Signature: "func helper()", Line: 5}},
 					Imports:            []string{"import \"fmt\""},
-				},
+				}},
 			},
 		},
 		TrimmedLines: []string{"hello world"},
@@ -238,12 +248,11 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			WorkspacePath: "/home/user/myproject",
-			FilePath:      "main.go",
-			CursorCol:     5,
-			RecentBufferSnapshots: []*types.RecentBufferSnapshot{
-				{FilePath: "utils.go", Lines: []string{"package main"}},
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Workspace: sourcectx.WorkspaceRef{Path: "/home/user/myproject"},
+				File:      sourcectx.FileSnapshot{Path: "main.go"},
+				Cursor:    sourcectx.CursorPosition{Col: 5},
 			},
 		},
 		TrimmedLines: []string{"hello world"},
@@ -271,9 +280,11 @@ func TestBuildPrompt_RepoContextStopTokens(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			FilePath:  "main.go",
-			CursorCol: 5,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File:   sourcectx.FileSnapshot{Path: "main.go"},
+				Cursor: sourcectx.CursorPosition{Col: 5},
+			},
 		},
 		TrimmedLines: []string{"hello world"},
 		CursorLine:   0,
@@ -302,6 +313,7 @@ func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
+		Input:        sourcectx.CompletionInput{},
 		Request:      &types.CompletionRequest{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
@@ -322,8 +334,10 @@ func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 5,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 5},
+			},
 		},
 		TrimmedLines: []string{"hello world"},
 		CursorLine:   0,
@@ -344,8 +358,10 @@ func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 4,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 4},
+			},
 		},
 		TrimmedLines: []string{"line 1", "line 2", "line 3"},
 		CursorLine:   1,
@@ -366,8 +382,10 @@ func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 100,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 100},
+			},
 		},
 		TrimmedLines: []string{"short"},
 		CursorLine:   0,

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"cursortab/client/openai"
+	"cursortab/ctx"
 	"cursortab/logger"
 	"cursortab/text"
 	"cursortab/types"
@@ -161,34 +162,35 @@ func DiffEntryToUnifiedDiff(entry *types.DiffEntry) string {
 
 // TrimContent returns a preprocessor that trims content around the cursor
 func TrimContent() Preprocessor {
-	return func(p *Provider, ctx *Context) error {
-		cursorLine := ctx.Request.CursorRow - 1
+	return func(p *Provider, pctx *Context) error {
+		current := pctx.Input.Current
+		cursorLine := current.Cursor.Row - 1
 		var syntaxRanges []*types.LineRange
-		if ts := ctx.Request.GetTreesitter(); ts != nil {
-			syntaxRanges = ts.SyntaxRanges
+		if material, ok := ctx.Find[ctx.Treesitter](pctx.Input.Context); ok && material.Data != nil {
+			syntaxRanges = material.Data.SyntaxRanges
 		}
 		contextSize := p.Config.ProviderContextSize
 		if contextSize == 0 {
 			contextSize = p.Config.ProviderMaxTokens
 		}
 		trimmedLines, newCursorLine, _, trimOffset, didTrim := utils.TrimContentAroundCursor(
-			ctx.Request.Lines,
+			current.File.Lines,
 			cursorLine,
-			ctx.Request.CursorCol,
+			current.Cursor.Col,
 			contextSize,
 			syntaxRanges,
 		)
-		ctx.TrimmedLines = trimmedLines
-		ctx.CursorLine = newCursorLine
-		ctx.WindowStart = trimOffset
-		ctx.WindowEnd = trimOffset + len(trimmedLines)
+		pctx.TrimmedLines = trimmedLines
+		pctx.CursorLine = newCursorLine
+		pctx.WindowStart = trimOffset
+		pctx.WindowEnd = trimOffset + len(trimmedLines)
 
 		if didTrim {
-			ctx.MaxLines = len(trimmedLines)
+			pctx.MaxLines = len(trimmedLines)
 		}
-		if ctx.Request.ViewportHeight > 0 {
-			if ctx.MaxLines == 0 || ctx.Request.ViewportHeight < ctx.MaxLines {
-				ctx.MaxLines = ctx.Request.ViewportHeight
+		if current.View.ViewportHeight > 0 {
+			if pctx.MaxLines == 0 || current.View.ViewportHeight < pctx.MaxLines {
+				pctx.MaxLines = current.View.ViewportHeight
 			}
 		}
 		return nil
@@ -197,11 +199,11 @@ func TrimContent() Preprocessor {
 
 // SkipIfTextAfterCursor returns a preprocessor that skips if there's text after cursor
 func SkipIfTextAfterCursor() Preprocessor {
-	return func(p *Provider, ctx *Context) error {
-		req := ctx.Request
-		if req.CursorRow >= 1 && req.CursorRow <= len(req.Lines) {
-			currentLine := req.Lines[req.CursorRow-1]
-			if req.CursorCol < len(currentLine) {
+	return func(p *Provider, pctx *Context) error {
+		current := pctx.Input.Current
+		if current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
+			currentLine := current.File.Lines[current.Cursor.Row-1]
+			if current.Cursor.Col < len(currentLine) {
 				logger.Debug("%s: skipping, text after cursor", p.Name)
 				return ErrSkipCompletion
 			}

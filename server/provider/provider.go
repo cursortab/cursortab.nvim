@@ -49,6 +49,7 @@ type DiffHistoryBuilder func(history []*types.FileDiffHistory) string
 
 // Context carries data through the completion pipeline
 type Context struct {
+	Input        ctx.CompletionInput
 	Request      *types.CompletionRequest
 	TrimmedLines []string
 	WindowStart  int    // 0-indexed
@@ -170,7 +171,44 @@ type Provider struct {
 	Validators                    []Validator        // Validators run on first line during streaming
 	StopTokens                    []string           // Stop tokens for streaming (provider-specific)
 	DiffBuilder                   DiffHistoryBuilder // Processes diff history for the prompt
+	BuildContextRequirements      ContextRequirementsBuilder
 	ContextLimits                 engine.ContextLimits
+}
+
+type ContextRequirementsBuilder func(kind ctx.RequestKind) ctx.ContextRequirements
+
+type MaterialOptions struct {
+	Diagnostics bool
+	Treesitter  bool
+	GitDiff     bool
+	RecentFiles bool
+	EditHistory bool
+	UserActions bool
+}
+
+func Materials(opts MaterialOptions) ContextRequirementsBuilder {
+	return func(_ ctx.RequestKind) ctx.ContextRequirements {
+		var requirements ctx.ContextRequirements
+		if opts.Diagnostics {
+			requirements = append(requirements, ctx.Diagnostics{})
+		}
+		if opts.Treesitter {
+			requirements = append(requirements, ctx.Treesitter{})
+		}
+		if opts.GitDiff {
+			requirements = append(requirements, ctx.GitDiff{})
+		}
+		if opts.RecentFiles {
+			requirements = append(requirements, ctx.RecentFiles{})
+		}
+		if opts.EditHistory {
+			requirements = append(requirements, ctx.EditHistory{})
+		}
+		if opts.UserActions {
+			requirements = append(requirements, ctx.UserActions{})
+		}
+		return requirements
+	}
 }
 
 func (p *Provider) CanDo() engine.ProviderCanDo {
@@ -180,8 +218,11 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 	}
 }
 
-func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
-	return nil
+func (p *Provider) ContextRequirements(kind ctx.RequestKind) ctx.ContextRequirements {
+	if p.BuildContextRequirements == nil {
+		return nil
+	}
+	return p.BuildContextRequirements(kind)
 }
 
 // GetContextLimits implements engine.Provider
@@ -199,8 +240,15 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 
 // GetCompletion implements engine.Provider
 func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+	return p.GetCompletionInput(ctx, completionInputFromRequest(req))
+}
+
+func (p *Provider) GetCompletionInput(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	defer logger.Trace("Provider.GetCompletion")()
-	pctx := &Context{Request: req}
+	pctx := &Context{
+		Input:   input,
+		Request: completionRequestFromInput(input),
+	}
 
 	for _, pre := range p.Preprocessors {
 		if err := pre(p, pctx); err != nil {
@@ -250,8 +298,11 @@ func (p *Provider) EmptyResponse() *types.CompletionResponse {
 // BuildCompletion creates a completion response, returning empty if it's a no-op.
 // startLine and endLineInc are 1-indexed.
 func (p *Provider) BuildCompletion(ctx *Context, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
-	req := ctx.Request
-	if endLineInc <= len(req.Lines) && IsNoOpReplacement(lines, req.Lines[startLine-1:endLineInc]) {
+	currentLines := ctx.Input.Current.File.Lines
+	if currentLines == nil && ctx.Request != nil {
+		currentLines = ctx.Request.Lines
+	}
+	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
 		return p.EmptyResponse(), true
 	}
 
@@ -297,7 +348,14 @@ func (p *Provider) GetStreamingType() engine.StreamingType {
 // prepareStream runs preprocessors and builds the prompt, returning the
 // completion request and provider context ready to be passed to the client.
 func (p *Provider) prepareStream(req *types.CompletionRequest) (*openai.CompletionRequest, *Context, error) {
-	pctx := &Context{Request: req}
+	return p.prepareStreamInput(completionInputFromRequest(req))
+}
+
+func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *Context, error) {
+	pctx := &Context{
+		Input:   input,
+		Request: completionRequestFromInput(input),
+	}
 
 	for _, pre := range p.Preprocessors {
 		if err := pre(p, pctx); err != nil {
@@ -342,6 +400,16 @@ func (p *Provider) PrepareLineStream(ctx context.Context, req *types.CompletionR
 	return p.Client.DoLineStream(ctx, completionReq, pctx.MaxLines, p.StopTokens), pctx, nil
 }
 
+func (p *Provider) PrepareLineStreamInput(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, any, error) {
+	defer logger.Trace("Provider.PrepareLineStream")()
+	completionReq, pctx, err := p.prepareStreamInput(input)
+	if err != nil {
+		return nil, pctx, err
+	}
+	p.logRequest(completionReq, pctx.MaxLines)
+	return p.Client.DoLineStream(ctx, completionReq, pctx.MaxLines, p.StopTokens), pctx, nil
+}
+
 // ValidateFirstLine runs validators on the first received line (implements engine.LineStreamProvider)
 func (p *Provider) ValidateFirstLine(providerCtx any, firstLine string) error {
 	pctx, ok := providerCtx.(*Context)
@@ -379,6 +447,16 @@ func (p *Provider) PrepareTokenStream(ctx context.Context, req *types.Completion
 	return p.Client.DoTokenStream(ctx, completionReq, 0, p.StopTokens), pctx, nil
 }
 
+func (p *Provider) PrepareTokenStreamInput(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, any, error) {
+	defer logger.Trace("Provider.PrepareTokenStream")()
+	completionReq, pctx, err := p.prepareStreamInput(input)
+	if err != nil {
+		return nil, pctx, err
+	}
+	p.logRequest(completionReq, 0) // maxLines=0 for token streaming
+	return p.Client.DoTokenStream(ctx, completionReq, 0, p.StopTokens), pctx, nil
+}
+
 // FinishTokenStream runs postprocessors on the final accumulated result (implements engine.TokenStreamProvider)
 func (p *Provider) FinishTokenStream(providerCtx any, text string) (*types.CompletionResponse, error) {
 	return p.finishStream(providerCtx, &openai.StreamResult{
@@ -386,4 +464,48 @@ func (p *Provider) FinishTokenStream(providerCtx any, text string) (*types.Compl
 		FinishReason: "stop",
 		StoppedEarly: false,
 	})
+}
+
+func completionInputFromRequest(req *types.CompletionRequest) ctx.CompletionInput {
+	if req == nil {
+		return ctx.CompletionInput{}
+	}
+	return ctx.CompletionInput{
+		Trigger: req.Source,
+		Current: ctx.CurrentSnapshot{
+			Workspace: ctx.WorkspaceRef{
+				Path: req.WorkspacePath,
+				ID:   req.WorkspaceID,
+			},
+			File: ctx.FileSnapshot{
+				Path:    req.FilePath,
+				Lines:   req.Lines,
+				Version: req.Version,
+			},
+			Cursor: ctx.CursorPosition{
+				Row: req.CursorRow,
+				Col: req.CursorCol,
+			},
+			View: ctx.ViewConstraints{
+				ViewportHeight:  req.ViewportHeight,
+				MaxVisibleLines: req.MaxVisibleLines,
+			},
+		},
+	}
+}
+
+func completionRequestFromInput(input ctx.CompletionInput) *types.CompletionRequest {
+	current := input.Current
+	return &types.CompletionRequest{
+		Source:          input.Trigger,
+		WorkspacePath:   current.Workspace.Path,
+		WorkspaceID:     current.Workspace.ID,
+		FilePath:        current.File.Path,
+		Lines:           current.File.Lines,
+		Version:         current.File.Version,
+		CursorRow:       current.Cursor.Row,
+		CursorCol:       current.Cursor.Col,
+		ViewportHeight:  current.View.ViewportHeight,
+		MaxVisibleLines: current.View.MaxVisibleLines,
+	}
 }

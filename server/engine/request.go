@@ -12,20 +12,76 @@ import (
 	"cursortab/utils"
 )
 
-// gatherContext delegates to the context gatherer if configured.
-func (e *Engine) gatherContext(filePath string) *types.ContextResult {
-	if e.contextGatherer == nil {
+type completionInputProvider interface {
+	GetCompletionInput(context.Context, ctx.CompletionInput) (*types.CompletionResponse, error)
+}
+
+type lineStreamInputProvider interface {
+	LineStreamProvider
+	PrepareLineStreamInput(context.Context, ctx.CompletionInput) (LineStream, any, error)
+}
+
+type tokenStreamInputProvider interface {
+	TokenStreamProvider
+	PrepareTokenStreamInput(context.Context, ctx.CompletionInput) (LineStream, any, error)
+}
+
+func (e *Engine) collectCompletionInput(parent context.Context, input ctx.CompletionInput, sourceInput ctx.ContextSourceInput) (ctx.CompletionInput, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	requirements := e.applyContextRequirementLimits(e.provider.ContextRequirements(input.Kind))
+	collected, err := ctx.Collect(parent, sourceInput, requirements)
+	if err != nil {
+		return input, err
+	}
+	input.Context = collected
+	return input, nil
+}
+
+func (e *Engine) applyContextRequirementLimits(requirements ctx.ContextRequirements) ctx.ContextRequirements {
+	if len(requirements) == 0 {
 		return nil
 	}
-	return e.contextGatherer.Gather(e.mainCtx, &ctx.SourceRequest{
-		FilePath:          filePath,
-		CursorRow:         e.buffer.Row(),
-		CursorCol:         e.buffer.Col(),
-		WorkspacePath:     e.WorkspacePath,
-		MaxDiffBytes:      e.contextLimits.MaxDiffBytes,
-		MaxChangedSymbols: e.contextLimits.MaxChangedSymbols,
-		MaxSiblings:       e.contextLimits.MaxSiblings,
-	})
+	applied := make(ctx.ContextRequirements, len(requirements))
+	for i, requirement := range requirements {
+		switch material := requirement.(type) {
+		case ctx.Treesitter:
+			if material.MaxSiblings == 0 {
+				material.MaxSiblings = e.contextLimits.MaxSiblings
+			}
+			applied[i] = material
+		case ctx.GitDiff:
+			if material.MaxBytes == 0 {
+				material.MaxBytes = e.contextLimits.MaxDiffBytes
+			}
+			if material.MaxChangedSymbols == 0 {
+				material.MaxChangedSymbols = e.contextLimits.MaxChangedSymbols
+			}
+			applied[i] = material
+		case ctx.RecentFiles:
+			if material.Limit == 0 {
+				material.Limit = e.contextLimits.MaxRecentSnapshots
+			}
+			if material.FirstLines == 0 {
+				material.FirstLines = e.contextLimits.FileChunkLines
+			}
+			applied[i] = material
+		case ctx.EditHistory:
+			if material.MaxTokens == 0 {
+				material.MaxTokens = e.config.MaxDiffTokens
+			}
+			applied[i] = material
+		case ctx.UserActions:
+			if material.Limit == 0 {
+				material.Limit = e.contextLimits.MaxUserActions
+			}
+			applied[i] = material
+		default:
+			applied[i] = requirement
+		}
+	}
+	return applied
 }
 
 // requestCompletion initiates a completion request.
@@ -72,7 +128,59 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		kind:   ctx.RequestCompletion,
 		source: source,
 	})
-	req := e.buildCompletionRequest(input, sourceInput)
+	req := e.buildCompletionRequest(input)
+	startBatch := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
+		e.state = statePendingCompletion
+		reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+		e.currentCancel = cancel
+		go func() {
+			defer cancel()
+			result, err := fetch(reqCtx)
+			if err != nil {
+				select {
+				case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
+				case <-e.mainCtx.Done():
+				}
+				return
+			}
+			select {
+			case e.eventChan <- Event{Type: EventCompletionReady, Data: result}:
+			case <-e.mainCtx.Done():
+			}
+		}()
+	}
+
+	if inputProvider, ok := e.provider.(completionInputProvider); ok {
+		var err error
+		input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
+		if err != nil {
+			select {
+			case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
+			case <-e.mainCtx.Done():
+			}
+			return
+		}
+
+		if streamProvider, ok := e.provider.(LineStreamProvider); ok {
+			switch streamProvider.GetStreamingType() {
+			case StreamingTypeLines:
+				if lineProvider, ok := e.provider.(lineStreamInputProvider); ok {
+					e.requestStreamingCompletionInput(lineProvider, req, input)
+					return
+				}
+			case StreamingTypeTokens:
+				if tokenProvider, ok := e.provider.(tokenStreamInputProvider); ok {
+					e.requestTokenStreamingCompletionInput(tokenProvider, req, input)
+					return
+				}
+			}
+		}
+
+		startBatch(func(ctx context.Context) (*types.CompletionResponse, error) {
+			return inputProvider.GetCompletionInput(ctx, input)
+		})
+		return
+	}
 
 	// Check if provider supports streaming
 	if streamProvider, ok := e.provider.(LineStreamProvider); ok {
@@ -88,30 +196,9 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		}
 	}
 
-	// Fallback to batch mode
-	e.state = statePendingCompletion
-
-	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
-	e.currentCancel = cancel
-
-	go func() {
-		defer cancel()
-
-		result, err := e.provider.GetCompletion(reqCtx, req)
-
-		if err != nil {
-			select {
-			case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
-			case <-e.mainCtx.Done():
-			}
-			return
-		}
-
-		select {
-		case e.eventChan <- Event{Type: EventCompletionReady, Data: result}:
-		case <-e.mainCtx.Done():
-		}
-	}()
+	startBatch(func(ctx context.Context) (*types.CompletionResponse, error) {
+		return e.provider.GetCompletion(ctx, req)
+	})
 }
 
 // getViewportHeightConstraint returns the viewport height constraint for completion requests.
@@ -166,13 +253,28 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 		cursorCol:         overrideCol,
 		hasCursorOverride: true,
 	})
-	req := e.buildCompletionRequest(input, sourceInput)
+	req := e.buildCompletionRequest(input)
+	startPrefetch := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
+		go func() {
+			defer cancel()
+			result, err := fetch(reqCtx)
+			if err != nil {
+				select {
+				case e.eventChan <- Event{Type: EventPrefetchError, Data: err}:
+				case <-e.mainCtx.Done():
+				}
+				return
+			}
+			select {
+			case e.eventChan <- Event{Type: EventPrefetchReady, Data: result}:
+			case <-e.mainCtx.Done():
+			}
+		}()
+	}
 
-	go func() {
-		defer cancel()
-
-		result, err := e.provider.GetCompletion(reqCtx, req)
-
+	if inputProvider, ok := e.provider.(completionInputProvider); ok {
+		var err error
+		input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
 		if err != nil {
 			select {
 			case e.eventChan <- Event{Type: EventPrefetchError, Data: err}:
@@ -181,11 +283,15 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 			return
 		}
 
-		select {
-		case e.eventChan <- Event{Type: EventPrefetchReady, Data: result}:
-		case <-e.mainCtx.Done():
-		}
-	}()
+		startPrefetch(func(ctx context.Context) (*types.CompletionResponse, error) {
+			return inputProvider.GetCompletionInput(ctx, input)
+		})
+		return
+	}
+
+	startPrefetch(func(ctx context.Context) (*types.CompletionResponse, error) {
+		return e.provider.GetCompletion(ctx, req)
+	})
 }
 
 // handlePrefetchReady processes a successful prefetch response

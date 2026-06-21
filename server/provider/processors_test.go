@@ -3,6 +3,7 @@ package provider
 import (
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/types"
 	"strings"
 	"testing"
@@ -137,10 +138,11 @@ func TestTrimContent_SmallFile(t *testing.T) {
 	}
 
 	ctx := &Context{
-		Request: &types.CompletionRequest{
-			Lines:     []string{"line 1", "line 2", "line 3"},
-			CursorRow: 2,
-			CursorCol: 5,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File:   sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2", "line 3"}},
+				Cursor: sourcectx.CursorPosition{Row: 2, Col: 5},
+			},
 		},
 	}
 
@@ -168,10 +170,11 @@ func TestTrimContent_LargeFile(t *testing.T) {
 	}
 
 	ctx := &Context{
-		Request: &types.CompletionRequest{
-			Lines:     lines,
-			CursorRow: 50,
-			CursorCol: 0,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File:   sourcectx.FileSnapshot{Lines: lines},
+				Cursor: sourcectx.CursorPosition{Row: 50, Col: 0},
+			},
 		},
 	}
 
@@ -227,10 +230,11 @@ func TestSkipIfTextAfterCursor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := &Context{
-				Request: &types.CompletionRequest{
-					Lines:     tt.lines,
-					CursorRow: tt.cursorRow,
-					CursorCol: tt.cursorCol,
+				Input: sourcectx.CompletionInput{
+					Current: sourcectx.CurrentSnapshot{
+						File:   sourcectx.FileSnapshot{Lines: tt.lines},
+						Cursor: sourcectx.CursorPosition{Row: tt.cursorRow, Col: tt.cursorCol},
+					},
 				},
 			}
 

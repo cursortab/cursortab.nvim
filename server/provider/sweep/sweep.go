@@ -48,6 +48,7 @@ import (
 	"strings"
 
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 )
@@ -68,6 +69,14 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Preprocessors: []provider.Preprocessor{
 			provider.TrimContent(),
 		},
+		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
+			Diagnostics: true,
+			Treesitter:  true,
+			GitDiff:     true,
+			RecentFiles: true,
+			EditHistory: true,
+			UserActions: true,
+		}),
 		DiffBuilder:   provider.FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n"),
 		PromptBuilder: buildPrompt,
 		Postprocessors: []provider.Postprocessor{
@@ -85,18 +94,20 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 }
 
 func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
-	req := ctx.Request
+	input := ctx.Input
+	current := input.Current
+	lines := current.File.Lines
 	var promptBuilder strings.Builder
 
-	if len(req.Lines) == 0 {
+	if len(lines) == 0 {
 		promptBuilder.WriteString("<|file_sep|>original/")
-		promptBuilder.WriteString(req.FilePath)
+		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n\n")
 		promptBuilder.WriteString("<|file_sep|>current/")
-		promptBuilder.WriteString(req.FilePath)
+		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n\n")
 		promptBuilder.WriteString("<|file_sep|>updated/")
-		promptBuilder.WriteString(req.FilePath)
+		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n")
 
 		return &openai.CompletionRequest{
@@ -112,46 +123,54 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	}
 
 	// Broad file context (initial_file) - ~300 lines around cursor
-	initialFile := getBroadFileContext(req)
+	initialFile := getBroadFileContext(current)
 	if initialFile != "" {
 		promptBuilder.WriteString("<|file_sep|>")
-		promptBuilder.WriteString(req.FilePath)
+		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n")
 		promptBuilder.WriteString(initialFile)
 		promptBuilder.WriteString("\n")
 	}
 
-	// Cross-file context (retrieval chunks from RecentBufferSnapshots)
-	if rc := formatRetrievalSection(req); rc != "" {
-		promptBuilder.WriteString(rc)
+	// Cross-file context (retrieval chunks from recent files)
+	if recent, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+		if section := formatRetrievalSection(recent.Files); section != "" {
+			promptBuilder.WriteString(section)
+		}
 	}
 
 	// Treesitter context
-	if ts := formatTreesitterSection(req); ts != "" {
-		promptBuilder.WriteString(ts)
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+		if section := formatTreesitterSection(treesitter.Data); section != "" {
+			promptBuilder.WriteString(section)
+		}
 	}
 
 	// Diagnostics context
-	if ds := formatDiagnosticsSection(req); ds != "" {
-		promptBuilder.WriteString(ds)
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+		if section := formatDiagnosticsSection(diagnostics.Data); section != "" {
+			promptBuilder.WriteString(section)
+		}
 	}
 
 	// Diff history section (recent_changes)
-	if p.DiffBuilder != nil {
-		diffSection := p.DiffBuilder(req.FileDiffHistories)
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
+		diffSection := p.DiffBuilder(editHistory.Files)
 		if diffSection != "" {
 			promptBuilder.WriteString(diffSection)
 		}
 	}
 
 	// Git diff context
-	if gd := formatGitDiffSection(req); gd != "" {
-		promptBuilder.WriteString(gd)
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+		if section := formatGitDiffSection(gitDiff.Data); section != "" {
+			promptBuilder.WriteString(section)
+		}
 	}
 
 	cursorLineInWindow := ctx.CursorLine
 	codeBlock := strings.Join(ctx.TrimmedLines, "\n")
-	relativeCursor := computeRelativeCursor(ctx.TrimmedLines, cursorLineInWindow, req.CursorCol)
+	relativeCursor := computeRelativeCursor(ctx.TrimmedLines, cursorLineInWindow, current.Cursor.Col)
 	if relativeCursor > len(codeBlock) {
 		relativeCursor = len(codeBlock)
 	}
@@ -160,7 +179,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	endLine := ctx.WindowEnd
 
 	promptBuilder.WriteString("<|file_sep|>original/")
-	promptBuilder.WriteString(req.FilePath)
+	promptBuilder.WriteString(current.File.Path)
 	promptBuilder.WriteString(":")
 	promptBuilder.WriteString(fmt.Sprintf("%d:%d", startLine, endLine))
 	promptBuilder.WriteString("\n")
@@ -170,7 +189,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	// Current section (with cursor marker)
 	codeBlockWithCursor := codeBlock[:relativeCursor] + "<|cursor|>" + codeBlock[relativeCursor:]
 	promptBuilder.WriteString("<|file_sep|>current/")
-	promptBuilder.WriteString(req.FilePath)
+	promptBuilder.WriteString(current.File.Path)
 	promptBuilder.WriteString(":")
 	promptBuilder.WriteString(fmt.Sprintf("%d:%d", startLine, endLine))
 	promptBuilder.WriteString("\n")
@@ -179,13 +198,17 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 
 	// Updated section (with prefill)
 	promptBuilder.WriteString("<|file_sep|>updated/")
-	promptBuilder.WriteString(req.FilePath)
+	promptBuilder.WriteString(current.File.Path)
 	promptBuilder.WriteString(":")
 	promptBuilder.WriteString(fmt.Sprintf("%d:%d", startLine, endLine))
 	promptBuilder.WriteString("\n")
 
 	// Compute and add prefill
-	changesAboveCursor := hasRecentInsertionAboveCursor(req, cursorLineInWindow, ctx.WindowStart)
+	var actions []*types.UserAction
+	if userActions, ok := sourcectx.Find[sourcectx.UserActions](input.Context); ok {
+		actions = userActions.Actions
+	}
+	changesAboveCursor := hasRecentInsertionAboveCursor(actions, cursorLineInWindow, ctx.WindowStart)
 	prefill := computePrefill(codeBlock, relativeCursor, changesAboveCursor)
 	ctx.Prefill = prefill
 	promptBuilder.WriteString(prefill)
@@ -249,12 +272,12 @@ func computePrefill(codeBlock string, relativeCursor int, changesAboveCursor boo
 	return codeBlock[:prefillEnd]
 }
 
-func hasRecentInsertionAboveCursor(req *types.CompletionRequest, cursorLineInWindow, windowStart int) bool {
-	if len(req.UserActions) == 0 {
+func hasRecentInsertionAboveCursor(actions []*types.UserAction, cursorLineInWindow, windowStart int) bool {
+	if len(actions) == 0 {
 		return false
 	}
 
-	lastAction := req.UserActions[len(req.UserActions)-1]
+	lastAction := actions[len(actions)-1]
 	if lastAction.ActionType != types.ActionInsertChar &&
 		lastAction.ActionType != types.ActionInsertSelection {
 		return false
@@ -266,13 +289,13 @@ func hasRecentInsertionAboveCursor(req *types.CompletionRequest, cursorLineInWin
 }
 
 // getBroadFileContext returns ~300 lines of context around the cursor.
-func getBroadFileContext(req *types.CompletionRequest) string {
-	lines := req.Lines
+func getBroadFileContext(current sourcectx.CurrentSnapshot) string {
+	lines := current.File.Lines
 	if len(lines) == 0 {
 		return ""
 	}
 
-	cursorLine := req.CursorRow - 1 // Convert to 0-indexed
+	cursorLine := current.Cursor.Row - 1 // Convert to 0-indexed
 
 	contextStart := cursorLine - broadContextLinesBefore
 	if contextStart < 0 {
@@ -287,8 +310,7 @@ func getBroadFileContext(req *types.CompletionRequest) string {
 	return strings.Join(lines[contextStart:contextEnd], "\n")
 }
 
-func formatTreesitterSection(req *types.CompletionRequest) string {
-	ts := req.GetTreesitter()
+func formatTreesitterSection(ts *types.TreesitterContext) string {
 	if ts == nil {
 		return ""
 	}
@@ -311,8 +333,7 @@ func formatTreesitterSection(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatDiagnosticsSection(req *types.CompletionRequest) string {
-	diag := req.GetDiagnostics()
+func formatDiagnosticsSection(diag *types.Diagnostics) string {
 	if diag == nil || len(diag.Items) == 0 {
 		return ""
 	}
@@ -338,15 +359,15 @@ func formatDiagnosticsSection(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatRetrievalSection(req *types.CompletionRequest) string {
-	if len(req.RecentBufferSnapshots) == 0 {
+func formatRetrievalSection(snapshots []*types.RecentBufferSnapshot) string {
+	if len(snapshots) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("<|file_sep|>context/retrieval\n")
 
-	for _, snapshot := range req.RecentBufferSnapshots {
+	for _, snapshot := range snapshots {
 		b.WriteString("<|file_sep|>")
 		b.WriteString(snapshot.FilePath)
 		b.WriteString("\n")
@@ -357,8 +378,7 @@ func formatRetrievalSection(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatGitDiffSection(req *types.CompletionRequest) string {
-	gd := req.GetGitDiff()
+func formatGitDiffSection(gd *types.GitDiffContext) string {
 	if gd == nil || gd.Diff == "" {
 		return ""
 	}

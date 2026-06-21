@@ -33,6 +33,16 @@ type ContextMaterial interface {
 type ContextRequirements []ContextMaterial
 type CollectedContext []ContextMaterial
 
+func Find[T ContextMaterial](materials CollectedContext) (T, bool) {
+	for _, material := range materials {
+		if typed, ok := material.(T); ok {
+			return typed, true
+		}
+	}
+	var zero T
+	return zero, false
+}
+
 type collectableMaterial interface {
 	ContextMaterial
 	collect(context.Context, ContextSourceInput) (ContextMaterial, error)

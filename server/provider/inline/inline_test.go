@@ -3,6 +3,7 @@ package inline
 import (
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 	"testing"
@@ -17,6 +18,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
+		Input:        sourcectx.CompletionInput{},
 		Request:      &types.CompletionRequest{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
@@ -37,8 +39,10 @@ func TestBuildPrompt_SingleLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 5,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 5},
+			},
 		},
 		TrimmedLines: []string{"hello world"},
 		CursorLine:   0,
@@ -56,8 +60,10 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 4,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 4},
+			},
 		},
 		TrimmedLines: []string{"line 1", "line 2", "line 3"},
 		CursorLine:   2,
@@ -76,8 +82,10 @@ func TestBuildPrompt_CursorBeyondLineLength(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 100, // Beyond line length
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 100}, // Beyond line length
+			},
 		},
 		TrimmedLines: []string{"short"},
 		CursorLine:   0,
@@ -148,8 +156,10 @@ func TestBuildPrompt_StripsCursorLineTrailingWhitespace(t *testing.T) {
 	p := NewProvider(config)
 
 	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			CursorCol: 4,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				Cursor: sourcectx.CursorPosition{Col: 4},
+			},
 		},
 		TrimmedLines: []string{
 			"def bubble_sort(arr):",

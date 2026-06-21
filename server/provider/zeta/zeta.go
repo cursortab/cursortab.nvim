@@ -56,6 +56,7 @@ import (
 	"strings"
 
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 )
@@ -72,6 +73,13 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Preprocessors: []provider.Preprocessor{
 			provider.TrimContent(),
 		},
+		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
+			Diagnostics: true,
+			Treesitter:  true,
+			GitDiff:     true,
+			RecentFiles: true,
+			EditHistory: true,
+		}),
 		DiffBuilder: provider.FormatDiffHistory(provider.DiffHistoryOptions{
 			HeaderTemplate: "User edited %q:\n",
 			Prefix:         "```diff\n",
@@ -94,17 +102,29 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 }
 
 func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
-	req := ctx.Request
+	input := ctx.Input
 
-	userExcerpt := buildUserExcerpt(req, ctx)
+	userExcerpt := buildUserExcerpt(input.Current, ctx)
 	userEdits := ""
-	if p.DiffBuilder != nil {
-		userEdits = p.DiffBuilder(req.FileDiffHistories)
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
+		userEdits = p.DiffBuilder(editHistory.Files)
 	}
-	diagnosticsText := formatDiagnosticsForPrompt(req)
-	treesitterText := formatTreesitterForPrompt(req)
-	gitDiffText := formatGitDiffForPrompt(req)
-	recentFilesText := formatRecentFilesForPrompt(req)
+	diagnosticsText := ""
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+		diagnosticsText = formatDiagnosticsForPrompt(diagnostics.Data)
+	}
+	treesitterText := ""
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+		treesitterText = formatTreesitterForPrompt(treesitter.Data)
+	}
+	gitDiffText := ""
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+		gitDiffText = formatGitDiffForPrompt(gitDiff.Data)
+	}
+	recentFilesText := ""
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+		recentFilesText = formatRecentFilesForPrompt(recentFiles.Files)
+	}
 	prompt := buildInstructionPrompt(userEdits, diagnosticsText, treesitterText, gitDiffText, recentFilesText, userExcerpt)
 
 	return &openai.CompletionRequest{
@@ -119,18 +139,19 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	}
 }
 
-func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) string {
+func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.Context) string {
 	var promptBuilder strings.Builder
+	lines := current.File.Lines
 
-	if len(req.Lines) == 0 {
+	if len(lines) == 0 {
 		promptBuilder.WriteString("```")
-		promptBuilder.WriteString(req.FilePath)
+		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n<|start_of_file|>\n<|editable_region_start|>\n<|user_cursor_is_here|>\n<|editable_region_end|>\n```")
 		return promptBuilder.String()
 	}
 
-	cursorRow := req.CursorRow
-	cursorCol := req.CursorCol
+	cursorRow := current.Cursor.Row
+	cursorCol := current.Cursor.Col
 	cursorLine := cursorRow - 1
 
 	editableStart := ctx.WindowStart
@@ -140,10 +161,10 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 	contextLinesAfter := 5
 
 	contextStart := max(0, editableStart-contextLinesBefore)
-	contextEnd := min(len(req.Lines), editableEnd+contextLinesAfter)
+	contextEnd := min(len(lines), editableEnd+contextLinesAfter)
 
 	promptBuilder.WriteString("```")
-	promptBuilder.WriteString(req.FilePath)
+	promptBuilder.WriteString(current.File.Path)
 	promptBuilder.WriteString("\n")
 
 	if contextStart == 0 {
@@ -151,19 +172,19 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 	}
 
 	for i := contextStart; i < editableStart; i++ {
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 		promptBuilder.WriteString("\n")
 	}
 
 	promptBuilder.WriteString("<|editable_region_start|>\n")
 
 	for i := editableStart; i < cursorLine; i++ {
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 		promptBuilder.WriteString("\n")
 	}
 
-	if cursorLine < len(req.Lines) {
-		currentLine := req.Lines[cursorLine]
+	if cursorLine < len(lines) {
+		currentLine := lines[cursorLine]
 		if cursorCol <= len(currentLine) {
 			beforeCursor := currentLine[:cursorCol]
 			afterCursor := currentLine[cursorCol:]
@@ -181,14 +202,14 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 
 	for i := cursorLine + 1; i < editableEnd; i++ {
 		promptBuilder.WriteString("\n")
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 	}
 
 	promptBuilder.WriteString("\n<|editable_region_end|>")
 
 	for i := editableEnd; i < contextEnd; i++ {
 		promptBuilder.WriteString("\n")
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 	}
 
 	promptBuilder.WriteString("\n```")
@@ -196,8 +217,7 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 	return promptBuilder.String()
 }
 
-func formatDiagnosticsForPrompt(req *types.CompletionRequest) string {
-	diag := req.GetDiagnostics()
+func formatDiagnosticsForPrompt(diag *types.Diagnostics) string {
 	text := provider.FormatDiagnosticsText(diag)
 	if text == "" {
 		return ""
@@ -212,8 +232,7 @@ func formatDiagnosticsForPrompt(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatTreesitterForPrompt(req *types.CompletionRequest) string {
-	ts := req.GetTreesitter()
+func formatTreesitterForPrompt(ts *types.TreesitterContext) string {
 	if ts == nil {
 		return ""
 	}
@@ -241,21 +260,20 @@ func formatTreesitterForPrompt(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatGitDiffForPrompt(req *types.CompletionRequest) string {
-	gd := req.GetGitDiff()
+func formatGitDiffForPrompt(gd *types.GitDiffContext) string {
 	if gd == nil || gd.Diff == "" {
 		return ""
 	}
 	return gd.Diff
 }
 
-// formatRecentFilesForPrompt renders RecentBufferSnapshots as fenced code blocks.
-func formatRecentFilesForPrompt(req *types.CompletionRequest) string {
-	if len(req.RecentBufferSnapshots) == 0 {
+// formatRecentFilesForPrompt renders recent files as fenced code blocks.
+func formatRecentFilesForPrompt(snapshots []*types.RecentBufferSnapshot) string {
+	if len(snapshots) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	for i, snap := range req.RecentBufferSnapshots {
+	for i, snap := range snapshots {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}

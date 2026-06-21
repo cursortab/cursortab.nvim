@@ -49,6 +49,7 @@ import (
 	"strings"
 
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/text"
 	"cursortab/types"
@@ -92,6 +93,13 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 			armCursorMarkerStripping(),
 			provider.TrimContent(),
 		},
+		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
+			Diagnostics: true,
+			Treesitter:  true,
+			GitDiff:     true,
+			RecentFiles: true,
+			EditHistory: true,
+		}),
 		DiffBuilder:   buildEditHistory,
 		PromptBuilder: buildPrompt,
 		Postprocessors: []provider.Postprocessor{
@@ -117,9 +125,7 @@ func armCursorMarkerStripping() provider.Preprocessor {
 }
 
 func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
-	req := ctx.Request
-
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	return &openai.CompletionRequest{
 		Model:       p.Config.ProviderModel,
@@ -134,8 +140,10 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 }
 
 // assemblePrompt builds the full SeedCoder FIM prompt in SPM order.
-func assemblePrompt(p *provider.Provider, ctx *provider.Context, req *types.CompletionRequest) string {
+func assemblePrompt(p *provider.Provider, ctx *provider.Context) string {
 	trimmed := ctx.TrimmedLines
+	input := ctx.Input
+	current := input.Current
 	if len(trimmed) == 0 {
 		// Empty buffer: minimal prompt with just the cursor position.
 		var b strings.Builder
@@ -143,7 +151,7 @@ func assemblePrompt(p *provider.Provider, ctx *provider.Context, req *types.Comp
 		b.WriteString("\n")
 		b.WriteString(fimPrefix)
 		b.WriteString(fileMarker)
-		b.WriteString(req.FilePath)
+		b.WriteString(current.File.Path)
 		b.WriteString("\n")
 		b.WriteString(currentMarker)
 		b.WriteString(cursorMarker)
@@ -153,7 +161,7 @@ func assemblePrompt(p *provider.Provider, ctx *provider.Context, req *types.Comp
 		return b.String()
 	}
 
-	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(req))
+	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(input.Context))
 	ctx.EditableStart = editableStart
 	ctx.EditableEnd = editableEnd
 
@@ -199,13 +207,21 @@ func assemblePrompt(p *provider.Provider, ctx *provider.Context, req *types.Comp
 	// <filename>{path} block. This matches where Zed's V0211SeedCoder expects
 	// LSP-driven related files — we don't have LSP resolution, so we stuff
 	// whatever structured context we have into the same slot.
-	writeRecentFilesPseudoFiles(&b, req.RecentBufferSnapshots)
-	writeDiagnosticsPseudoFile(&b, req.GetDiagnostics())
-	writeTreesitterPseudoFile(&b, req.GetTreesitter())
-	writeGitDiffPseudoFile(&b, req.GetGitDiff())
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+		writeRecentFilesPseudoFiles(&b, recentFiles.Files)
+	}
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+		writeDiagnosticsPseudoFile(&b, diagnostics.Data)
+	}
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+		writeTreesitterPseudoFile(&b, treesitter.Data)
+	}
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+		writeGitDiffPseudoFile(&b, gitDiff.Data)
+	}
 
-	if p.DiffBuilder != nil {
-		editHistory := p.DiffBuilder(req.FileDiffHistories)
+	if editHistoryMaterial, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
+		editHistory := p.DiffBuilder(editHistoryMaterial.Files)
 		if editHistory != "" {
 			b.WriteString(fileMarker)
 			b.WriteString("edit_history\n")
@@ -219,7 +235,7 @@ func assemblePrompt(p *provider.Provider, ctx *provider.Context, req *types.Comp
 
 	// Cursor file section: <filename>path\n{before}<<<<<<< CURRENT\n{editable with cursor}\n=======\n
 	b.WriteString(fileMarker)
-	b.WriteString(req.FilePath)
+	b.WriteString(current.File.Path)
 	b.WriteString("\n")
 
 	if len(beforeLines) > 0 {
@@ -228,7 +244,7 @@ func assemblePrompt(p *provider.Provider, ctx *provider.Context, req *types.Comp
 	}
 
 	b.WriteString(currentMarker)
-	editableText := formatEditableWithCursor(editLines, ctx.CursorLine-editableStart, req.CursorCol)
+	editableText := formatEditableWithCursor(editLines, ctx.CursorLine-editableStart, current.Cursor.Col)
 	b.WriteString(editableText)
 	ensureTrailingNewline(&b, editableText)
 	b.WriteString(separator)
@@ -286,11 +302,11 @@ func computeEditableRange(trimmed []string, cursorLine, windowStart int, syntaxR
 	return start, end
 }
 
-// treesitterRanges extracts syntax ranges from the request, returning nil
+// treesitterRanges extracts syntax ranges from collected context, returning nil
 // when treesitter context is unavailable.
-func treesitterRanges(req *types.CompletionRequest) []*types.LineRange {
-	if ts := req.GetTreesitter(); ts != nil {
-		return ts.SyntaxRanges
+func treesitterRanges(materials sourcectx.CollectedContext) []*types.LineRange {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](materials); ok && treesitter.Data != nil {
+		return treesitter.Data.SyntaxRanges
 	}
 	return nil
 }
@@ -406,7 +422,7 @@ func writeTreesitterPseudoFile(b *strings.Builder, ts *types.TreesitterContext) 
 
 // writeGitDiffPseudoFile renders the staged git diff as a
 // <filename>context/staged_diff block. Populated only for COMMIT_EDITMSG;
-// elsewhere GetGitDiff() returns nil.
+// The collector only populates this for COMMIT_EDITMSG.
 func writeGitDiffPseudoFile(b *strings.Builder, gd *types.GitDiffContext) {
 	if gd == nil || gd.Diff == "" {
 		return
@@ -524,7 +540,7 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 	editableEnd := ctx.EditableEnd
 	if editableEnd == 0 {
 		// Non-streaming path or cache miss — compute from scratch.
-		editableStart, editableEnd = computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Request))
+		editableStart, editableEnd = computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Input.Context))
 	}
 	startLine := ctx.WindowStart + editableStart + 1 // 1-indexed
 	endLineInc := ctx.WindowStart + editableEnd      // already 1-indexed inclusive (end is exclusive)
@@ -586,9 +602,13 @@ func buildCursorTarget(ctx *provider.Context, editableStart int, newLines []stri
 	if lineIdx < len(newLines) {
 		expected = newLines[lineIdx]
 	}
+	relativePath := ctx.Input.Current.File.Path
+	if relativePath == "" && ctx.Request != nil {
+		relativePath = ctx.Request.FilePath
+	}
 
 	return &types.CursorPredictionTarget{
-		RelativePath:    ctx.Request.FilePath,
+		RelativePath:    relativePath,
 		LineNumber:      int32(bufferRow),
 		ExpectedContent: expected,
 		ShouldRetrigger: true,

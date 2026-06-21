@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	sourcectx "cursortab/ctx"
 	"cursortab/text"
 	"cursortab/types"
 	"cursortab/utils"
@@ -11,13 +12,28 @@ import (
 
 // requestStreamingCompletion handles line-by-line streaming completions
 func (e *Engine) requestStreamingCompletion(provider LineStreamProvider, req *types.CompletionRequest) {
+	e.requestStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
+		return provider.PrepareLineStream(ctx, req)
+	})
+}
+
+func (e *Engine) requestStreamingCompletionInput(provider lineStreamInputProvider, req *types.CompletionRequest, input sourcectx.CompletionInput) {
+	e.requestStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
+		return provider.PrepareLineStreamInput(ctx, input)
+	})
+}
+
+func (e *Engine) requestStreamingCompletionPrepared(
+	req *types.CompletionRequest,
+	prepare func(context.Context) (LineStream, any, error),
+) {
 	e.state = stateStreamingCompletion
 
 	ctx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
 	e.streamingCancel = cancel
 
 	// Prepare the stream
-	stream, providerCtx, err := provider.PrepareLineStream(ctx, req)
+	stream, providerCtx, err := prepare(ctx)
 	if err != nil {
 		cancel()
 		e.state = stateIdle
@@ -79,13 +95,28 @@ func (e *Engine) requestStreamingCompletion(provider LineStreamProvider, req *ty
 
 // requestTokenStreamingCompletion handles token-by-token streaming completions (inline)
 func (e *Engine) requestTokenStreamingCompletion(provider TokenStreamProvider, req *types.CompletionRequest) {
+	e.requestTokenStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
+		return provider.PrepareTokenStream(ctx, req)
+	})
+}
+
+func (e *Engine) requestTokenStreamingCompletionInput(provider tokenStreamInputProvider, req *types.CompletionRequest, input sourcectx.CompletionInput) {
+	e.requestTokenStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
+		return provider.PrepareTokenStreamInput(ctx, input)
+	})
+}
+
+func (e *Engine) requestTokenStreamingCompletionPrepared(
+	req *types.CompletionRequest,
+	prepare func(context.Context) (LineStream, any, error),
+) {
 	e.state = stateStreamingCompletion
 
 	ctx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
 	e.streamingCancel = cancel
 
 	// Prepare the stream
-	stream, providerCtx, err := provider.PrepareTokenStream(ctx, req)
+	stream, providerCtx, err := prepare(ctx)
 	if err != nil {
 		cancel()
 		e.state = stateIdle

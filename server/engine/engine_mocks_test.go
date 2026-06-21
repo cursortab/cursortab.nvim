@@ -25,6 +25,8 @@ type mockBuffer struct {
 	previousLines  []string
 	originalLines  []string
 	diffHistories  []*types.DiffEntry
+	diagnostics    *types.Diagnostics
+	treesitter     *types.TreesitterContext
 	// Track method calls
 	syncCalls              int
 	clearUICalls           int
@@ -129,11 +131,15 @@ func (b *mockBuffer) DiskLines() []string {
 }
 
 func (b *mockBuffer) Diagnostics() *types.Diagnostics {
-	return nil
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.diagnostics
 }
 
 func (b *mockBuffer) TreesitterSymbols(row int, col int, maxSiblings int) *types.TreesitterContext {
-	return nil
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.treesitter
 }
 
 func (b *mockBuffer) SetFileContext(ctx buffer.FileContext) {

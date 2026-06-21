@@ -16,6 +16,7 @@ import (
 	"cursortab/metrics"
 	"cursortab/text"
 	"cursortab/types"
+	"cursortab/utils"
 )
 
 var actionAbbrev = map[types.UserActionType]string{
@@ -125,7 +126,6 @@ type Engine struct {
 	metricSender    metrics.Sender
 	currentMetrics  metrics.CompletionInfo
 	currentSnapshot *metrics.Snapshot
-	contextResultCh chan *types.ContextResult // async context gather for snapshot
 	metricsCh       chan metrics.Event
 
 	lastCompletionSource      types.CompletionSource
@@ -253,7 +253,6 @@ func (e *Engine) resetCompletionFields() {
 	e.currentRejectedCompletion = nil
 	e.manuallyTriggered = false
 	e.pendingMetricsInfo = nil
-	e.contextResultCh = nil
 }
 
 func (e *Engine) cancelCurrentRequest() {
@@ -524,31 +523,16 @@ func (e *Engine) recordMetricsShown(info *types.MetricsInfo) {
 		}
 	}
 
-	e.currentSnapshot = e.captureSnapshot()
-	e.gatherContextForSnapshot()
+	sourceInput := e.buildMetricsSourceInput()
+	e.currentSnapshot = e.captureSnapshot(sourceInput)
 	e.sendMetric(metrics.EventShown)
 }
 
-func (e *Engine) gatherContextForSnapshot() {
-	if e.contextGatherer == nil {
-		return
+func MetricsSnapshotRequirements(maxSiblings int) ctx.ContextRequirements {
+	return ctx.ContextRequirements{
+		ctx.Diagnostics{},
+		ctx.Treesitter{MaxSiblings: maxSiblings},
 	}
-	ch := make(chan *types.ContextResult, 1)
-	e.contextResultCh = ch
-	filePath := e.buffer.Path()
-	row := e.buffer.Row()
-	col := e.buffer.Col()
-	go func() {
-		ch <- e.contextGatherer.Gather(e.mainCtx, &ctx.SourceRequest{
-			FilePath:          filePath,
-			CursorRow:         row,
-			CursorCol:         col,
-			WorkspacePath:     e.WorkspacePath,
-			MaxDiffBytes:      e.contextLimits.MaxDiffBytes,
-			MaxChangedSymbols: e.contextLimits.MaxChangedSymbols,
-			MaxSiblings:       e.contextLimits.MaxSiblings,
-		})
-	}()
 }
 
 func (e *Engine) sendMetric(eventType metrics.EventType) {
@@ -560,23 +544,6 @@ func (e *Engine) sendMetric(eventType metrics.EventType) {
 		return
 	}
 
-	// On outcome events, fill in async context if available
-	if eventType != metrics.EventShown && e.currentSnapshot != nil && e.contextResultCh != nil {
-		select {
-		case result := <-e.contextResultCh:
-			if result != nil {
-				if result.Diagnostics != nil {
-					e.currentSnapshot.HasDiagnostics = len(result.Diagnostics.Items) > 0
-				}
-				if result.Treesitter != nil {
-					e.currentSnapshot.TreesitterScope = classifyScope(result.Treesitter.EnclosingSignature)
-				}
-			}
-		default:
-			// Context gather not ready yet — leave defaults
-		}
-	}
-
 	event := metrics.Event{
 		Type:     eventType,
 		Info:     e.currentMetrics,
@@ -586,7 +553,6 @@ func (e *Engine) sendMetric(eventType metrics.EventType) {
 	if eventType != metrics.EventShown {
 		e.currentMetrics = metrics.CompletionInfo{}
 		e.currentSnapshot = nil
-		e.contextResultCh = nil
 		if eventType == metrics.EventAccepted {
 			e.completionsSinceAccept = 0
 		} else {
@@ -623,11 +589,18 @@ func classifyScope(signature string) string {
 	}
 }
 
-func (e *Engine) captureSnapshot() *metrics.Snapshot {
-	lines := e.buffer.Lines()
-	row := e.buffer.Row()
+func (e *Engine) buildMetricsSourceInput() ctx.ContextSourceInput {
+	current := e.buildCurrentSnapshot(completionInputOptions{})
+	snapshot := e.buildFileContextSnapshot()
+	return buildContextSourceInput(current, snapshot, e.buffer)
+}
 
-	line, col := currentLine(lines, row, e.buffer.Col())
+func (e *Engine) captureSnapshot(sourceInput ctx.ContextSourceInput) *metrics.Snapshot {
+	current := sourceInput.Current
+	lines := current.File.Lines
+	row := current.Cursor.Row
+
+	line, col := currentLine(lines, row, current.Cursor.Col)
 	prefix := line[:col]
 	trimmedPrefix := strings.TrimRight(prefix, " \t")
 
@@ -656,7 +629,7 @@ func (e *Engine) captureSnapshot() *metrics.Snapshot {
 		leadingWS++
 	}
 
-	fileExt := strings.ToLower(filepath.Ext(e.buffer.Path()))
+	fileExt := strings.ToLower(filepath.Ext(current.File.Path))
 	language := extToLanguage[fileExt]
 	if language == "" {
 		language = "unknown"
@@ -672,56 +645,9 @@ func (e *Engine) captureSnapshot() *metrics.Snapshot {
 		completionLines = len(e.completions[0].Lines)
 	}
 
-	// Diff history stats (edit count, predicted ratio, most recent edit across all files)
-	editCount, predictedCount, timeSinceLastEditMs := 0, 0, 0
-	now := e.clock.Now()
-	if diffs := e.getAllFileDiffHistories(); diffs != nil {
-		var latestTimestampNs int64
-		for _, fdh := range diffs {
-			for _, d := range fdh.DiffHistory {
-				editCount++
-				if d.Source == types.DiffSourcePredicted {
-					predictedCount++
-				}
-				if d.TimestampNs > latestTimestampNs {
-					latestTimestampNs = d.TimestampNs
-				}
-			}
-		}
-		if latestTimestampNs > 0 {
-			timeSinceLastEditMs = int(now.UnixMilli() - latestTimestampNs/1_000_000)
-		}
-	}
-	predictedEditRatio := 0.0
-	if editCount > 0 {
-		predictedEditRatio = float64(predictedCount) / float64(editCount)
-	}
-
-	typingSpeed := 0.0
-	if len(e.userActions) >= 2 {
-		insertCount := 0
-		for _, a := range e.userActions {
-			if a.ActionType == types.ActionInsertChar {
-				insertCount++
-			}
-		}
-		first := e.userActions[0]
-		last := e.userActions[len(e.userActions)-1]
-		if durationSec := float64(last.TimestampMs-first.TimestampMs) / 1000.0; durationSec > 0 {
-			typingSpeed = float64(insertCount) / durationSec
-		}
-	}
-
-	recentActions := make([]string, 0, 5)
-	start := len(e.userActions) - 5
-	if start < 0 {
-		start = 0
-	}
-	for _, a := range e.userActions[start:] {
-		if abbr, ok := actionAbbrev[a.ActionType]; ok {
-			recentActions = append(recentActions, abbr)
-		}
-	}
+	editCount, predictedEditRatio, timeSinceLastEditMs := metricsDiffStatsFromSnapshot(sourceInput.Snapshot, e.config.MaxDiffTokens)
+	typingSpeed := metricsTypingSpeed(sourceInput.Snapshot.UserActions)
+	recentActions := metricsRecentActions(sourceInput.Snapshot.UserActions)
 
 	stageIndex := 0
 	if e.stagedCompletion != nil {
@@ -737,7 +663,7 @@ func (e *Engine) captureSnapshot() *metrics.Snapshot {
 		cursorTargetDistance = dist
 	}
 
-	return &metrics.Snapshot{
+	snapshot := &metrics.Snapshot{
 		FileExt:                fileExt,
 		Language:               language,
 		PrefixLength:           len(prefix),
@@ -760,12 +686,113 @@ func (e *Engine) captureSnapshot() *metrics.Snapshot {
 		TimeSinceLastEditMs:    timeSinceLastEditMs,
 		TypingSpeed:            typingSpeed,
 		RecentActions:          recentActions,
-		HasDiagnostics:         false,   // filled async in sendMetric
-		TreesitterScope:        "other", // filled async in sendMetric
+		HasDiagnostics:         false,
+		TreesitterScope:        "other",
 		EditCount:              editCount,
 		PredictedEditRatio:     predictedEditRatio,
 		CompletionsSinceAccept: e.completionsSinceAccept,
 	}
+	e.applyMetricsContext(snapshot, sourceInput)
+	return snapshot
+}
+
+func (e *Engine) applyMetricsContext(snapshot *metrics.Snapshot, sourceInput ctx.ContextSourceInput) {
+	parent := e.mainCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	collected, err := ctx.Collect(parent, sourceInput, MetricsSnapshotRequirements(e.contextLimits.MaxSiblings))
+	if err != nil {
+		logger.Debug("metrics context collect failed: %v", err)
+		return
+	}
+	for _, material := range collected {
+		switch material := material.(type) {
+		case ctx.Diagnostics:
+			snapshot.HasDiagnostics = material.Data != nil && len(material.Data.Items) > 0
+		case ctx.Treesitter:
+			if material.Data != nil {
+				snapshot.TreesitterScope = classifyScope(material.Data.EnclosingSignature)
+			}
+		}
+	}
+}
+
+func metricsDiffStatsFromSnapshot(snapshot ctx.FileContextSnapshot, maxDiffTokens int) (int, float64, int) {
+	editCount := 0
+	predictedCount := 0
+	latestTimestampNs := int64(0)
+	addDiffStats := func(diffs []*types.DiffEntry) {
+		for _, d := range diffs {
+			if d == nil {
+				continue
+			}
+			editCount++
+			if d.Source == types.DiffSourcePredicted {
+				predictedCount++
+			}
+			if d.TimestampNs > latestTimestampNs {
+				latestTimestampNs = d.TimestampNs
+			}
+		}
+	}
+
+	for _, file := range snapshot.RecentFiles {
+		addDiffStats(buffer.ProcessDiffHistory(cloneDiffEntries(file.DiffHistories), snapshot.NowNs))
+	}
+	currentDiffs := buffer.ProcessDiffHistory(cloneDiffEntries(snapshot.CurrentFile.DiffHistories), snapshot.NowNs)
+	if maxDiffTokens > 0 {
+		currentDiffs = utils.TrimDiffEntries(currentDiffs, maxDiffTokens)
+	}
+	addDiffStats(currentDiffs)
+
+	predictedEditRatio := 0.0
+	if editCount > 0 {
+		predictedEditRatio = float64(predictedCount) / float64(editCount)
+	}
+	timeSinceLastEditMs := 0
+	if latestTimestampNs > 0 {
+		timeSinceLastEditMs = int(snapshot.NowNs/1_000_000 - latestTimestampNs/1_000_000)
+	}
+	return editCount, predictedEditRatio, timeSinceLastEditMs
+}
+
+func metricsTypingSpeed(actions []*types.UserAction) float64 {
+	if len(actions) < 2 {
+		return 0
+	}
+	insertCount := 0
+	for _, action := range actions {
+		if action != nil && action.ActionType == types.ActionInsertChar {
+			insertCount++
+		}
+	}
+	first := actions[0]
+	last := actions[len(actions)-1]
+	if first == nil || last == nil {
+		return 0
+	}
+	if durationSec := float64(last.TimestampMs-first.TimestampMs) / 1000.0; durationSec > 0 {
+		return float64(insertCount) / durationSec
+	}
+	return 0
+}
+
+func metricsRecentActions(actions []*types.UserAction) []string {
+	recentActions := make([]string, 0, 5)
+	start := len(actions) - 5
+	if start < 0 {
+		start = 0
+	}
+	for _, action := range actions[start:] {
+		if action == nil {
+			continue
+		}
+		if abbr, ok := actionAbbrev[action.ActionType]; ok {
+			recentActions = append(recentActions, abbr)
+		}
+	}
+	return recentActions
 }
 
 // metricsWorker processes metrics events asynchronously.

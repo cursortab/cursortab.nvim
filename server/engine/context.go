@@ -6,7 +6,6 @@ import (
 
 	"cursortab/buffer"
 	"cursortab/logger"
-	"cursortab/types"
 	"cursortab/utils"
 )
 
@@ -160,48 +159,6 @@ func (e *Engine) trimFileStateStore(maxFiles int) {
 	for i := 0; i < maxFiles && i < len(entries); i++ {
 		e.fileStateStore[entries[i].path] = entries[i].state
 	}
-}
-
-// getAllFileDiffHistories returns processed diff history for the current file
-// and recent cross-file diffs, ordered chronologically (most recent last).
-func (e *Engine) getAllFileDiffHistories() []*types.FileDiffHistory {
-	var result []*types.FileDiffHistory
-
-	// Cross-file histories (older context, added first)
-	currentPath := e.buffer.Path()
-	for path, state := range e.fileStateStore {
-		if path == currentPath || len(state.DiffHistories) == 0 {
-			continue
-		}
-		diffs := buffer.ProcessDiffHistory(state.DiffHistories, e.clock.Now().UnixNano())
-		if len(diffs) > 0 {
-			result = append(result, &types.FileDiffHistory{
-				FileName:    path,
-				DiffHistory: diffs,
-			})
-		}
-	}
-
-	// Current file history (most recent, added last for chronological ordering)
-	if currentPath != "" && len(e.buffer.DiffHistories()) > 0 {
-		diffs := buffer.ProcessDiffHistory(slices.Clone(e.buffer.DiffHistories()), e.clock.Now().UnixNano())
-
-		if e.config.MaxDiffTokens > 0 {
-			diffs = utils.TrimDiffEntries(diffs, e.config.MaxDiffTokens)
-		}
-
-		if len(diffs) > 0 {
-			result = append(result, &types.FileDiffHistory{
-				FileName:    currentPath,
-				DiffHistory: diffs,
-			})
-		}
-	}
-
-	if len(result) == 0 {
-		return nil
-	}
-	return result
 }
 
 // firstN returns a clone of the first n lines (or all of them if n exceeds the length).

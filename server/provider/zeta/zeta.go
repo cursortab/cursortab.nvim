@@ -87,6 +87,8 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 			Separator:      "\n\n",
 		}),
 		PromptBuilder: buildPrompt,
+		BuildBatch:    buildBatch,
+		ParseBatch:    parseBatch,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
 			provider.StripRepetition(),
@@ -101,7 +103,23 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	}
 }
 
+func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
+	return buildPromptFromBatch(p, ctx)
+}
+
 func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+	return buildPromptFromBatch(p, &provider.BatchContext{
+		Input:        ctx.Input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+		EndLineInc:   ctx.EndLineInc,
+	})
+}
+
+func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
 	input := ctx.Input
 
 	userExcerpt := buildUserExcerpt(input.Current, ctx)
@@ -139,7 +157,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	}
 }
 
-func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.Context) string {
+func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.BatchContext) string {
 	var promptBuilder strings.Builder
 	lines := current.File.Lines
 
@@ -332,9 +350,51 @@ func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, r
 	return promptBuilder.String()
 }
 
+func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if resp, done := provider.RejectEmptyBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.StripRepetitionBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.ValidateAnchorPositionBatch(p, ctx, result, 0.25); done {
+		return resp, true
+	}
+	if resp, done := provider.AnchorTruncationBatch(p, ctx, result, 0.75); done {
+		return resp, true
+	}
+	return parseBatchCompletion(p, ctx, result)
+}
+
 func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+	input := ctx.Input
+	if ctx.Request != nil && input.Current.File.Lines == nil {
+		input.Trigger = ctx.Request.Source
+		input.Current.Workspace.Path = ctx.Request.WorkspacePath
+		input.Current.Workspace.ID = ctx.Request.WorkspaceID
+		input.Current.File.Path = ctx.Request.FilePath
+		input.Current.File.Lines = ctx.Request.Lines
+		input.Current.File.Version = ctx.Request.Version
+		input.Current.Cursor.Row = ctx.Request.CursorRow
+		input.Current.Cursor.Col = ctx.Request.CursorCol
+		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
+		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
+	}
+	return parseBatchCompletion(p, &provider.BatchContext{
+		Input:        input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+		EndLineInc:   ctx.EndLineInc,
+		Prefill:      ctx.Prefill,
+	}, ctx.Result)
+}
+
+func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	completionText := result.Text
+	lines := ctx.Input.Current.File.Lines
 
 	content := strings.ReplaceAll(completionText, "<|user_cursor_is_here|>", "")
 
@@ -343,7 +403,7 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 
 	startIdx := strings.Index(content, startMarker)
 	if startIdx == -1 {
-		return parseSimpleCompletion(p, ctx)
+		return parseSimpleBatchCompletion(p, ctx, result)
 	}
 
 	content = content[startIdx:]
@@ -364,7 +424,7 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 
 	editableStart := ctx.WindowStart
 	editableEnd := ctx.WindowEnd
-	oldLines := req.Lines[editableStart:editableEnd]
+	oldLines := lines[editableStart:editableEnd]
 	oldText := strings.Join(oldLines, "\n")
 
 	if newText == oldText {
@@ -378,25 +438,25 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 		endLineInc = min(editableStart+len(newLines), editableEnd)
 	}
 
-	return p.BuildCompletion(ctx, editableStart+1, endLineInc, newLines)
+	return p.BuildBatchCompletion(ctx, editableStart+1, endLineInc, newLines)
 }
 
-func parseSimpleCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+func parseSimpleBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	completionText := result.Text
+	current := ctx.Input.Current
 
 	completionLines := strings.Split(completionText, "\n")
 	if len(completionLines) == 0 {
 		return p.EmptyResponse(), true
 	}
 
-	cursorRow := req.CursorRow
-	cursorCol := req.CursorCol
+	cursorRow := current.Cursor.Row
+	cursorCol := current.Cursor.Col
 
 	var resultLines []string
 
-	if cursorRow <= len(req.Lines) {
-		currentLine := req.Lines[cursorRow-1]
+	if cursorRow <= len(current.File.Lines) {
+		currentLine := current.File.Lines[cursorRow-1]
 		beforeCursor := ""
 		if cursorCol <= len(currentLine) {
 			beforeCursor = currentLine[:cursorCol]
@@ -415,5 +475,5 @@ func parseSimpleCompletion(p *provider.Provider, ctx *provider.Context) (*types.
 		endLine = ctx.EndLineInc
 	}
 
-	return p.BuildCompletion(ctx, cursorRow, endLine, resultLines)
+	return p.BuildBatchCompletion(ctx, cursorRow, endLine, resultLines)
 }

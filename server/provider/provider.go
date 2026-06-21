@@ -7,6 +7,7 @@ import (
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/types"
+	"cursortab/utils"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,6 +47,22 @@ type Validator func(p *Provider, ctx *Context, firstLine string) error
 
 // DiffHistoryBuilder processes multi-file diff history into a string for the prompt
 type DiffHistoryBuilder func(history []*types.FileDiffHistory) string
+
+type BatchBuilder func(p *Provider, ctx *BatchContext) *openai.CompletionRequest
+type BatchParser func(p *Provider, ctx *BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool)
+
+type BatchContext struct {
+	Input         ctx.CompletionInput
+	TrimmedLines  []string
+	WindowStart   int
+	WindowEnd     int
+	CursorLine    int
+	MaxLines      int
+	EndLineInc    int
+	Prefill       string
+	EditableStart int
+	EditableEnd   int
+}
 
 // Context carries data through the completion pipeline
 type Context struct {
@@ -168,11 +185,12 @@ type Provider struct {
 	Preprocessors                 []Preprocessor
 	PromptBuilder                 PromptBuilder
 	Postprocessors                []Postprocessor
+	BuildBatch                    BatchBuilder
+	ParseBatch                    BatchParser
 	Validators                    []Validator        // Validators run on first line during streaming
 	StopTokens                    []string           // Stop tokens for streaming (provider-specific)
 	DiffBuilder                   DiffHistoryBuilder // Processes diff history for the prompt
 	BuildContextRequirements      ContextRequirementsBuilder
-	ContextLimits                 engine.ContextLimits
 }
 
 type ContextRequirementsBuilder func(kind ctx.RequestKind) ctx.ContextRequirements
@@ -225,11 +243,6 @@ func (p *Provider) ContextRequirements(kind ctx.RequestKind) ctx.ContextRequirem
 	return p.BuildContextRequirements(kind)
 }
 
-// GetContextLimits implements engine.Provider
-func (p *Provider) GetContextLimits() engine.ContextLimits {
-	return p.ContextLimits.WithDefaults()
-}
-
 // SetHTTPTransport forwards the transport override to the underlying client
 // if it supports it. Used by the eval harness.
 func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
@@ -239,27 +252,18 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 }
 
 // GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	return p.GetCompletionInput(ctx, completionInputFromRequest(req))
-}
-
-func (p *Provider) GetCompletionInput(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+func (p *Provider) GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	defer logger.Trace("Provider.GetCompletion")()
-	pctx := &Context{
-		Input:   input,
-		Request: completionRequestFromInput(input),
+	if p.BuildBatch == nil || p.ParseBatch == nil {
+		return p.EmptyResponse(), fmt.Errorf("%s: batch flow is not configured", p.Name)
 	}
 
-	for _, pre := range p.Preprocessors {
-		if err := pre(p, pctx); err != nil {
-			if errors.Is(err, ErrSkipCompletion) {
-				return p.EmptyResponse(), nil
-			}
-			return nil, fmt.Errorf("%s: %w", p.Name, err)
-		}
+	pctx, skip := p.prepareBatch(input)
+	if skip {
+		return p.EmptyResponse(), nil
 	}
 
-	completionReq := p.PromptBuilder(p, pctx)
+	completionReq := p.BuildBatch(p, pctx)
 	p.logRequest(completionReq, pctx.MaxLines)
 
 	resp, err := p.Client.DoCompletion(ctx, completionReq)
@@ -272,19 +276,60 @@ func (p *Provider) GetCompletionInput(ctx context.Context, input ctx.CompletionI
 		result.Text = resp.Choices[0].Text
 		result.FinishReason = resp.Choices[0].FinishReason
 	}
-	pctx.Result = result
 	if pctx.Prefill != "" {
-		pctx.Result.Text = pctx.Prefill + pctx.Result.Text
+		result.Text = pctx.Prefill + result.Text
 	}
 	p.logResponse(result)
 
-	for _, post := range p.Postprocessors {
-		if resp, done := post(p, pctx); done {
-			return resp, nil
-		}
+	if resp, done := p.ParseBatch(p, pctx, result); done {
+		return resp, nil
 	}
 
 	return p.EmptyResponse(), nil
+}
+
+func (p *Provider) prepareBatch(input ctx.CompletionInput) (*BatchContext, bool) {
+	current := input.Current
+	if !p.CompleteWithTextRightOfCursor && current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
+		currentLine := current.File.Lines[current.Cursor.Row-1]
+		if current.Cursor.Col < len(currentLine) {
+			logger.Debug("%s: skipping, text after cursor", p.Name)
+			return nil, true
+		}
+	}
+
+	pctx := &BatchContext{Input: input}
+	cursorLine := current.Cursor.Row - 1
+	var syntaxRanges []*types.LineRange
+	if material, ok := ctx.Find[ctx.Treesitter](input.Context); ok && material.Data != nil {
+		syntaxRanges = material.Data.SyntaxRanges
+	}
+	contextSize := p.Config.ProviderContextSize
+	if contextSize == 0 {
+		contextSize = p.Config.ProviderMaxTokens
+	}
+	trimmedLines, newCursorLine, _, trimOffset, didTrim := utils.TrimContentAroundCursor(
+		current.File.Lines,
+		cursorLine,
+		current.Cursor.Col,
+		contextSize,
+		syntaxRanges,
+	)
+	pctx.TrimmedLines = trimmedLines
+	pctx.CursorLine = newCursorLine
+	pctx.WindowStart = trimOffset
+	pctx.WindowEnd = trimOffset + len(trimmedLines)
+
+	if didTrim {
+		pctx.MaxLines = len(trimmedLines)
+	}
+	if current.View.ViewportHeight > 0 {
+		if pctx.MaxLines == 0 || current.View.ViewportHeight < pctx.MaxLines {
+			pctx.MaxLines = current.View.ViewportHeight
+		}
+	}
+
+	return pctx, false
 }
 
 // EmptyResponse returns an empty completion response
@@ -302,6 +347,24 @@ func (p *Provider) BuildCompletion(ctx *Context, startLine, endLineInc int, line
 	if currentLines == nil && ctx.Request != nil {
 		currentLines = ctx.Request.Lines
 	}
+	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
+		return p.EmptyResponse(), true
+	}
+
+	completion := &types.Completion{
+		StartLine:  startLine,
+		EndLineInc: endLineInc,
+		Lines:      lines,
+	}
+
+	return &types.CompletionResponse{
+		Completions:  []*types.Completion{completion},
+		CursorTarget: nil,
+	}, true
+}
+
+func (p *Provider) BuildBatchCompletion(ctx *BatchContext, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
+	currentLines := ctx.Input.Current.File.Lines
 	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
 		return p.EmptyResponse(), true
 	}

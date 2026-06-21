@@ -79,6 +79,8 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		}),
 		DiffBuilder:   provider.FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n"),
 		PromptBuilder: buildPrompt,
+		BuildBatch:    buildBatch,
+		ParseBatch:    parseBatch,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
 			provider.StripRepetition(),
@@ -93,7 +95,26 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	}
 }
 
+func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
+	return buildPromptFromBatch(p, ctx, func(prefill string) {
+		ctx.Prefill = prefill
+	})
+}
+
 func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+	return buildPromptFromBatch(p, &provider.BatchContext{
+		Input:        ctx.Input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+	}, func(prefill string) {
+		ctx.Prefill = prefill
+	})
+}
+
+func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setPrefill func(string)) *openai.CompletionRequest {
 	input := ctx.Input
 	current := input.Current
 	lines := current.File.Lines
@@ -210,7 +231,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	}
 	changesAboveCursor := hasRecentInsertionAboveCursor(actions, cursorLineInWindow, ctx.WindowStart)
 	prefill := computePrefill(codeBlock, relativeCursor, changesAboveCursor)
-	ctx.Prefill = prefill
+	setPrefill(prefill)
 	promptBuilder.WriteString(prefill)
 
 	return &openai.CompletionRequest{
@@ -223,6 +244,22 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 		N:           1,
 		Echo:        false,
 	}
+}
+
+func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if resp, done := provider.RejectEmptyBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.StripRepetitionBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.ValidateAnchorPositionBatch(p, ctx, result, 0.25); done {
+		return resp, true
+	}
+	if resp, done := provider.AnchorTruncationBatch(p, ctx, result, 0.75); done {
+		return resp, true
+	}
+	return parseBatchCompletion(p, ctx, result)
 }
 
 func computeRelativeCursor(lines []string, cursorLine, cursorCol int) int {
@@ -386,8 +423,34 @@ func formatGitDiffSection(gd *types.GitDiffContext) string {
 }
 
 func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+	input := ctx.Input
+	if ctx.Request != nil && input.Current.File.Lines == nil {
+		input.Trigger = ctx.Request.Source
+		input.Current.Workspace.Path = ctx.Request.WorkspacePath
+		input.Current.Workspace.ID = ctx.Request.WorkspaceID
+		input.Current.File.Path = ctx.Request.FilePath
+		input.Current.File.Lines = ctx.Request.Lines
+		input.Current.File.Version = ctx.Request.Version
+		input.Current.Cursor.Row = ctx.Request.CursorRow
+		input.Current.Cursor.Col = ctx.Request.CursorCol
+		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
+		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
+	}
+	return parseBatchCompletion(p, &provider.BatchContext{
+		Input:        input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+		EndLineInc:   ctx.EndLineInc,
+		Prefill:      ctx.Prefill,
+	}, ctx.Result)
+}
+
+func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	completionText := result.Text
+	lines := ctx.Input.Current.File.Lines
 
 	completionText = strings.TrimSuffix(completionText, "<|file_sep|>")
 	completionText = strings.TrimSuffix(completionText, "<|endoftext|>")
@@ -398,14 +461,14 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 	if windowStart < 0 {
 		windowStart = 0
 	}
-	if windowEnd > len(req.Lines) {
-		windowEnd = len(req.Lines)
+	if windowEnd > len(lines) {
+		windowEnd = len(lines)
 	}
-	if windowStart >= windowEnd || windowStart >= len(req.Lines) {
+	if windowStart >= windowEnd || windowStart >= len(lines) {
 		return p.EmptyResponse(), true
 	}
 
-	oldLines := req.Lines[windowStart:windowEnd]
+	oldLines := lines[windowStart:windowEnd]
 	oldText := strings.TrimRight(strings.Join(oldLines, "\n"), " \t\n\r")
 
 	if completionText == oldText {
@@ -419,5 +482,5 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 		endLineInc = min(windowStart+len(newLines), windowEnd)
 	}
 
-	return p.BuildCompletion(ctx, windowStart+1, endLineInc, newLines)
+	return p.BuildBatchCompletion(ctx, windowStart+1, endLineInc, newLines)
 }

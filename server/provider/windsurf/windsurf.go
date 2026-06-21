@@ -315,29 +315,9 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 	p.httpClient.Transport = rt
 }
 
-func (p *Provider) GetContextLimits() engine.ContextLimits {
-	return engine.ContextLimits{
-		MaxUserActions:     -1,
-		FileChunkLines:     -1,
-		MaxRecentSnapshots: -1,
-		MaxDiffBytes:       -1,
-		MaxChangedSymbols:  -1,
-		MaxSiblings:        -1,
-		MaxInputLines:      -1,
-		MaxInputBytes:      -1,
-	}
-}
-
-func (p *Provider) GetCompletion(reqCtx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	return p.getCompletion(reqCtx, currentSnapshotFromRequest(req))
-}
-
-func (p *Provider) GetCompletionInput(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
-	return p.getCompletion(reqCtx, input.Current)
-}
-
-func (p *Provider) getCompletion(reqCtx context.Context, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
+func (p *Provider) GetCompletion(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	defer logger.Trace("windsurf.GetCompletion")()
+	current := input.Current
 
 	info, err := p.buffer.GetWindsurfInfo()
 	if err != nil {
@@ -391,31 +371,6 @@ func (p *Provider) getCompletion(reqCtx context.Context, current ctx.CurrentSnap
 	}
 
 	return p.convertResponse(&wsResp, current)
-}
-
-func currentSnapshotFromRequest(req *types.CompletionRequest) ctx.CurrentSnapshot {
-	if req == nil {
-		return ctx.CurrentSnapshot{}
-	}
-	return ctx.CurrentSnapshot{
-		Workspace: ctx.WorkspaceRef{
-			Path: req.WorkspacePath,
-			ID:   req.WorkspaceID,
-		},
-		File: ctx.FileSnapshot{
-			Path:    req.FilePath,
-			Lines:   req.Lines,
-			Version: req.Version,
-		},
-		Cursor: ctx.CursorPosition{
-			Row: req.CursorRow,
-			Col: req.CursorCol,
-		},
-		View: ctx.ViewConstraints{
-			ViewportHeight:  req.ViewportHeight,
-			MaxVisibleLines: req.MaxVisibleLines,
-		},
-	}
 }
 
 func buildWindsurfRequest(info *buffer.WindsurfInfo, current ctx.CurrentSnapshot, reqID int) windsurfRequest {

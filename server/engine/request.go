@@ -12,10 +12,6 @@ import (
 	"cursortab/utils"
 )
 
-type completionInputProvider interface {
-	GetCompletionInput(context.Context, ctx.CompletionInput) (*types.CompletionResponse, error)
-}
-
 type lineStreamInputProvider interface {
 	LineStreamProvider
 	PrepareLineStreamInput(context.Context, ctx.CompletionInput) (LineStream, any, error)
@@ -128,7 +124,17 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		kind:   ctx.RequestCompletion,
 		source: source,
 	})
-	req := e.buildCompletionRequest(input)
+
+	var err error
+	input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
+	if err != nil {
+		select {
+		case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
+		case <-e.mainCtx.Done():
+		}
+		return
+	}
+
 	startBatch := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
 		e.state = statePendingCompletion
 		reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
@@ -150,54 +156,23 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		}()
 	}
 
-	if inputProvider, ok := e.provider.(completionInputProvider); ok {
-		var err error
-		input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
-		if err != nil {
-			select {
-			case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
-			case <-e.mainCtx.Done():
-			}
-			return
-		}
-
-		if streamProvider, ok := e.provider.(LineStreamProvider); ok {
-			switch streamProvider.GetStreamingType() {
-			case StreamingTypeLines:
-				if lineProvider, ok := e.provider.(lineStreamInputProvider); ok {
-					e.requestStreamingCompletionInput(lineProvider, req, input)
-					return
-				}
-			case StreamingTypeTokens:
-				if tokenProvider, ok := e.provider.(tokenStreamInputProvider); ok {
-					e.requestTokenStreamingCompletionInput(tokenProvider, req, input)
-					return
-				}
-			}
-		}
-
-		startBatch(func(ctx context.Context) (*types.CompletionResponse, error) {
-			return inputProvider.GetCompletionInput(ctx, input)
-		})
-		return
-	}
-
-	// Check if provider supports streaming
 	if streamProvider, ok := e.provider.(LineStreamProvider); ok {
 		switch streamProvider.GetStreamingType() {
 		case StreamingTypeLines:
-			e.requestStreamingCompletion(streamProvider, req)
-			return
+			if lineProvider, ok := e.provider.(lineStreamInputProvider); ok {
+				e.requestStreamingCompletionInput(lineProvider, e.buildCompletionRequest(input), input)
+				return
+			}
 		case StreamingTypeTokens:
-			if tokenProvider, ok := e.provider.(TokenStreamProvider); ok {
-				e.requestTokenStreamingCompletion(tokenProvider, req)
+			if tokenProvider, ok := e.provider.(tokenStreamInputProvider); ok {
+				e.requestTokenStreamingCompletionInput(tokenProvider, e.buildCompletionRequest(input), input)
 				return
 			}
 		}
 	}
 
 	startBatch(func(ctx context.Context) (*types.CompletionResponse, error) {
-		return e.provider.GetCompletion(ctx, req)
+		return e.provider.GetCompletion(ctx, input)
 	})
 }
 
@@ -253,7 +228,16 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 		cursorCol:         overrideCol,
 		hasCursorOverride: true,
 	})
-	req := e.buildCompletionRequest(input)
+	var err error
+	input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
+	if err != nil {
+		select {
+		case e.eventChan <- Event{Type: EventPrefetchError, Data: err}:
+		case <-e.mainCtx.Done():
+		}
+		return
+	}
+
 	startPrefetch := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
 		go func() {
 			defer cancel()
@@ -272,25 +256,8 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 		}()
 	}
 
-	if inputProvider, ok := e.provider.(completionInputProvider); ok {
-		var err error
-		input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
-		if err != nil {
-			select {
-			case e.eventChan <- Event{Type: EventPrefetchError, Data: err}:
-			case <-e.mainCtx.Done():
-			}
-			return
-		}
-
-		startPrefetch(func(ctx context.Context) (*types.CompletionResponse, error) {
-			return inputProvider.GetCompletionInput(ctx, input)
-		})
-		return
-	}
-
 	startPrefetch(func(ctx context.Context) (*types.CompletionResponse, error) {
-		return e.provider.GetCompletion(ctx, req)
+		return e.provider.GetCompletion(ctx, input)
 	})
 }
 

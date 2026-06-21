@@ -283,7 +283,7 @@ type mockProvider struct {
 	completionResp  *types.CompletionResponse
 	completionErr   error
 	completionCalls int
-	lastRequest     *types.CompletionRequest
+	lastInput       ctx.CompletionInput
 }
 
 func newMockProvider() *mockProvider {
@@ -316,15 +316,11 @@ func (p *mockProvider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequire
 	return nil
 }
 
-func (p *mockProvider) GetContextLimits() ContextLimits {
-	return DefaultContextLimits()
-}
-
-func (p *mockProvider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+func (p *mockProvider) GetCompletion(_ context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.completionCalls++
-	p.lastRequest = req
+	p.lastInput = input
 	if p.completionErr != nil {
 		return nil, p.completionErr
 	}

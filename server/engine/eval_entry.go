@@ -77,19 +77,13 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 		kind:   sourcectx.RequestEval,
 		source: types.CompletionSourceTyping,
 	})
-	req := e.buildCompletionRequest(input)
 
 	start := time.Now()
-	var resp *types.CompletionResponse
-	var err error
-	if inputProvider, ok := e.provider.(completionInputProvider); ok {
-		input, err = e.collectCompletionInput(ctx, input, sourceInput)
-		if err == nil {
-			resp, err = inputProvider.GetCompletionInput(ctx, input)
-		}
-	} else {
-		resp, err = e.provider.GetCompletion(ctx, req)
+	input, err := e.collectCompletionInput(ctx, input, sourceInput)
+	if err != nil {
+		return result, fmt.Errorf("context: %w", err)
 	}
+	resp, err := e.provider.GetCompletion(ctx, input)
 	result.ProviderLatency = time.Since(start)
 	if err != nil {
 		return result, fmt.Errorf("provider: %w", err)

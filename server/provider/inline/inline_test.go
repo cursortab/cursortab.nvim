@@ -9,6 +9,40 @@ import (
 	"testing"
 )
 
+func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
+	input := ctx.Input
+	if ctx.Request != nil {
+		input.Trigger = ctx.Request.Source
+		input.Current.Workspace.Path = ctx.Request.WorkspacePath
+		input.Current.Workspace.ID = ctx.Request.WorkspaceID
+		input.Current.File.Path = ctx.Request.FilePath
+		input.Current.File.Lines = ctx.Request.Lines
+		input.Current.File.Version = ctx.Request.Version
+		input.Current.Cursor.Row = ctx.Request.CursorRow
+		input.Current.Cursor.Col = ctx.Request.CursorCol
+		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
+		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
+	}
+	return &provider.BatchContext{
+		Input:        input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+		EndLineInc:   ctx.EndLineInc,
+		Prefill:      ctx.Prefill,
+	}
+}
+
+func buildPromptForTest(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+	return buildBatch(p, batchContextFromContext(ctx))
+}
+
+func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
+	return parseBatch(p, batchContextFromContext(ctx), ctx.Result)
+}
+
 func TestBuildPrompt_EmptyLines(t *testing.T) {
 	config := &types.ProviderConfig{
 		ProviderModel:       "test-model",
@@ -24,7 +58,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "", req.Prompt, "prompt should be empty")
 	assert.Equal(t, "test-model", req.Model, "model")
@@ -48,7 +82,7 @@ func TestBuildPrompt_SingleLine(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "hello", req.Prompt, "prompt should include text before cursor")
 }
@@ -69,7 +103,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 		CursorLine:   2,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	expected := "line 1\nline 2\nline"
 	assert.Equal(t, expected, req.Prompt, "prompt should include lines before and partial current line")
@@ -91,7 +125,7 @@ func TestBuildPrompt_CursorBeyondLineLength(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "short", req.Prompt, "prompt should include entire line when cursor is beyond")
 }
@@ -168,7 +202,7 @@ func TestBuildPrompt_StripsCursorLineTrailingWhitespace(t *testing.T) {
 		CursorLine: 1,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	// Prompt should NOT end with "    " (trailing whitespace)
 	// It should end with the line before cursor (no whitespace-only suffix)

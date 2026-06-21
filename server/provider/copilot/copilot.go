@@ -118,32 +118,10 @@ func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirement
 	return nil
 }
 
-// GetContextLimits implements engine.Provider.
-// Copilot delegates all context gathering to its LSP server.
-func (p *Provider) GetContextLimits() engine.ContextLimits {
-	return engine.ContextLimits{
-		MaxUserActions:     -1,
-		FileChunkLines:     -1,
-		MaxRecentSnapshots: -1,
-		MaxDiffBytes:       -1,
-		MaxChangedSymbols:  -1,
-		MaxSiblings:        -1,
-		MaxInputLines:      -1,
-		MaxInputBytes:      -1,
-	}
-}
-
 // GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(reqCtx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	return p.getCompletion(reqCtx, currentSnapshotFromRequest(req))
-}
-
-func (p *Provider) GetCompletionInput(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
-	return p.getCompletion(reqCtx, input.Current)
-}
-
-func (p *Provider) getCompletion(reqCtx context.Context, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
+func (p *Provider) GetCompletion(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	defer logger.Trace("copilot.GetCompletion")()
+	current := input.Current
 
 	// Check if Copilot client is available
 	clientInfo, err := p.buffer.GetCopilotClient()
@@ -205,31 +183,6 @@ func (p *Provider) getCompletion(reqCtx context.Context, current ctx.CurrentSnap
 
 		p.logResponse(result.Edits)
 		return p.convertEdits(result.Edits, current)
-	}
-}
-
-func currentSnapshotFromRequest(req *types.CompletionRequest) ctx.CurrentSnapshot {
-	if req == nil {
-		return ctx.CurrentSnapshot{}
-	}
-	return ctx.CurrentSnapshot{
-		Workspace: ctx.WorkspaceRef{
-			Path: req.WorkspacePath,
-			ID:   req.WorkspaceID,
-		},
-		File: ctx.FileSnapshot{
-			Path:    req.FilePath,
-			Lines:   req.Lines,
-			Version: req.Version,
-		},
-		Cursor: ctx.CursorPosition{
-			Row: req.CursorRow,
-			Col: req.CursorCol,
-		},
-		View: ctx.ViewConstraints{
-			ViewportHeight:  req.ViewportHeight,
-			MaxVisibleLines: req.MaxVisibleLines,
-		},
 	}
 }
 

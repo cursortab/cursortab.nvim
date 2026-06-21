@@ -53,8 +53,7 @@ type Buffer interface {
 type Provider interface {
 	CanDo() ProviderCanDo
 	ContextRequirements(kind ctx.RequestKind) ctx.ContextRequirements
-	GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error)
-	GetContextLimits() ContextLimits
+	GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error)
 }
 
 type ProviderCanDo struct {
@@ -62,17 +61,16 @@ type ProviderCanDo struct {
 	PrefetchAfterCursorTarget     bool
 }
 
-// ContextLimits controls how much context is gathered and sent per provider.
-// Zero values use defaults. -1 means the feature is disabled.
+// ContextLimits controls engine-owned defaults for collected context.
 type ContextLimits struct {
-	MaxUserActions     int // Ring buffer size for user action tracking (default: 16)
-	FileChunkLines     int // Lines per recent file snapshot (default: 30)
-	MaxRecentSnapshots int // Number of recent file snapshots (default: 3, -1 = disabled)
-	MaxDiffBytes       int // Git diff byte threshold before switching to symbols (default: 4096)
-	MaxChangedSymbols  int // Max symbols extracted from large diffs (default: 50)
-	MaxSiblings        int // Max treesitter sibling nodes (default: 50)
-	MaxInputLines      int // Input line limit for hosted APIs (default: 50000)
-	MaxInputBytes      int // Input byte limit for hosted APIs (default: 10_000_000)
+	MaxUserActions     int // Ring buffer size for user action tracking.
+	FileChunkLines     int // Lines per recent file snapshot.
+	MaxRecentSnapshots int // Number of recent file snapshots.
+	MaxDiffBytes       int // Git diff byte threshold before switching to symbols.
+	MaxChangedSymbols  int // Max symbols extracted from large diffs.
+	MaxSiblings        int // Max treesitter sibling nodes.
+	MaxInputLines      int // Input line limit for hosted APIs.
+	MaxInputBytes      int // Input byte limit for hosted APIs.
 }
 
 // DefaultContextLimits returns the default context limits.

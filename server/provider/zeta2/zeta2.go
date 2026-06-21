@@ -102,12 +102,29 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		}),
 		DiffBuilder:   buildEditHistory,
 		PromptBuilder: buildPrompt,
+		BuildBatch:    buildBatch,
+		ParseBatch:    parseBatch,
 		Postprocessors: []provider.Postprocessor{
 			provider.RejectEmpty(),
 			provider.StripRepetition(),
 			parseCompletion,
 		},
 		StopTokens: []string{endMarker, strings.TrimSuffix(endMarker, "\n")},
+	}
+}
+
+func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
+	prompt := assembleBatchPrompt(p, ctx)
+
+	return &openai.CompletionRequest{
+		Model:       p.Config.ProviderModel,
+		Prompt:      prompt,
+		Temperature: p.Config.ProviderTemperature,
+		MaxTokens:   p.Config.ProviderMaxTokens,
+		TopK:        p.Config.ProviderTopK,
+		Stop:        p.StopTokens,
+		N:           1,
+		Echo:        false,
 	}
 }
 
@@ -137,6 +154,91 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 		N:           1,
 		Echo:        false,
 	}
+}
+
+func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) string {
+	trimmed := ctx.TrimmedLines
+	input := ctx.Input
+	current := input.Current
+	if len(trimmed) == 0 {
+		var b strings.Builder
+		b.WriteString(fimSuffix)
+		b.WriteString("\n")
+		b.WriteString(fimPrefix)
+		b.WriteString(fileMarker)
+		b.WriteString(current.File.Path)
+		b.WriteString("\n")
+		b.WriteString(currentMarker)
+		b.WriteString(cursorMarker)
+		b.WriteString("\n")
+		b.WriteString(separator)
+		b.WriteString(fimMiddle)
+		return b.String()
+	}
+
+	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(input.Context))
+	ctx.EditableStart = editableStart
+	ctx.EditableEnd = editableEnd
+
+	beforeLines := trimmed[:editableStart]
+	editLines := trimmed[editableStart:editableEnd]
+	suffixLines := trimmed[editableEnd:]
+
+	var b strings.Builder
+
+	b.WriteString(fimSuffix)
+	suffixText := ""
+	if len(suffixLines) > 0 {
+		suffixText = strings.Join(suffixLines, "\n")
+		b.WriteString(suffixText)
+	}
+	ensureTrailingNewline(&b, suffixText)
+
+	b.WriteString(fimPrefix)
+
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+		writeRecentFilesPseudoFiles(&b, recentFiles.Files)
+	}
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+		writeDiagnosticsPseudoFile(&b, diagnostics.Data)
+	}
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+		writeTreesitterPseudoFile(&b, treesitter.Data)
+	}
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+		writeGitDiffPseudoFile(&b, gitDiff.Data)
+	}
+
+	if editHistoryMaterial, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
+		editHistory := p.DiffBuilder(editHistoryMaterial.Files)
+		if editHistory != "" {
+			b.WriteString(fileMarker)
+			b.WriteString("edit_history\n")
+			b.WriteString(editHistory)
+			if !strings.HasSuffix(editHistory, "\n") {
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString(fileMarker)
+	b.WriteString(current.File.Path)
+	b.WriteString("\n")
+
+	if len(beforeLines) > 0 {
+		b.WriteString(strings.Join(beforeLines, "\n"))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(currentMarker)
+	editableText := formatEditableWithCursor(editLines, ctx.CursorLine-editableStart, current.Cursor.Col)
+	b.WriteString(editableText)
+	ensureTrailingNewline(&b, editableText)
+	b.WriteString(separator)
+	b.WriteString(fimMiddle)
+
+	return b.String()
 }
 
 // assemblePrompt builds the full SeedCoder FIM prompt in SPM order.
@@ -505,6 +607,16 @@ func buildEditHistory(history []*types.FileDiffHistory) string {
 	return b.String()
 }
 
+func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if resp, done := provider.RejectEmptyBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.StripRepetitionBatch(p, result); done {
+		return resp, true
+	}
+	return parseBatchCompletion(p, ctx, result)
+}
+
 // parseCompletion extracts the new editable region from the model output.
 // The raw text is expected to be the replacement content for the CURRENT
 // block, possibly terminated by ">>>>>>> UPDATED\n" or the literal
@@ -613,4 +725,36 @@ func buildCursorTarget(ctx *provider.Context, editableStart int, newLines []stri
 		ExpectedContent: expected,
 		ShouldRetrigger: true,
 	}
+}
+
+func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	raw := result.Text
+
+	raw = strings.TrimSuffix(raw, endMarker)
+	raw = strings.TrimSuffix(raw, strings.TrimSuffix(endMarker, "\n"))
+
+	if strings.HasPrefix(strings.TrimSpace(raw), noEditsMarker) {
+		return p.EmptyResponse(), true
+	}
+
+	raw = stripCursorMarker(raw, cursorMarker)
+
+	if raw == "" {
+		return p.EmptyResponse(), true
+	}
+
+	newLines := text.SplitLines(raw)
+	if len(newLines) == 0 {
+		return p.EmptyResponse(), true
+	}
+
+	editableStart := ctx.EditableStart
+	editableEnd := ctx.EditableEnd
+	if editableEnd == 0 {
+		editableStart, editableEnd = computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Input.Context))
+	}
+	startLine := ctx.WindowStart + editableStart + 1
+	endLineInc := ctx.WindowStart + editableEnd
+
+	return p.BuildBatchCompletion(ctx, startLine, endLineInc, newLines)
 }

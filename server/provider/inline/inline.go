@@ -25,22 +25,13 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Config:        config,
 		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
 		StreamingType: provider.StreamingNone,
-		Preprocessors: []provider.Preprocessor{
-			provider.SkipIfTextAfterCursor(),
-			provider.TrimContent(),
-		},
-		PromptBuilder: buildPrompt,
-		Postprocessors: []provider.Postprocessor{
-			provider.RejectEmpty(),
-			provider.StripRepetition(),
-			provider.RejectTruncated(),
-			parseCompletion,
-		},
-		StopTokens: []string{"\n"},
+		BuildBatch:    buildBatch,
+		ParseBatch:    parseBatch,
+		StopTokens:    []string{"\n"},
 	}
 }
 
-func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
 	var promptBuilder strings.Builder
 
 	if len(ctx.TrimmedLines) == 0 {
@@ -85,14 +76,23 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 	}
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if resp, done := provider.RejectEmptyBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.StripRepetitionBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.RejectTruncatedBatch(p, result); done {
+		return resp, true
+	}
 
-	currentLine := req.Lines[req.CursorRow-1]
-	cursorCol := min(req.CursorCol, len(currentLine))
+	current := ctx.Input.Current
+	completionText := result.Text
+	currentLine := current.File.Lines[current.Cursor.Row-1]
+	cursorCol := min(current.Cursor.Col, len(currentLine))
 	beforeCursor := strings.TrimRight(currentLine[:cursorCol], " \t")
 
 	newLine := beforeCursor + completionText
-	return p.BuildCompletion(ctx, req.CursorRow, req.CursorRow, []string{newLine})
+	return p.BuildBatchCompletion(ctx, current.Cursor.Row, current.Cursor.Row, []string{newLine})
 }

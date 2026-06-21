@@ -112,7 +112,7 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 }
 
 func (p *Provider) ContextRequirements(_ sourcectx.RequestKind) sourcectx.ContextRequirements {
-	limits := p.GetContextLimits()
+	limits := engine.DefaultContextLimits()
 	return sourcectx.ContextRequirements{
 		sourcectx.Diagnostics{},
 		sourcectx.Treesitter{MaxSiblings: limits.MaxSiblings},
@@ -126,11 +126,6 @@ func (p *Provider) ContextRequirements(_ sourcectx.RequestKind) sourcectx.Contex
 		},
 		sourcectx.EditHistory{},
 	}
-}
-
-// GetContextLimits implements engine.Provider
-func (p *Provider) GetContextLimits() engine.ContextLimits {
-	return engine.DefaultContextLimits()
 }
 
 // SetHTTPTransport forwards the transport override to the underlying client.
@@ -168,11 +163,7 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 }
 
 // GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	return p.GetCompletionInput(ctx, completionInputFromRequest(req))
-}
-
-func (p *Provider) GetCompletionInput(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
+func (p *Provider) GetCompletion(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
 	defer logger.Trace("mercuryapi.GetCompletion")()
 	current := input.Current
 	lines := current.File.Lines
@@ -274,34 +265,6 @@ func (p *Provider) GetCompletionInput(ctx context.Context, input sourcectx.Compl
 			Deletions: deletions,
 		},
 	}, nil
-}
-
-func completionInputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
-	if req == nil {
-		return sourcectx.CompletionInput{}
-	}
-	return sourcectx.CompletionInput{
-		Trigger: req.Source,
-		Current: sourcectx.CurrentSnapshot{
-			Workspace: sourcectx.WorkspaceRef{
-				Path: req.WorkspacePath,
-				ID:   req.WorkspaceID,
-			},
-			File: sourcectx.FileSnapshot{
-				Path:    req.FilePath,
-				Lines:   req.Lines,
-				Version: req.Version,
-			},
-			Cursor: sourcectx.CursorPosition{
-				Row: req.CursorRow,
-				Col: req.CursorCol,
-			},
-			View: sourcectx.ViewConstraints{
-				ViewportHeight:  req.ViewportHeight,
-				MaxVisibleLines: req.MaxVisibleLines,
-			},
-		},
-	}
 }
 
 func (p *Provider) logRequest(req *mercuryapi.Request, editableStart, editableEnd, contextStart, contextEnd int) {

@@ -724,10 +724,9 @@ func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	prov.mu.Lock()
-	req := prov.lastRequest
+	input := prov.lastInput
 	prov.mu.Unlock()
 
-	assert.NotNil(t, req, "prefetch request should be issued")
 	assert.Equal(t, []string{
 		"import numpy as np",
 		"import matplotlib.pyplot as plt",
@@ -741,7 +740,7 @@ func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
 		"",
 		"if __name__ == \"__main__\":",
 		"    pass",
-	}, req.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
+	}, input.Current.File.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
 }
 
 // TestAcceptLastStage_WaitsForInflightPrefetch tests that when accepting the last stage

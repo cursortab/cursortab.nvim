@@ -10,6 +10,32 @@ import (
 	"testing"
 )
 
+func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
+	input := ctx.Input
+	if ctx.Request != nil {
+		input.Trigger = ctx.Request.Source
+		input.Current.Workspace.Path = ctx.Request.WorkspacePath
+		input.Current.Workspace.ID = ctx.Request.WorkspaceID
+		input.Current.File.Path = ctx.Request.FilePath
+		input.Current.File.Lines = ctx.Request.Lines
+		input.Current.File.Version = ctx.Request.Version
+		input.Current.Cursor.Row = ctx.Request.CursorRow
+		input.Current.Cursor.Col = ctx.Request.CursorCol
+		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
+		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
+	}
+	return &provider.BatchContext{
+		Input:        input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+		EndLineInc:   ctx.EndLineInc,
+		Prefill:      ctx.Prefill,
+	}
+}
+
 func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 	current := sourcectx.CurrentSnapshot{
 		File: sourcectx.FileSnapshot{
@@ -21,7 +47,7 @@ func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 		Input: sourcectx.CompletionInput{Current: current},
 	}
 
-	result := buildUserExcerpt(current, ctx)
+	result := buildUserExcerpt(current, batchContextFromContext(ctx))
 
 	assert.True(t, strings.Contains(result, "```main.go"), "should have file path")
 	assert.True(t, strings.Contains(result, "<|start_of_file|>"), "should have start marker")
@@ -44,7 +70,7 @@ func TestBuildUserExcerpt_WithContent(t *testing.T) {
 		WindowEnd:   3,
 	}
 
-	result := buildUserExcerpt(current, ctx)
+	result := buildUserExcerpt(current, batchContextFromContext(ctx))
 
 	assert.True(t, strings.Contains(result, "func main() {"), "should have first line")
 	assert.True(t, strings.Contains(result, "<|user_cursor_is_here|>"), "should have cursor marker")
@@ -65,7 +91,7 @@ func TestBuildUserExcerpt_CursorAtEndOfLine(t *testing.T) {
 		WindowEnd:   1,
 	}
 
-	result := buildUserExcerpt(current, ctx)
+	result := buildUserExcerpt(current, batchContextFromContext(ctx))
 
 	assert.True(t, strings.Contains(result, "hello<|user_cursor_is_here|>"), "cursor at line end")
 }
@@ -238,7 +264,7 @@ func TestParseSimpleCompletion(t *testing.T) {
 		},
 	}
 
-	resp, ok := parseSimpleCompletion(p, ctx)
+	resp, ok := parseSimpleBatchCompletion(p, batchContextFromContext(ctx), ctx.Result)
 
 	assert.True(t, ok, "should succeed")
 	assert.NotNil(t, resp, "should have response")
@@ -263,7 +289,7 @@ func TestParseSimpleCompletion_MultiLine(t *testing.T) {
 		},
 	}
 
-	resp, ok := parseSimpleCompletion(p, ctx)
+	resp, ok := parseSimpleBatchCompletion(p, batchContextFromContext(ctx), ctx.Result)
 
 	assert.True(t, ok, "should succeed")
 	assert.Len(t, 1, resp.Completions, "completions count")

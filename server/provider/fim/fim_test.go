@@ -10,6 +10,40 @@ import (
 	"testing"
 )
 
+func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
+	input := ctx.Input
+	if ctx.Request != nil {
+		input.Trigger = ctx.Request.Source
+		input.Current.Workspace.Path = ctx.Request.WorkspacePath
+		input.Current.Workspace.ID = ctx.Request.WorkspaceID
+		input.Current.File.Path = ctx.Request.FilePath
+		input.Current.File.Lines = ctx.Request.Lines
+		input.Current.File.Version = ctx.Request.Version
+		input.Current.Cursor.Row = ctx.Request.CursorRow
+		input.Current.Cursor.Col = ctx.Request.CursorCol
+		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
+		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
+	}
+	return &provider.BatchContext{
+		Input:        input,
+		TrimmedLines: ctx.TrimmedLines,
+		WindowStart:  ctx.WindowStart,
+		WindowEnd:    ctx.WindowEnd,
+		CursorLine:   ctx.CursorLine,
+		MaxLines:     ctx.MaxLines,
+		EndLineInc:   ctx.EndLineInc,
+		Prefill:      ctx.Prefill,
+	}
+}
+
+func buildPromptForTest(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+	return buildBatch(p, batchContextFromContext(ctx))
+}
+
+func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
+	return parseBatch(p, batchContextFromContext(ctx), ctx.Result)
+}
+
 func TestFIMTokensFromConfig(t *testing.T) {
 	config := &types.ProviderConfig{
 		FIMTokens: &types.FIMTokenConfig{
@@ -42,7 +76,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "<PRE><SUF><MID>", req.Prompt, "empty prompt should have FIM tokens only")
 }
@@ -68,7 +102,7 @@ func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.True(t, strings.HasPrefix(req.Prompt, "<PRE>hello"), "prefix should have content before cursor")
 	assert.True(t, strings.Contains(req.Prompt, "<SUF> world"), "suffix should have content after cursor")
@@ -96,7 +130,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 		CursorLine:   1,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	// Should have line 1 before cursor, partial line 2 before cursor
 	// And rest of line 2 + line 3 after cursor
@@ -126,7 +160,7 @@ func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "<PRE>short<SUF><MID>"), "should handle cursor beyond line")
 }
@@ -223,7 +257,7 @@ func TestBuildPrompt_RepoContext(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "<|repo_name|>myproject\n"), "should have repo name")
 	assert.True(t, strings.Contains(req.Prompt, "<|file_sep|>utils.go\n"), "should have recent file")
@@ -259,7 +293,7 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.False(t, strings.Contains(req.Prompt, "repo_name"), "should NOT have repo context")
 	assert.False(t, strings.Contains(req.Prompt, "file_sep"), "should NOT have file_sep")
@@ -290,7 +324,7 @@ func TestBuildPrompt_RepoContextStopTokens(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.True(t, containsStr(req.Stop, "<|file_sep|>"), "stop tokens should include file_sep")
 	assert.True(t, containsStr(req.Stop, "<PRE>"), "stop tokens should include prefix")
@@ -319,7 +353,7 @@ func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "", req.Prompt, "empty prompt should be empty")
 	assert.Equal(t, "", req.Suffix, "empty suffix should be empty")
@@ -343,7 +377,7 @@ func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "hello", req.Prompt, "prompt should have text before cursor")
 	assert.Equal(t, " world", req.Suffix, "suffix should have text after cursor")
@@ -367,7 +401,7 @@ func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 		CursorLine:   1,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "line 1\nline", req.Prompt, "prompt should have lines before cursor")
 	assert.Equal(t, " 2\nline 3", req.Suffix, "suffix should have lines after cursor")
@@ -391,7 +425,7 @@ func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 		CursorLine:   0,
 	}
 
-	req := p.PromptBuilder(p, ctx)
+	req := buildPromptForTest(p, ctx)
 
 	assert.Equal(t, "short", req.Prompt, "prompt should have full line")
 	assert.Equal(t, "", req.Suffix, "suffix should be empty when cursor beyond line")

@@ -50,18 +50,8 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
 		StreamingType:                 provider.StreamingNone,
 		CompleteWithTextRightOfCursor: true,
-		Preprocessors: []provider.Preprocessor{
-			provider.TrimContent(),
-			setStreamContext(),
-		},
-		PromptBuilder: buildPrompt,
-		Postprocessors: []provider.Postprocessor{
-			provider.RejectEmpty(),
-			provider.StripRepetition(),
-			provider.DropLastLineIfTruncated(),
-			provider.RejectLeadingNewlineWithSuffix(),
-			parseCompletion,
-		},
+		BuildBatch:                    buildBatch,
+		ParseBatch:                    parseBatch,
 	}
 
 	if config.FIMTokens != nil && config.FIMTokens.FileSep != "" {
@@ -83,27 +73,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	return p
 }
 
-// setStreamContext configures streaming diff context for FIM.
-// The streamed lines are raw middle-fill text; this tells the engine how to
-// transform them into full replacement lines and what old lines to diff against.
-func setStreamContext() provider.Preprocessor {
-	return func(p *provider.Provider, ctx *provider.Context) error {
-		if len(ctx.TrimmedLines) == 0 || ctx.CursorLine >= len(ctx.TrimmedLines) {
-			return nil
-		}
-
-		currentLine := ctx.TrimmedLines[ctx.CursorLine]
-		cursorCol := min(ctx.Input.Current.Cursor.Col, len(currentLine))
-
-		ctx.StreamOldLines = ctx.TrimmedLines[ctx.CursorLine:]
-		ctx.StreamBaseOff = ctx.WindowStart + ctx.CursorLine
-		ctx.FirstLinePfx = currentLine[:cursorCol]
-		ctx.LastLineSfx = currentLine[cursorCol:]
-		return nil
-	}
-}
-
-func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
 	// Build prefix and suffix content (common to both modes)
 	var prefixContent strings.Builder
 	var suffixContent strings.Builder
@@ -175,7 +145,7 @@ func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.Completion
 }
 
 // buildRepoContext prepends cross-file context using repo-level FIM tokens.
-func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Context) {
+func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.BatchContext) {
 	input := ctx.Input
 	current := input.Current
 	fileSep := p.Config.FIMTokens.FileSep
@@ -250,24 +220,37 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Co
 	b.WriteString("\n")
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if resp, done := provider.RejectEmptyBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.StripRepetitionBatch(p, result); done {
+		return resp, true
+	}
+	if resp, done := provider.DropLastLineIfTruncatedBatch(p, ctx, result); done {
+		return resp, true
+	}
+	if resp, done := provider.RejectLeadingNewlineWithSuffixBatch(p, ctx, result); done {
+		return resp, true
+	}
+
+	completionText := result.Text
+	current := ctx.Input.Current
 
 	currentLine := ""
-	if req.CursorRow >= 1 && req.CursorRow <= len(req.Lines) {
-		currentLine = req.Lines[req.CursorRow-1]
+	if current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
+		currentLine = current.File.Lines[current.Cursor.Row-1]
 	}
-	cursorCol := min(req.CursorCol, len(currentLine))
+	cursorCol := min(current.Cursor.Col, len(currentLine))
 
 	// Build the suffix text (everything after cursor in the file) so we can
 	// detect when the model just regenerates it.
 	afterCursor := currentLine[cursorCol:]
 	var suffixBuilder strings.Builder
 	suffixBuilder.WriteString(afterCursor)
-	for i := req.CursorRow; i < len(req.Lines); i++ {
+	for i := current.Cursor.Row; i < len(current.File.Lines); i++ {
 		suffixBuilder.WriteString("\n")
-		suffixBuilder.WriteString(req.Lines[i])
+		suffixBuilder.WriteString(current.File.Lines[i])
 	}
 	suffix := suffixBuilder.String()
 
@@ -298,7 +281,7 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 	}
 
 	// FIM inserts content at cursor position - always replace only the current line
-	return p.BuildCompletion(ctx, req.CursorRow, req.CursorRow, resultLines)
+	return p.BuildBatchCompletion(ctx, current.Cursor.Row, current.Cursor.Row, resultLines)
 }
 
 // stripSuffixOverlap removes the longest suffix of completion that matches a

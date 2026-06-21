@@ -225,6 +225,14 @@ func RejectEmpty() Postprocessor {
 	}
 }
 
+func RejectEmptyBatch(p *Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if strings.TrimSpace(result.Text) == "" {
+		logger.Debug("%s: rejected, empty or whitespace-only", p.Name)
+		return p.EmptyResponse(), true
+	}
+	return nil, false
+}
+
 // RejectTruncated returns a postprocessor that rejects truncated completions
 func RejectTruncated() Postprocessor {
 	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
@@ -234,6 +242,14 @@ func RejectTruncated() Postprocessor {
 		}
 		return nil, false
 	}
+}
+
+func RejectTruncatedBatch(p *Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if result.FinishReason == "length" {
+		logger.Info("%s: rejected, truncated (finish_reason=length)", p.Name)
+		return p.EmptyResponse(), true
+	}
+	return nil, false
 }
 
 // DropLastLineIfTruncated returns a postprocessor that drops incomplete last line.
@@ -267,6 +283,33 @@ func DropLastLineIfTruncated() Postprocessor {
 	}
 }
 
+func DropLastLineIfTruncatedBatch(p *Provider, ctx *BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if result.FinishReason != "length" && !result.StoppedEarly {
+		return nil, false
+	}
+
+	lines := strings.Split(result.Text, "\n")
+	originalLineCount := len(lines)
+
+	if len(lines) <= 1 {
+		logger.Info("%s: rejected, truncated single line", p.Name)
+		return p.EmptyResponse(), true
+	}
+
+	lines = lines[:len(lines)-1]
+	result.Text = strings.Join(lines, "\n")
+
+	if strings.TrimSpace(result.Text) == "" {
+		logger.Info("%s: rejected, empty after dropping truncated line", p.Name)
+		return p.EmptyResponse(), true
+	}
+
+	ctx.EndLineInc = ctx.WindowStart + len(lines)
+	logger.Info("%s: truncated, dropped last line (%d -> %d lines)",
+		p.Name, originalLineCount, len(lines))
+	return nil, false
+}
+
 // StripRepetition detects when the model gets stuck in a repetition loop
 // and truncates the output at the first repeated block. A line is considered
 // repeated when 3 consecutive identical lines appear. The completion is
@@ -290,6 +333,25 @@ func StripRepetition() Postprocessor {
 		ctx.Result.Text = strings.Join(lines[:cutIdx], "\n")
 		return nil, false
 	}
+}
+
+func StripRepetitionBatch(p *Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	lines := strings.Split(result.Text, "\n")
+	cutIdx := -1
+	for i := 2; i < len(lines); i++ {
+		if lines[i] == lines[i-1] && lines[i] == lines[i-2] && strings.TrimSpace(lines[i]) != "" {
+			cutIdx = i - 2
+			break
+		}
+	}
+	if cutIdx < 0 {
+		return nil, false
+	}
+	if cutIdx == 0 {
+		return p.EmptyResponse(), true
+	}
+	result.Text = strings.Join(lines[:cutIdx], "\n")
+	return nil, false
 }
 
 // RejectLeadingNewlineWithSuffix rejects completions that start by inserting a
@@ -324,6 +386,33 @@ func RejectLeadingNewlineWithSuffix() Postprocessor {
 
 		return p.EmptyResponse(), true
 	}
+}
+
+func RejectLeadingNewlineWithSuffixBatch(p *Provider, ctx *BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	current := ctx.Input.Current
+	if current.Cursor.Row < 1 || current.Cursor.Row > len(current.File.Lines) {
+		return nil, false
+	}
+
+	currentLine := current.File.Lines[current.Cursor.Row-1]
+	cursorCol := min(current.Cursor.Col, len(currentLine))
+	atEOL := cursorCol >= len(strings.TrimRight(currentLine, " \t"))
+	if !atEOL || !strings.HasPrefix(result.Text, "\n") {
+		return nil, false
+	}
+
+	afterCursor := currentLine[cursorCol:]
+	var suffixBuilder strings.Builder
+	suffixBuilder.WriteString(afterCursor)
+	for i := current.Cursor.Row; i < len(current.File.Lines); i++ {
+		suffixBuilder.WriteString("\n")
+		suffixBuilder.WriteString(current.File.Lines[i])
+	}
+	if strings.TrimSpace(suffixBuilder.String()) == "" {
+		return nil, false
+	}
+
+	return p.EmptyResponse(), true
 }
 
 // AnchorTruncation returns a postprocessor that handles truncation with anchor matching.
@@ -369,6 +458,45 @@ func AnchorTruncation(threshold float64) Postprocessor {
 	}
 }
 
+func AnchorTruncationBatch(p *Provider, ctx *BatchContext, result *openai.StreamResult, threshold float64) (*types.CompletionResponse, bool) {
+	if result.FinishReason != "length" && !result.StoppedEarly {
+		return nil, false
+	}
+
+	finishReason := result.FinishReason
+	if result.StoppedEarly {
+		finishReason = "length"
+	}
+
+	newLines := strings.Split(result.Text, "\n")
+	originalLineCount := len(newLines)
+	oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:ctx.WindowEnd]
+
+	processedLines, endLineInc, shouldReject := handleTruncatedCompletionWithAnchor(
+		newLines, oldLines, finishReason, ctx.WindowStart, ctx.WindowEnd,
+	)
+	if shouldReject {
+		logger.Debug("%s: rejected, truncation handling failed", p.Name)
+		return p.EmptyResponse(), true
+	}
+
+	if len(oldLines) > MinLinesForAnchorValidation {
+		minAllowedLines := int(float64(len(oldLines)) * threshold)
+		if len(processedLines) < minAllowedLines {
+			logger.Debug("%s: rejected, too few lines (%d < %d min)",
+				p.Name, len(processedLines), minAllowedLines)
+			return p.EmptyResponse(), true
+		}
+	}
+
+	result.Text = strings.Join(processedLines, "\n")
+	ctx.EndLineInc = endLineInc
+
+	logger.Info("%s: truncated, replacing lines %d-%d (%d -> %d lines)",
+		p.Name, ctx.WindowStart+1, endLineInc, originalLineCount, len(processedLines))
+	return nil, false
+}
+
 // checkAnchorPosition validates that a first line anchors within acceptable range.
 // Returns (anchorIdx, maxAllowed, shouldReject).
 func checkAnchorPosition(firstLine string, oldLines []string, maxRatio float64) (int, int, bool) {
@@ -396,6 +524,21 @@ func ValidateAnchorPosition(maxAnchorRatio float64) Postprocessor {
 		}
 		return nil, false
 	}
+}
+
+func ValidateAnchorPositionBatch(p *Provider, ctx *BatchContext, result *openai.StreamResult, maxAnchorRatio float64) (*types.CompletionResponse, bool) {
+	newLines := strings.Split(result.Text, "\n")
+	if len(newLines) == 0 {
+		return nil, false
+	}
+	oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:ctx.WindowEnd]
+	anchorIdx, maxAllowed, reject := checkAnchorPosition(newLines[0], oldLines, maxAnchorRatio)
+	if reject {
+		logger.Debug("%s: rejected, first line anchors at %d (max allowed %d)",
+			p.Name, anchorIdx, maxAllowed)
+		return p.EmptyResponse(), true
+	}
+	return nil, false
 }
 
 // ValidateFirstLineAnchor returns a validator that checks the first streamed line anchors correctly.

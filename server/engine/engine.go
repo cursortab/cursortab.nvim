@@ -156,7 +156,7 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 		ctx:                    nil,
 		eventChan:              make(chan Event, 100),
 		config:                 config,
-		contextLimits:          provider.GetContextLimits(),
+		contextLimits:          DefaultContextLimits(),
 		idleTimer:              nil,
 		textChangeTimer:        nil,
 		mu:                     sync.RWMutex{},
@@ -399,10 +399,11 @@ func (e *Engine) isModeEnabled() bool {
 
 // recordUserAction adds an action to the ring buffer, evicting oldest if full
 func (e *Engine) recordUserAction(action *types.UserAction) {
-	if e.contextLimits.MaxUserActions < 0 {
+	maxActions := DefaultContextLimits().MaxUserActions
+	if maxActions <= 0 {
 		return
 	}
-	if len(e.userActions) >= e.contextLimits.MaxUserActions {
+	if len(e.userActions) >= maxActions {
 		e.userActions = e.userActions[1:] // Evict oldest
 	}
 	e.userActions = append(e.userActions, action)

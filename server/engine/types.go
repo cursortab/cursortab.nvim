@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cursortab/buffer"
+	"cursortab/ctx"
 	"cursortab/text"
 	"cursortab/types"
 )
@@ -48,8 +49,15 @@ type Buffer interface {
 // Provider defines the interface that all AI providers must implement.
 // Implemented by inline.Provider, sweep.Provider, zeta.Provider, zeta2.Provider.
 type Provider interface {
+	CanDo() ProviderCanDo
+	ContextRequirements(kind ctx.RequestKind) ctx.ContextRequirements
 	GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error)
 	GetContextLimits() ContextLimits
+}
+
+type ProviderCanDo struct {
+	CompleteWithTextRightOfCursor bool
+	PrefetchAfterCursorTarget     bool
 }
 
 // ContextLimits controls how much context is gathered and sent per provider.

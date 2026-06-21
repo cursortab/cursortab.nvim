@@ -82,10 +82,12 @@ const (
 // NewProvider creates a new Zeta2 provider (Zed's SeedCoder-8B model).
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	return &provider.Provider{
-		Name:          "zeta-2",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingLines,
+		Name:                          "zeta-2",
+		Config:                        config,
+		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		StreamingType:                 provider.StreamingLines,
+		CompleteWithTextRightOfCursor: true,
+		PrefetchAfterCursorTarget:     true,
 		Preprocessors: []provider.Preprocessor{
 			armCursorMarkerStripping(),
 			provider.TrimContent(),

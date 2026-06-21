@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"cursortab/buffer"
+	"cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/types"
@@ -104,6 +105,17 @@ func NewProvider(buf LSPBuffer) *Provider {
 		buffer:        buf,
 		pendingResult: make(chan *CopilotResult, 1),
 	}
+}
+
+func (p *Provider) CanDo() engine.ProviderCanDo {
+	return engine.ProviderCanDo{
+		CompleteWithTextRightOfCursor: true,
+		PrefetchAfterCursorTarget:     true,
+	}
+}
+
+func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+	return nil
 }
 
 // GetContextLimits implements engine.Provider.

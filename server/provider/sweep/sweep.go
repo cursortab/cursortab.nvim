@@ -59,10 +59,12 @@ const (
 
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	return &provider.Provider{
-		Name:          "sweep",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingLines,
+		Name:                          "sweep",
+		Config:                        config,
+		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		StreamingType:                 provider.StreamingLines,
+		CompleteWithTextRightOfCursor: true,
+		PrefetchAfterCursorTarget:     true,
 		Preprocessors: []provider.Preprocessor{
 			provider.TrimContent(),
 		},

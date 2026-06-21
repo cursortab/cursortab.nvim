@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"cursortab/client/openai"
+	"cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/types"
@@ -157,17 +158,30 @@ func (c *Context) ShouldSkipLine() bool {
 
 // Provider implements engine.Provider with a configurable pipeline
 type Provider struct {
-	Name           string
-	Config         *types.ProviderConfig
-	Client         Client
-	StreamingType  engine.StreamingType // Type of streaming (None, Lines, Tokens)
-	Preprocessors  []Preprocessor
-	PromptBuilder  PromptBuilder
-	Postprocessors []Postprocessor
-	Validators     []Validator        // Validators run on first line during streaming
-	StopTokens     []string           // Stop tokens for streaming (provider-specific)
-	DiffBuilder    DiffHistoryBuilder // Processes diff history for the prompt
-	ContextLimits  engine.ContextLimits
+	Name                          string
+	Config                        *types.ProviderConfig
+	Client                        Client
+	StreamingType                 engine.StreamingType // Type of streaming (None, Lines, Tokens)
+	CompleteWithTextRightOfCursor bool
+	PrefetchAfterCursorTarget     bool
+	Preprocessors                 []Preprocessor
+	PromptBuilder                 PromptBuilder
+	Postprocessors                []Postprocessor
+	Validators                    []Validator        // Validators run on first line during streaming
+	StopTokens                    []string           // Stop tokens for streaming (provider-specific)
+	DiffBuilder                   DiffHistoryBuilder // Processes diff history for the prompt
+	ContextLimits                 engine.ContextLimits
+}
+
+func (p *Provider) CanDo() engine.ProviderCanDo {
+	return engine.ProviderCanDo{
+		CompleteWithTextRightOfCursor: p.CompleteWithTextRightOfCursor,
+		PrefetchAfterCursorTarget:     p.PrefetchAfterCursorTarget,
+	}
+}
+
+func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+	return nil
 }
 
 // GetContextLimits implements engine.Provider

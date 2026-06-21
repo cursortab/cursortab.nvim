@@ -63,10 +63,12 @@ import (
 // NewProvider creates a new Zeta provider (Zed's native model)
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	return &provider.Provider{
-		Name:          "zeta",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingLines,
+		Name:                          "zeta",
+		Config:                        config,
+		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		StreamingType:                 provider.StreamingLines,
+		CompleteWithTextRightOfCursor: true,
+		PrefetchAfterCursorTarget:     true,
 		Preprocessors: []provider.Preprocessor{
 			provider.TrimContent(),
 		},

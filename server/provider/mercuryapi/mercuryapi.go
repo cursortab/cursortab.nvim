@@ -58,6 +58,7 @@ import (
 	"strings"
 
 	"cursortab/client/mercuryapi"
+	"cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
@@ -101,6 +102,17 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 		config: config,
 		client: mercuryapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
 	}
+}
+
+func (p *Provider) CanDo() engine.ProviderCanDo {
+	return engine.ProviderCanDo{
+		CompleteWithTextRightOfCursor: true,
+		PrefetchAfterCursorTarget:     true,
+	}
+}
+
+func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+	return nil
 }
 
 // GetContextLimits implements engine.Provider

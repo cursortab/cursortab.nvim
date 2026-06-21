@@ -44,10 +44,11 @@ import (
 // NewProvider creates a new fill-in-the-middle completion provider
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	p := &provider.Provider{
-		Name:          "fim",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingNone,
+		Name:                          "fim",
+		Config:                        config,
+		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		StreamingType:                 provider.StreamingNone,
+		CompleteWithTextRightOfCursor: true,
 		Preprocessors: []provider.Preprocessor{
 			provider.TrimContent(),
 			setStreamContext(),

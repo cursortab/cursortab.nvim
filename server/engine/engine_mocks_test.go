@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"cursortab/buffer"
+	"cursortab/ctx"
 	"cursortab/text"
 	"cursortab/types"
 	"sync"
@@ -280,6 +281,14 @@ func newMockProvider() *mockProvider {
 			}},
 		},
 	}
+}
+
+func (p *mockProvider) CanDo() ProviderCanDo {
+	return ProviderCanDo{}
+}
+
+func (p *mockProvider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+	return nil
 }
 
 func (p *mockProvider) GetContextLimits() ContextLimits {

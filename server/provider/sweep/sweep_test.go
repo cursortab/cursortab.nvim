@@ -16,7 +16,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{}},
@@ -38,7 +38,7 @@ func TestBuildPrompt_WithContent(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"line 1", "line 2"}},
@@ -60,7 +60,7 @@ func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File: sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"line 1"}},
@@ -94,9 +94,11 @@ func TestParseCompletion_NoChange(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines: []string{"line 1", "line 2"},
+	ctx := &provider.StreamState{
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2"}},
+			},
 		},
 		Result: &openai.StreamResult{
 			Text: "line 1\nline 2", // Same as original
@@ -117,9 +119,11 @@ func TestParseCompletion_WithChange(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines: []string{"line 1", "line 2"},
+	ctx := &provider.StreamState{
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2"}},
+			},
 		},
 		Result: &openai.StreamResult{
 			Text: "line 1\nmodified line 2",
@@ -141,9 +145,11 @@ func TestParseCompletion_StripsStopTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines: []string{"line 1"},
+	ctx := &provider.StreamState{
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Lines: []string{"line 1"}},
+			},
 		},
 		Result: &openai.StreamResult{
 			Text: "modified line 1<|file_sep|>",
@@ -164,9 +170,11 @@ func TestParseCompletion_InvalidWindow(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines: []string{"line 1"},
+	ctx := &provider.StreamState{
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Lines: []string{"line 1"}},
+			},
 		},
 		Result: &openai.StreamResult{
 			Text: "modified",

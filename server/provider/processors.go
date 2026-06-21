@@ -32,14 +32,14 @@ const (
 
 // Preprocessor processes the context before prompt building.
 // Return ErrSkipCompletion to skip without error, or another error to fail.
-type Preprocessor func(p *Provider, ctx *Context) error
+type Preprocessor func(p *Provider, ctx *StreamState) error
 
 // PromptBuilder builds the completion request from the context
-type PromptBuilder func(p *Provider, ctx *Context) *openai.CompletionRequest
+type PromptBuilder func(p *Provider, ctx *StreamState) *openai.CompletionRequest
 
 // Postprocessor processes the completion result.
 // Returns (response, done) - if done is true, the response is returned immediately.
-type Postprocessor func(p *Provider, ctx *Context) (*types.CompletionResponse, bool)
+type Postprocessor func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool)
 
 // ErrSkipCompletion is a sentinel error that preprocessors return to skip
 // completion without treating it as an error.
@@ -162,7 +162,7 @@ func DiffEntryToUnifiedDiff(entry *types.DiffEntry) string {
 
 // TrimContent returns a preprocessor that trims content around the cursor
 func TrimContent() Preprocessor {
-	return func(p *Provider, pctx *Context) error {
+	return func(p *Provider, pctx *StreamState) error {
 		current := pctx.Input.Current
 		cursorLine := current.Cursor.Row - 1
 		var syntaxRanges []*types.LineRange
@@ -199,7 +199,7 @@ func TrimContent() Preprocessor {
 
 // SkipIfTextAfterCursor returns a preprocessor that skips if there's text after cursor
 func SkipIfTextAfterCursor() Preprocessor {
-	return func(p *Provider, pctx *Context) error {
+	return func(p *Provider, pctx *StreamState) error {
 		current := pctx.Input.Current
 		if current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
 			currentLine := current.File.Lines[current.Cursor.Row-1]
@@ -216,7 +216,7 @@ func SkipIfTextAfterCursor() Preprocessor {
 
 // RejectEmpty returns a postprocessor that rejects empty completions
 func RejectEmpty() Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
 		if strings.TrimSpace(ctx.Result.Text) == "" {
 			logger.Debug("%s: rejected, empty or whitespace-only", p.Name)
 			return p.EmptyResponse(), true
@@ -235,7 +235,7 @@ func RejectEmptyBatch(p *Provider, result *openai.StreamResult) (*types.Completi
 
 // RejectTruncated returns a postprocessor that rejects truncated completions
 func RejectTruncated() Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
 		if ctx.Result.FinishReason == "length" {
 			logger.Info("%s: rejected, truncated (finish_reason=length)", p.Name)
 			return p.EmptyResponse(), true
@@ -255,7 +255,7 @@ func RejectTruncatedBatch(p *Provider, result *openai.StreamResult) (*types.Comp
 // DropLastLineIfTruncated returns a postprocessor that drops incomplete last line.
 // Sets ctx.EndLineInc for use by subsequent postprocessors.
 func DropLastLineIfTruncated() Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
 		if ctx.Result.FinishReason != "length" && !ctx.Result.StoppedEarly {
 			return nil, false
 		}
@@ -315,7 +315,7 @@ func DropLastLineIfTruncatedBatch(p *Provider, ctx *BatchContext, result *openai
 // repeated when 3 consecutive identical lines appear. The completion is
 // truncated to just before the repetition starts.
 func StripRepetition() Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
 		lines := strings.Split(ctx.Result.Text, "\n")
 		cutIdx := -1
 		for i := 2; i < len(lines); i++ {
@@ -360,14 +360,14 @@ func StripRepetitionBatch(p *Provider, result *openai.StreamResult) (*types.Comp
 // commonly means the model is hallucinating extra lines instead of filling the
 // gap at the cursor.
 func RejectLeadingNewlineWithSuffix() Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
-		req := ctx.Request
-		if req.CursorRow < 1 || req.CursorRow > len(req.Lines) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
+		current := ctx.Input.Current
+		if current.Cursor.Row < 1 || current.Cursor.Row > len(current.File.Lines) {
 			return nil, false
 		}
 
-		currentLine := req.Lines[req.CursorRow-1]
-		cursorCol := min(req.CursorCol, len(currentLine))
+		currentLine := current.File.Lines[current.Cursor.Row-1]
+		cursorCol := min(current.Cursor.Col, len(currentLine))
 		atEOL := cursorCol >= len(strings.TrimRight(currentLine, " \t"))
 		if !atEOL || !strings.HasPrefix(ctx.Result.Text, "\n") {
 			return nil, false
@@ -376,9 +376,9 @@ func RejectLeadingNewlineWithSuffix() Postprocessor {
 		afterCursor := currentLine[cursorCol:]
 		var suffixBuilder strings.Builder
 		suffixBuilder.WriteString(afterCursor)
-		for i := req.CursorRow; i < len(req.Lines); i++ {
+		for i := current.Cursor.Row; i < len(current.File.Lines); i++ {
 			suffixBuilder.WriteString("\n")
-			suffixBuilder.WriteString(req.Lines[i])
+			suffixBuilder.WriteString(current.File.Lines[i])
 		}
 		if strings.TrimSpace(suffixBuilder.String()) == "" {
 			return nil, false
@@ -418,7 +418,7 @@ func RejectLeadingNewlineWithSuffixBatch(p *Provider, ctx *BatchContext, result 
 // AnchorTruncation returns a postprocessor that handles truncation with anchor matching.
 // Sets ctx.EndLineInc for use by subsequent postprocessors.
 func AnchorTruncation(threshold float64) Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
 		if ctx.Result.FinishReason != "length" && !ctx.Result.StoppedEarly {
 			return nil, false
 		}
@@ -430,7 +430,7 @@ func AnchorTruncation(threshold float64) Postprocessor {
 
 		newLines := strings.Split(ctx.Result.Text, "\n")
 		originalLineCount := len(newLines)
-		oldLines := ctx.Request.Lines[ctx.WindowStart:ctx.WindowEnd]
+		oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:ctx.WindowEnd]
 
 		processedLines, endLineInc, shouldReject := handleTruncatedCompletionWithAnchor(
 			newLines, oldLines, finishReason, ctx.WindowStart, ctx.WindowEnd,
@@ -510,12 +510,12 @@ func checkAnchorPosition(firstLine string, oldLines []string, maxRatio float64) 
 
 // ValidateAnchorPosition returns a postprocessor that validates first line anchors near start
 func ValidateAnchorPosition(maxAnchorRatio float64) Postprocessor {
-	return func(p *Provider, ctx *Context) (*types.CompletionResponse, bool) {
+	return func(p *Provider, ctx *StreamState) (*types.CompletionResponse, bool) {
 		newLines := strings.Split(ctx.Result.Text, "\n")
 		if len(newLines) == 0 {
 			return nil, false
 		}
-		oldLines := ctx.Request.Lines[ctx.WindowStart:ctx.WindowEnd]
+		oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:ctx.WindowEnd]
 		anchorIdx, maxAllowed, reject := checkAnchorPosition(newLines[0], oldLines, maxAnchorRatio)
 		if reject {
 			logger.Debug("%s: rejected, first line anchors at %d (max allowed %d)",
@@ -544,8 +544,8 @@ func ValidateAnchorPositionBatch(p *Provider, ctx *BatchContext, result *openai.
 // ValidateFirstLineAnchor returns a validator that checks the first streamed line anchors correctly.
 // This is the streaming equivalent of ValidateAnchorPosition.
 func ValidateFirstLineAnchor(maxAnchorRatio float64) Validator {
-	return func(p *Provider, ctx *Context, firstLine string) error {
-		oldLines := ctx.Request.Lines[ctx.WindowStart:ctx.WindowEnd]
+	return func(p *Provider, ctx *StreamState, firstLine string) error {
+		oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:ctx.WindowEnd]
 		_, _, reject := checkAnchorPosition(firstLine, oldLines, maxAnchorRatio)
 		if reject {
 			return errors.New("first line anchor position too far from start")

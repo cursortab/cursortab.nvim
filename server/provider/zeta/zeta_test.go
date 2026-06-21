@@ -10,22 +10,9 @@ import (
 	"testing"
 )
 
-func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
-	input := ctx.Input
-	if ctx.Request != nil {
-		input.Trigger = ctx.Request.Source
-		input.Current.Workspace.Path = ctx.Request.WorkspacePath
-		input.Current.Workspace.ID = ctx.Request.WorkspaceID
-		input.Current.File.Path = ctx.Request.FilePath
-		input.Current.File.Lines = ctx.Request.Lines
-		input.Current.File.Version = ctx.Request.Version
-		input.Current.Cursor.Row = ctx.Request.CursorRow
-		input.Current.Cursor.Col = ctx.Request.CursorCol
-		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
-		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
-	}
+func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
 	return &provider.BatchContext{
-		Input:        input,
+		Input:        ctx.Input,
 		TrimmedLines: ctx.TrimmedLines,
 		WindowStart:  ctx.WindowStart,
 		WindowEnd:    ctx.WindowEnd,
@@ -36,6 +23,31 @@ func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
 	}
 }
 
+func inputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
+	return sourcectx.CompletionInput{
+		Trigger: req.Source,
+		Current: sourcectx.CurrentSnapshot{
+			Workspace: sourcectx.WorkspaceRef{
+				Path: req.WorkspacePath,
+				ID:   req.WorkspaceID,
+			},
+			File: sourcectx.FileSnapshot{
+				Path:    req.FilePath,
+				Lines:   req.Lines,
+				Version: req.Version,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: req.CursorRow,
+				Col: req.CursorCol,
+			},
+			View: sourcectx.ViewConstraints{
+				ViewportHeight:  req.ViewportHeight,
+				MaxVisibleLines: req.MaxVisibleLines,
+			},
+		},
+	}
+}
+
 func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 	current := sourcectx.CurrentSnapshot{
 		File: sourcectx.FileSnapshot{
@@ -43,7 +55,7 @@ func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 			Lines: []string{},
 		},
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{Current: current},
 	}
 
@@ -64,7 +76,7 @@ func TestBuildUserExcerpt_WithContent(t *testing.T) {
 		},
 		Cursor: sourcectx.CursorPosition{Row: 2, Col: 2},
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:       sourcectx.CompletionInput{Current: current},
 		WindowStart: 0,
 		WindowEnd:   3,
@@ -85,7 +97,7 @@ func TestBuildUserExcerpt_CursorAtEndOfLine(t *testing.T) {
 		},
 		Cursor: sourcectx.CursorPosition{Row: 1, Col: 100}, // Beyond line length
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:       sourcectx.CompletionInput{Current: current},
 		WindowStart: 0,
 		WindowEnd:   1,
@@ -154,10 +166,10 @@ func TestParseCompletion_WithEditableRegion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines: []string{"line 1", "line 2"},
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
 		},
@@ -177,12 +189,12 @@ func TestParseCompletion_NoEditableMarker(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"line 1"},
 			CursorRow: 1,
 			CursorCol: 6,
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: " completion",
 		},
@@ -202,12 +214,12 @@ func TestParseCompletion_StripsMarkers(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"original"},
 			CursorRow: 1,
 			CursorCol: 0,
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
 		},
@@ -230,10 +242,10 @@ func TestParseCompletion_IdenticalContent(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines: []string{"line 1", "line 2"},
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
 		},
@@ -253,12 +265,12 @@ func TestParseSimpleCompletion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"hello"},
 			CursorRow: 1,
 			CursorCol: 5,
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: " world",
 		},
@@ -278,12 +290,12 @@ func TestParseSimpleCompletion_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"start"},
 			CursorRow: 1,
 			CursorCol: 5,
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: " middle\nend",
 		},

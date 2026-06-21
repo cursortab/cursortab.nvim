@@ -42,7 +42,7 @@ func TestAssemblePrompt_EmptyBuffer(t *testing.T) {
 		FilePath: "main.go",
 		Lines:    []string{},
 	}
-	ctx := &provider.Context{Input: testInputFromRequest(req), Request: req, TrimmedLines: []string{}}
+	ctx := &provider.StreamState{Input: testInputFromRequest(req), TrimmedLines: []string{}}
 
 	prompt := assemblePrompt(p, ctx)
 
@@ -71,9 +71,8 @@ func TestAssemblePrompt_StructuralOrder(t *testing.T) {
 		CursorRow: 4,
 		CursorCol: 17,
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:        testInputFromRequest(req),
-		Request:      req,
 		TrimmedLines: lines,
 		WindowStart:  0,
 		WindowEnd:    len(lines),
@@ -109,9 +108,8 @@ func TestAssemblePrompt_CursorPositionInLine(t *testing.T) {
 		CursorRow: 1,
 		CursorCol: 5, // right after "hello"
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:        testInputFromRequest(req),
-		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   0,
 	}
@@ -135,9 +133,8 @@ func TestAssemblePrompt_SuffixContainsPostEditableLines(t *testing.T) {
 		CursorRow: 11,
 		CursorCol: 0,
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:        testInputFromRequest(req),
-		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   10,
 	}
@@ -339,8 +336,8 @@ func TestBuildEditHistory_UnixPathNormalization(t *testing.T) {
 func TestParseCompletion_StripsEndMarker(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1", "line2", "line3"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
+	ctx := &provider.StreamState{
+		Input:        testInputFromRequest(&types.CompletionRequest{Lines: lines}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   1,
@@ -357,8 +354,8 @@ func TestParseCompletion_StripsEndMarker(t *testing.T) {
 func TestParseCompletion_StripsCursorMarker(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1", "line2"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
+	ctx := &provider.StreamState{
+		Input:        testInputFromRequest(&types.CompletionRequest{Lines: lines}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   0,
@@ -383,12 +380,12 @@ func TestSplitLines_PreservesBoundaryBlankLines(t *testing.T) {
 func TestParseCompletion_PreservesBoundaryBlankLines(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"a", "b", "c"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: testInputFromRequest(&types.CompletionRequest{
 			Lines:     lines,
 			CursorRow: 2,
 			CursorCol: 0,
-		},
+		}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   1,
@@ -404,8 +401,8 @@ func TestParseCompletion_PreservesBoundaryBlankLines(t *testing.T) {
 func TestParseCompletion_NoEditsSentinel(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
+	ctx := &provider.StreamState{
+		Input:        testInputFromRequest(&types.CompletionRequest{Lines: lines}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   0,
@@ -419,8 +416,8 @@ func TestParseCompletion_NoEditsSentinel(t *testing.T) {
 func TestParseCompletion_EmptyAfterStripping(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
+	ctx := &provider.StreamState{
+		Input:        testInputFromRequest(&types.CompletionRequest{Lines: lines}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   0,
@@ -435,12 +432,12 @@ func TestParseCompletion_ReplacesEditableRegion(t *testing.T) {
 	p := newTestProvider()
 	// 5 lines, cursor at line 2 → editable spans full buffer (cursor ±15 clamps).
 	lines := []string{"a", "b", "c", "d", "e"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: testInputFromRequest(&types.CompletionRequest{
 			Lines:     lines,
 			CursorRow: 3,
 			CursorCol: 0,
-		},
+		}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   2,
@@ -473,9 +470,8 @@ func TestAssemblePrompt_WithEditHistory(t *testing.T) {
 		CursorRow: 2,
 		CursorCol: 1,
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:        testInputFromRequest(req, sourcectx.EditHistory{Files: editHistory}),
-		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   1,
 	}
@@ -611,7 +607,7 @@ func TestWriteGitDiffPseudoFile_Format(t *testing.T) {
 
 func TestArmCursorMarkerStripping_SetsMarker(t *testing.T) {
 	p := newTestProvider()
-	ctx := &provider.Context{Request: &types.CompletionRequest{}}
+	ctx := &provider.StreamState{}
 
 	armCursorMarkerStripping()(p, ctx)
 	assert.Equal(t, cursorMarker, ctx.CursorMarker, "preprocessor configures marker")
@@ -621,7 +617,7 @@ func TestTransformLine_EndToEnd_StripsMarker(t *testing.T) {
 	// Simulate what the engine does: the provider context TransformLine is
 	// called on every streamed line. Verify the stage builder never sees the
 	// marker.
-	ctx := &provider.Context{CursorMarker: cursorMarker}
+	ctx := &provider.StreamState{CursorMarker: cursorMarker}
 
 	streamed := []string{
 		"def bubble_sort(arr):",
@@ -652,8 +648,8 @@ func TestTransformLine_EndToEnd_StripsMarker(t *testing.T) {
 }
 
 func TestBuildCursorTarget_BasicOffsetTranslation(t *testing.T) {
-	ctx := &provider.Context{
-		Request:          &types.CompletionRequest{FilePath: "src/main.py"},
+	ctx := &provider.StreamState{
+		Input:            testInputFromRequest(&types.CompletionRequest{FilePath: "src/main.py"}),
 		WindowStart:      10, // trimmed window starts at buffer line 11 (1-indexed)
 		CursorMarkerSeen: true,
 		CursorMarkerLine: 3, // marker on 4th line of the streamed response
@@ -671,8 +667,8 @@ func TestBuildCursorTarget_BasicOffsetTranslation(t *testing.T) {
 }
 
 func TestBuildCursorTarget_ClampsBeyondNewLines(t *testing.T) {
-	ctx := &provider.Context{
-		Request:          &types.CompletionRequest{FilePath: "f.go"},
+	ctx := &provider.StreamState{
+		Input:            testInputFromRequest(&types.CompletionRequest{FilePath: "f.go"}),
 		WindowStart:      0,
 		CursorMarkerSeen: true,
 		CursorMarkerLine: 99, // out of range
@@ -686,8 +682,8 @@ func TestBuildCursorTarget_ClampsBeyondNewLines(t *testing.T) {
 }
 
 func TestBuildCursorTarget_NoNewLines(t *testing.T) {
-	ctx := &provider.Context{
-		Request:          &types.CompletionRequest{FilePath: "f.go"},
+	ctx := &provider.StreamState{
+		Input:            testInputFromRequest(&types.CompletionRequest{FilePath: "f.go"}),
 		CursorMarkerSeen: true,
 		CursorMarkerLine: 0,
 	}
@@ -699,13 +695,13 @@ func TestParseCompletion_PopulatesCursorTargetWhenMarkerSeen(t *testing.T) {
 
 	// 5-line buffer, cursor on line 3. editable region = full buffer (cursor ±15 clamped).
 	lines := []string{"a", "b", "c", "d", "e"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: testInputFromRequest(&types.CompletionRequest{
 			FilePath:  "main.go",
 			Lines:     lines,
 			CursorRow: 3,
 			CursorCol: 0,
-		},
+		}),
 		TrimmedLines:     lines,
 		WindowStart:      0,
 		CursorLine:       2,
@@ -727,13 +723,13 @@ func TestParseCompletion_PopulatesCursorTargetWhenMarkerSeen(t *testing.T) {
 func TestParseCompletion_NoCursorTargetWhenMarkerAbsent(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"a", "b", "c"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: testInputFromRequest(&types.CompletionRequest{
 			FilePath:  "main.go",
 			Lines:     lines,
 			CursorRow: 2,
 			CursorCol: 0,
-		},
+		}),
 		TrimmedLines:     lines,
 		WindowStart:      0,
 		CursorLine:       1,
@@ -777,7 +773,7 @@ func TestAssemblePrompt_ContextOrderingAndCoexistence(t *testing.T) {
 		CursorRow: 3,
 		CursorCol: 13,
 	}
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: testInputFromRequest(req,
 			sourcectx.RecentFiles{Files: recentFiles},
 			sourcectx.Diagnostics{Data: diagnostics},
@@ -785,7 +781,6 @@ func TestAssemblePrompt_ContextOrderingAndCoexistence(t *testing.T) {
 			sourcectx.GitDiff{Data: gitDiff},
 			sourcectx.EditHistory{Files: editHistory},
 		),
-		Request:      req,
 		TrimmedLines: lines,
 		CursorLine:   2,
 	}
@@ -849,12 +844,12 @@ func TestStripCursorMarker_MarkerAtEndOfText(t *testing.T) {
 func TestParseCompletion_MarkerOnlyLineDropped(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"func foo() {", "    return 1", "}"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: testInputFromRequest(&types.CompletionRequest{
 			Lines:     lines,
 			CursorRow: 2,
 			CursorCol: 0,
-		},
+		}),
 		TrimmedLines: lines,
 		WindowStart:  0,
 		CursorLine:   1,

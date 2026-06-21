@@ -43,7 +43,7 @@ type Client interface {
 
 // Validator validates streaming content (e.g., first line anchor validation)
 // Called after receiving the first line. Return error to cancel the stream.
-type Validator func(p *Provider, ctx *Context, firstLine string) error
+type Validator func(p *Provider, ctx *StreamState, firstLine string) error
 
 // DiffHistoryBuilder processes multi-file diff history into a string for the prompt
 type DiffHistoryBuilder func(history []*types.FileDiffHistory) string
@@ -64,10 +64,8 @@ type BatchContext struct {
 	EditableEnd   int
 }
 
-// Context carries data through the completion pipeline
-type Context struct {
+type StreamState struct {
 	Input        ctx.CompletionInput
-	Request      *types.CompletionRequest
 	TrimmedLines []string
 	WindowStart  int    // 0-indexed
 	WindowEnd    int    // 0-indexed, exclusive
@@ -76,9 +74,6 @@ type Context struct {
 	EndLineInc   int    // 1-indexed inclusive end line, set by AnchorTruncation (0 = not set)
 	Prefill      string // prompt suffix prepended to result before postprocessors
 	Result       *openai.StreamResult
-
-	// Streaming state
-	CompletionRequest *openai.CompletionRequest // Built request for streaming
 
 	// Stream context for FIM-style providers (implements engine.StreamContext)
 	StreamOldLines []string // custom old lines for streaming diff (nil = not applicable)
@@ -107,38 +102,40 @@ type Context struct {
 	EditableEnd   int
 }
 
+func (*StreamState) ProviderStreamState() {}
+
 // GetWindowStart returns the 0-indexed start offset of the trimmed window.
-func (c *Context) GetWindowStart() int {
+func (c *StreamState) GetWindowStart() int {
 	return c.WindowStart
 }
 
 // GetTrimmedLines returns the trimmed lines sent to the model.
-func (c *Context) GetTrimmedLines() []string {
+func (c *StreamState) GetTrimmedLines() []string {
 	return c.TrimmedLines
 }
 
 // GetPrefill returns the prompt prefill text.
-func (c *Context) GetPrefill() string {
+func (c *StreamState) GetPrefill() string {
 	return c.Prefill
 }
 
 // GetStreamOldLines returns custom old lines for streaming diff.
-func (c *Context) GetStreamOldLines() []string {
+func (c *StreamState) GetStreamOldLines() []string {
 	return c.StreamOldLines
 }
 
 // GetStreamBaseOffset returns the 0-indexed base offset in buffer.
-func (c *Context) GetStreamBaseOffset() int {
+func (c *StreamState) GetStreamBaseOffset() int {
 	return c.StreamBaseOff
 }
 
 // TransformFirstLine prepends the stored prefix to the first streamed line.
-func (c *Context) TransformFirstLine(line string) string {
+func (c *StreamState) TransformFirstLine(line string) string {
 	return c.FirstLinePfx + line
 }
 
 // TransformLastLine appends the stored suffix to the last streamed line.
-func (c *Context) TransformLastLine(line string) string {
+func (c *StreamState) TransformLastLine(line string) string {
 	return line + c.LastLineSfx
 }
 
@@ -148,7 +145,7 @@ func (c *Context) TransformLastLine(line string) string {
 //
 // When the marker constitutes the entire line, SkipLine is set so the caller
 // can drop the line from accumulation and stage building.
-func (c *Context) TransformLine(line string) string {
+func (c *StreamState) TransformLine(line string) string {
 	c.SkipLine = false
 	defer func() { c.LinesReceived++ }()
 	if c.CursorMarker == "" {
@@ -170,7 +167,7 @@ func (c *Context) TransformLine(line string) string {
 
 // ShouldSkipLine returns true when the last TransformLine call consumed a
 // marker-only line that should be dropped from the stream.
-func (c *Context) ShouldSkipLine() bool {
+func (c *StreamState) ShouldSkipLine() bool {
 	return c.SkipLine
 }
 
@@ -342,11 +339,8 @@ func (p *Provider) EmptyResponse() *types.CompletionResponse {
 
 // BuildCompletion creates a completion response, returning empty if it's a no-op.
 // startLine and endLineInc are 1-indexed.
-func (p *Provider) BuildCompletion(ctx *Context, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
+func (p *Provider) BuildCompletion(ctx *StreamState, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
 	currentLines := ctx.Input.Current.File.Lines
-	if currentLines == nil && ctx.Request != nil {
-		currentLines = ctx.Request.Lines
-	}
 	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
 		return p.EmptyResponse(), true
 	}
@@ -408,17 +402,8 @@ func (p *Provider) GetStreamingType() engine.StreamingType {
 	return p.StreamingType
 }
 
-// prepareStream runs preprocessors and builds the prompt, returning the
-// completion request and provider context ready to be passed to the client.
-func (p *Provider) prepareStream(req *types.CompletionRequest) (*openai.CompletionRequest, *Context, error) {
-	return p.prepareStreamInput(completionInputFromRequest(req))
-}
-
-func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *Context, error) {
-	pctx := &Context{
-		Input:   input,
-		Request: completionRequestFromInput(input),
-	}
+func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *StreamState, error) {
+	pctx := &StreamState{Input: input}
 
 	for _, pre := range p.Preprocessors {
 		if err := pre(p, pctx); err != nil {
@@ -430,13 +415,12 @@ func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.Comple
 	}
 
 	completionReq := p.PromptBuilder(p, pctx)
-	pctx.CompletionRequest = completionReq
 	return completionReq, pctx, nil
 }
 
 // finishStream applies the streamed text to the context and runs postprocessors.
-func (p *Provider) finishStream(providerCtx any, result *openai.StreamResult) (*types.CompletionResponse, error) {
-	pctx, ok := providerCtx.(*Context)
+func (p *Provider) finishStream(providerState engine.ProviderStreamState, result *openai.StreamResult) (*types.CompletionResponse, error) {
+	pctx, ok := providerState.(*StreamState)
 	if !ok {
 		return p.EmptyResponse(), fmt.Errorf("invalid provider context type")
 	}
@@ -453,17 +437,7 @@ func (p *Provider) finishStream(providerCtx any, result *openai.StreamResult) (*
 
 // PrepareLineStream runs preprocessors, builds the prompt, and returns the stream.
 // Returns (stream, providerContext, error). Implements engine.LineStreamProvider.
-func (p *Provider) PrepareLineStream(ctx context.Context, req *types.CompletionRequest) (engine.LineStream, any, error) {
-	defer logger.Trace("Provider.PrepareLineStream")()
-	completionReq, pctx, err := p.prepareStream(req)
-	if err != nil {
-		return nil, pctx, err
-	}
-	p.logRequest(completionReq, pctx.MaxLines)
-	return p.Client.DoLineStream(ctx, completionReq, pctx.MaxLines, p.StopTokens), pctx, nil
-}
-
-func (p *Provider) PrepareLineStreamInput(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, any, error) {
+func (p *Provider) PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, engine.ProviderStreamState, error) {
 	defer logger.Trace("Provider.PrepareLineStream")()
 	completionReq, pctx, err := p.prepareStreamInput(input)
 	if err != nil {
@@ -474,8 +448,8 @@ func (p *Provider) PrepareLineStreamInput(ctx context.Context, input ctx.Complet
 }
 
 // ValidateFirstLine runs validators on the first received line (implements engine.LineStreamProvider)
-func (p *Provider) ValidateFirstLine(providerCtx any, firstLine string) error {
-	pctx, ok := providerCtx.(*Context)
+func (p *Provider) ValidateFirstLine(providerState engine.ProviderStreamState, firstLine string) error {
+	pctx, ok := providerState.(*StreamState)
 	if !ok {
 		return fmt.Errorf("invalid provider context type")
 	}
@@ -490,8 +464,8 @@ func (p *Provider) ValidateFirstLine(providerCtx any, firstLine string) error {
 }
 
 // FinishLineStream runs postprocessors on the accumulated result (implements engine.LineStreamProvider)
-func (p *Provider) FinishLineStream(providerCtx any, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error) {
-	return p.finishStream(providerCtx, &openai.StreamResult{
+func (p *Provider) FinishLineStream(providerState engine.ProviderStreamState, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error) {
+	return p.finishStream(providerState, &openai.StreamResult{
 		Text:         text,
 		FinishReason: finishReason,
 		StoppedEarly: stoppedEarly,
@@ -500,17 +474,7 @@ func (p *Provider) FinishLineStream(providerCtx any, text string, finishReason s
 
 // PrepareTokenStream runs preprocessors, builds the prompt, and returns a token stream.
 // Returns (stream, providerContext, error). Implements engine.TokenStreamProvider.
-func (p *Provider) PrepareTokenStream(ctx context.Context, req *types.CompletionRequest) (engine.LineStream, any, error) {
-	defer logger.Trace("Provider.PrepareTokenStream")()
-	completionReq, pctx, err := p.prepareStream(req)
-	if err != nil {
-		return nil, pctx, err
-	}
-	p.logRequest(completionReq, 0) // maxLines=0 for token streaming
-	return p.Client.DoTokenStream(ctx, completionReq, 0, p.StopTokens), pctx, nil
-}
-
-func (p *Provider) PrepareTokenStreamInput(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, any, error) {
+func (p *Provider) PrepareTokenStream(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, engine.ProviderStreamState, error) {
 	defer logger.Trace("Provider.PrepareTokenStream")()
 	completionReq, pctx, err := p.prepareStreamInput(input)
 	if err != nil {
@@ -521,54 +485,10 @@ func (p *Provider) PrepareTokenStreamInput(ctx context.Context, input ctx.Comple
 }
 
 // FinishTokenStream runs postprocessors on the final accumulated result (implements engine.TokenStreamProvider)
-func (p *Provider) FinishTokenStream(providerCtx any, text string) (*types.CompletionResponse, error) {
-	return p.finishStream(providerCtx, &openai.StreamResult{
+func (p *Provider) FinishTokenStream(providerState engine.ProviderStreamState, text string) (*types.CompletionResponse, error) {
+	return p.finishStream(providerState, &openai.StreamResult{
 		Text:         text,
 		FinishReason: "stop",
 		StoppedEarly: false,
 	})
-}
-
-func completionInputFromRequest(req *types.CompletionRequest) ctx.CompletionInput {
-	if req == nil {
-		return ctx.CompletionInput{}
-	}
-	return ctx.CompletionInput{
-		Trigger: req.Source,
-		Current: ctx.CurrentSnapshot{
-			Workspace: ctx.WorkspaceRef{
-				Path: req.WorkspacePath,
-				ID:   req.WorkspaceID,
-			},
-			File: ctx.FileSnapshot{
-				Path:    req.FilePath,
-				Lines:   req.Lines,
-				Version: req.Version,
-			},
-			Cursor: ctx.CursorPosition{
-				Row: req.CursorRow,
-				Col: req.CursorCol,
-			},
-			View: ctx.ViewConstraints{
-				ViewportHeight:  req.ViewportHeight,
-				MaxVisibleLines: req.MaxVisibleLines,
-			},
-		},
-	}
-}
-
-func completionRequestFromInput(input ctx.CompletionInput) *types.CompletionRequest {
-	current := input.Current
-	return &types.CompletionRequest{
-		Source:          input.Trigger,
-		WorkspacePath:   current.Workspace.Path,
-		WorkspaceID:     current.Workspace.ID,
-		FilePath:        current.File.Path,
-		Lines:           current.File.Lines,
-		Version:         current.File.Version,
-		CursorRow:       current.Cursor.Row,
-		CursorCol:       current.Cursor.Col,
-		ViewportHeight:  current.View.ViewportHeight,
-		MaxVisibleLines: current.View.MaxVisibleLines,
-	}
 }

@@ -101,7 +101,7 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 	})
 }
 
-func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+func buildPrompt(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
 	return buildPromptFromBatch(p, &provider.BatchContext{
 		Input:        ctx.Input,
 		TrimmedLines: ctx.TrimmedLines,
@@ -422,22 +422,9 @@ func formatGitDiffSection(gd *types.GitDiffContext) string {
 	return "<|file_sep|>context/staged_diff\n" + gd.Diff
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	input := ctx.Input
-	if ctx.Request != nil && input.Current.File.Lines == nil {
-		input.Trigger = ctx.Request.Source
-		input.Current.Workspace.Path = ctx.Request.WorkspacePath
-		input.Current.Workspace.ID = ctx.Request.WorkspaceID
-		input.Current.File.Path = ctx.Request.FilePath
-		input.Current.File.Lines = ctx.Request.Lines
-		input.Current.File.Version = ctx.Request.Version
-		input.Current.Cursor.Row = ctx.Request.CursorRow
-		input.Current.Cursor.Col = ctx.Request.CursorCol
-		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
-		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
-	}
+func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
 	return parseBatchCompletion(p, &provider.BatchContext{
-		Input:        input,
+		Input:        ctx.Input,
 		TrimmedLines: ctx.TrimmedLines,
 		WindowStart:  ctx.WindowStart,
 		WindowEnd:    ctx.WindowEnd,

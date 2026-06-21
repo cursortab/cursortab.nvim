@@ -137,7 +137,7 @@ func TestTrimContent_SmallFile(t *testing.T) {
 		},
 	}
 
-	ctx := &Context{
+	ctx := &StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File:   sourcectx.FileSnapshot{Lines: []string{"line 1", "line 2", "line 3"}},
@@ -169,7 +169,7 @@ func TestTrimContent_LargeFile(t *testing.T) {
 		lines[i] = "this is a long line with some content"
 	}
 
-	ctx := &Context{
+	ctx := &StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File:   sourcectx.FileSnapshot{Lines: lines},
@@ -229,7 +229,7 @@ func TestSkipIfTextAfterCursor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				Input: sourcectx.CompletionInput{
 					Current: sourcectx.CurrentSnapshot{
 						File:   sourcectx.FileSnapshot{Lines: tt.lines},
@@ -265,7 +265,7 @@ func TestRejectEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				Result: &openai.StreamResult{Text: tt.text},
 			}
 
@@ -292,7 +292,7 @@ func TestRejectTruncated(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				Result: &openai.StreamResult{
 					Text:         "some content",
 					FinishReason: tt.finishReason,
@@ -356,7 +356,7 @@ func TestDropLastLineIfTruncated(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				WindowStart: 0,
 				Result: &openai.StreamResult{
 					Text:         tt.text,
@@ -541,11 +541,13 @@ func TestAnchorTruncation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				WindowStart: 0,
 				WindowEnd:   len(oldLines),
-				Request: &types.CompletionRequest{
-					Lines: oldLines,
+				Input: sourcectx.CompletionInput{
+					Current: sourcectx.CurrentSnapshot{
+						File: sourcectx.FileSnapshot{Lines: oldLines},
+					},
 				},
 				Result: &openai.StreamResult{
 					Text:         tt.text,
@@ -592,11 +594,13 @@ func TestValidateAnchorPosition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				WindowStart: 0,
 				WindowEnd:   len(oldLines),
-				Request: &types.CompletionRequest{
-					Lines: oldLines,
+				Input: sourcectx.CompletionInput{
+					Current: sourcectx.CurrentSnapshot{
+						File: sourcectx.FileSnapshot{Lines: oldLines},
+					},
 				},
 				Result: &openai.StreamResult{
 					Text: tt.firstLine + "\nmore content",
@@ -642,11 +646,13 @@ func TestValidateFirstLineAnchor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
+			ctx := &StreamState{
 				WindowStart: 0,
 				WindowEnd:   len(oldLines),
-				Request: &types.CompletionRequest{
-					Lines: oldLines,
+				Input: sourcectx.CompletionInput{
+					Current: sourcectx.CurrentSnapshot{
+						File: sourcectx.FileSnapshot{Lines: oldLines},
+					},
 				},
 			}
 
@@ -665,11 +671,13 @@ func TestValidateFirstLineAnchor_SmallFile(t *testing.T) {
 	// Small file (< 10 lines) should skip validation
 	oldLines := []string{"line 1", "line 2", "line 3"}
 
-	ctx := &Context{
+	ctx := &StreamState{
 		WindowStart: 0,
 		WindowEnd:   len(oldLines),
-		Request: &types.CompletionRequest{
-			Lines: oldLines,
+		Input: sourcectx.CompletionInput{
+			Current: sourcectx.CurrentSnapshot{
+				File: sourcectx.FileSnapshot{Lines: oldLines},
+			},
 		},
 	}
 

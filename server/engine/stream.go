@@ -11,21 +11,15 @@ import (
 )
 
 // requestStreamingCompletion handles line-by-line streaming completions
-func (e *Engine) requestStreamingCompletion(provider LineStreamProvider, req *types.CompletionRequest) {
-	e.requestStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
-		return provider.PrepareLineStream(ctx, req)
-	})
-}
-
-func (e *Engine) requestStreamingCompletionInput(provider lineStreamInputProvider, req *types.CompletionRequest, input sourcectx.CompletionInput) {
-	e.requestStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
-		return provider.PrepareLineStreamInput(ctx, input)
+func (e *Engine) requestStreamingCompletion(provider LineStreamProvider, input sourcectx.CompletionInput) {
+	e.requestStreamingCompletionPrepared(input, func(ctx context.Context) (LineStream, ProviderStreamState, error) {
+		return provider.PrepareLineStream(ctx, input)
 	})
 }
 
 func (e *Engine) requestStreamingCompletionPrepared(
-	req *types.CompletionRequest,
-	prepare func(context.Context) (LineStream, any, error),
+	input sourcectx.CompletionInput,
+	prepare func(context.Context) (LineStream, ProviderStreamState, error),
 ) {
 	e.state = stateStreamingCompletion
 
@@ -54,7 +48,7 @@ func (e *Engine) requestStreamingCompletionPrepared(
 		oldLines = tc.GetTrimmedLines()
 	} else {
 		// No trimming - use full buffer
-		oldLines = req.Lines
+		oldLines = input.Current.File.Lines
 	}
 
 	viewportTop, viewportBottom := e.buffer.ViewportBounds()
@@ -70,11 +64,10 @@ func (e *Engine) requestStreamingCompletionPrepared(
 			viewportBottom,
 			e.buffer.Row(),
 			e.buffer.Col(),
-			req.FilePath,
+			input.Current.File.Path,
 			e.buffer.AvailableWidth(),
 		),
-		ProviderContext: providerCtx,
-		Request:         req,
+		ProviderState: providerCtx,
 	}
 
 	// Inject prefill lines through the normal streaming pipeline so the stage
@@ -94,21 +87,15 @@ func (e *Engine) requestStreamingCompletionPrepared(
 }
 
 // requestTokenStreamingCompletion handles token-by-token streaming completions (inline)
-func (e *Engine) requestTokenStreamingCompletion(provider TokenStreamProvider, req *types.CompletionRequest) {
-	e.requestTokenStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
-		return provider.PrepareTokenStream(ctx, req)
-	})
-}
-
-func (e *Engine) requestTokenStreamingCompletionInput(provider tokenStreamInputProvider, req *types.CompletionRequest, input sourcectx.CompletionInput) {
-	e.requestTokenStreamingCompletionPrepared(req, func(ctx context.Context) (LineStream, any, error) {
-		return provider.PrepareTokenStreamInput(ctx, input)
+func (e *Engine) requestTokenStreamingCompletion(provider TokenStreamProvider, input sourcectx.CompletionInput) {
+	e.requestTokenStreamingCompletionPrepared(input, func(ctx context.Context) (LineStream, ProviderStreamState, error) {
+		return provider.PrepareTokenStream(ctx, input)
 	})
 }
 
 func (e *Engine) requestTokenStreamingCompletionPrepared(
-	req *types.CompletionRequest,
-	prepare func(context.Context) (LineStream, any, error),
+	input sourcectx.CompletionInput,
+	prepare func(context.Context) (LineStream, ProviderStreamState, error),
 ) {
 	e.state = stateStreamingCompletion
 
@@ -125,19 +112,20 @@ func (e *Engine) requestTokenStreamingCompletionPrepared(
 
 	// Get line prefix (text before cursor on current line)
 	linePrefix := ""
-	if req.CursorRow >= 1 && req.CursorRow <= len(req.Lines) {
-		currentLine := req.Lines[req.CursorRow-1]
-		cursorCol := min(req.CursorCol, len(currentLine))
+	current := input.Current
+	if current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
+		currentLine := current.File.Lines[current.Cursor.Row-1]
+		cursorCol := min(current.Cursor.Col, len(currentLine))
 		linePrefix = currentLine[:cursorCol]
 	}
 
 	// Initialize token streaming state
 	e.tokenStreamingState = &TokenStreamingState{
 		AccumulatedText: "",
-		ProviderContext: providerCtx,
-		Request:         req,
+		ProviderState:   providerCtx,
+		LineCount:       len(current.File.Lines),
 		LinePrefix:      linePrefix,
-		LineNum:         req.CursorRow,
+		LineNum:         current.Cursor.Row,
 	}
 
 	// Set token stream channel - event loop will select on it
@@ -203,15 +191,14 @@ func (e *Engine) handleStreamLine(line string) {
 
 	// Strip any provider-configured in-band markers (e.g. Zeta2's
 	// <|user_cursor|>) before the line flows into validation, accumulation,
-	// or the stage builder. The default implementation on provider.Context is
-	// a no-op counter bump, so this is safe for all providers.
+	// or the stage builder.
 	//
 	// When the marker was the entire line content (e.g. the model emitted
 	// <|user_cursor|> on its own line), ShouldSkipLine signals that the
 	// resulting empty line must be dropped. Accumulating it would add a
 	// phantom trailing line that the stage builder diffs against the old
 	// lines, producing a spurious deletion/addition stage.
-	if sc, ok := ss.ProviderContext.(StreamContext); ok {
+	if sc, ok := ss.ProviderState.(StreamContext); ok {
 		line = sc.TransformLine(line)
 		if sc.ShouldSkipLine() {
 			return
@@ -225,7 +212,7 @@ func (e *Engine) handleStreamLine(line string) {
 	// First line validation
 	if !ss.Validated {
 		if sp, ok := e.provider.(LineStreamProvider); ok {
-			if err := sp.ValidateFirstLine(ss.ProviderContext, line); err != nil {
+			if err := sp.ValidateFirstLine(ss.ProviderState, line); err != nil {
 				e.cancelStreaming()
 				e.state = stateIdle
 				return
@@ -267,7 +254,7 @@ func (e *Engine) handleStreamLine(line string) {
 	// For FIM streams, transform the first line by prepending the cursor prefix.
 	pendingLine := line
 	if !ss.HasPendingLine {
-		if sc, ok := ss.ProviderContext.(StreamContext); ok && sc.GetStreamOldLines() != nil {
+		if sc, ok := ss.ProviderState.(StreamContext); ok && sc.GetStreamOldLines() != nil {
 			pendingLine = sc.TransformFirstLine(pendingLine)
 		}
 	}
@@ -304,7 +291,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 	// For FIM streams, transform the last line by appending the cursor suffix.
 	if ss.HasPendingLine {
 		lastLine := ss.PendingLine
-		if sc, ok := ss.ProviderContext.(StreamContext); ok && sc.GetStreamOldLines() != nil {
+		if sc, ok := ss.ProviderState.(StreamContext); ok && sc.GetStreamOldLines() != nil {
 			lastLine = sc.TransformLastLine(lastLine)
 		}
 		ss.StageBuilder.AddLine(lastLine)
@@ -315,7 +302,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 	sp, ok := e.provider.(LineStreamProvider)
 	if ok {
 		accumulatedText := ss.AccumulatedText.String()
-		_, _ = sp.FinishLineStream(ss.ProviderContext, accumulatedText, "stop", false)
+		_, _ = sp.FinishLineStream(ss.ProviderState, accumulatedText, "stop", false)
 	}
 
 	// Finalize remaining stages
@@ -377,7 +364,7 @@ func (e *Engine) handleStreamCompleteAfterAccept(ss *StreamingState) {
 
 	// Run postprocessing to get completions from accumulated text
 	accumulatedText := ss.AccumulatedText.String()
-	resp, err := sp.FinishLineStream(ss.ProviderContext, accumulatedText, "stop", false)
+	resp, err := sp.FinishLineStream(ss.ProviderState, accumulatedText, "stop", false)
 	if err != nil {
 		return
 	}
@@ -542,8 +529,8 @@ func (e *Engine) handleTokenStreamComplete() {
 
 	ts := e.tokenStreamingState
 	finalText := ts.AccumulatedText
-	providerCtx := ts.ProviderContext
-	req := ts.Request
+	providerState := ts.ProviderState
+	lineCount := ts.LineCount
 
 	// Clear token streaming state
 	e.tokenStreamingState = nil
@@ -565,7 +552,7 @@ func (e *Engine) handleTokenStreamComplete() {
 		return
 	}
 
-	resp, err := tokenProvider.FinishTokenStream(providerCtx, finalText)
+	resp, err := tokenProvider.FinishTokenStream(providerState, finalText)
 	if err != nil || resp == nil || len(resp.Completions) == 0 {
 		goIdle()
 		return
@@ -573,7 +560,7 @@ func (e *Engine) handleTokenStreamComplete() {
 
 	// For inline provider, there's always just one completion
 	completion := resp.Completions[0]
-	if completion.StartLine < 1 || completion.StartLine > len(req.Lines) {
+	if completion.StartLine < 1 || completion.StartLine > lineCount {
 		goIdle()
 		return
 	}

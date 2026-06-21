@@ -12,16 +12,6 @@ import (
 	"cursortab/utils"
 )
 
-type lineStreamInputProvider interface {
-	LineStreamProvider
-	PrepareLineStreamInput(context.Context, ctx.CompletionInput) (LineStream, any, error)
-}
-
-type tokenStreamInputProvider interface {
-	TokenStreamProvider
-	PrepareTokenStreamInput(context.Context, ctx.CompletionInput) (LineStream, any, error)
-}
-
 func (e *Engine) collectCompletionInput(parent context.Context, input ctx.CompletionInput, sourceInput ctx.ContextSourceInput) (ctx.CompletionInput, error) {
 	if parent == nil {
 		parent = context.Background()
@@ -156,19 +146,14 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		}()
 	}
 
-	if streamProvider, ok := e.provider.(LineStreamProvider); ok {
-		switch streamProvider.GetStreamingType() {
-		case StreamingTypeLines:
-			if lineProvider, ok := e.provider.(lineStreamInputProvider); ok {
-				e.requestStreamingCompletionInput(lineProvider, e.buildCompletionRequest(input), input)
-				return
-			}
-		case StreamingTypeTokens:
-			if tokenProvider, ok := e.provider.(tokenStreamInputProvider); ok {
-				e.requestTokenStreamingCompletionInput(tokenProvider, e.buildCompletionRequest(input), input)
-				return
-			}
-		}
+	if lineProvider, ok := e.provider.(LineStreamProvider); ok && lineProvider.GetStreamingType() == StreamingTypeLines {
+		e.requestStreamingCompletion(lineProvider, input)
+		return
+	}
+
+	if tokenProvider, ok := e.provider.(TokenStreamProvider); ok && tokenProvider.GetStreamingType() == StreamingTypeTokens {
+		e.requestTokenStreamingCompletion(tokenProvider, input)
+		return
 	}
 
 	startBatch(func(ctx context.Context) (*types.CompletionResponse, error) {

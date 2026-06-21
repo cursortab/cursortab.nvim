@@ -9,7 +9,7 @@ import (
 // the methods needed for TrimmedContext interface in engine.
 // This ensures the engine can extract trim info from provider context.
 func TestContext_TrimmedContextInterface(t *testing.T) {
-	ctx := &Context{
+	ctx := &StreamState{
 		WindowStart:  20,
 		TrimmedLines: []string{"line 1", "line 2", "line 3"},
 	}
@@ -24,7 +24,7 @@ func TestContext_TrimmedContextInterface(t *testing.T) {
 
 // TestContext_EmptyTrimmedLines verifies behavior when no trimming occurred.
 func TestContext_EmptyTrimmedLines(t *testing.T) {
-	ctx := &Context{
+	ctx := &StreamState{
 		WindowStart:  0,
 		TrimmedLines: nil,
 	}
@@ -36,7 +36,7 @@ func TestContext_EmptyTrimmedLines(t *testing.T) {
 }
 
 func TestContext_TransformLine_NoMarker(t *testing.T) {
-	ctx := &Context{}
+	ctx := &StreamState{}
 	result := ctx.TransformLine("hello world")
 	assert.Equal(t, "hello world", result, "line unchanged when no marker configured")
 	assert.Equal(t, 1, ctx.LinesReceived, "counter still increments")
@@ -44,7 +44,7 @@ func TestContext_TransformLine_NoMarker(t *testing.T) {
 }
 
 func TestContext_TransformLine_StripsMarker(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	line1 := ctx.TransformLine("    return arr<|user_cursor|>")
 	assert.Equal(t, "    return arr", line1, "marker stripped")
@@ -55,7 +55,7 @@ func TestContext_TransformLine_StripsMarker(t *testing.T) {
 }
 
 func TestContext_TransformLine_MarkerMidStream(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	ctx.TransformLine("def bubble_sort(arr):")
 	ctx.TransformLine("    for i in range(len(arr)):")
@@ -71,7 +71,7 @@ func TestContext_TransformLine_MarkerMidStream(t *testing.T) {
 }
 
 func TestContext_TransformLine_OnlyFirstOccurrenceRecorded(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	ctx.TransformLine("a<|user_cursor|>b")
 	ctx.TransformLine("c<|user_cursor|>d")
@@ -81,7 +81,7 @@ func TestContext_TransformLine_OnlyFirstOccurrenceRecorded(t *testing.T) {
 }
 
 func TestContext_TransformLine_StripsAllInstancesOnOneLine(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	result := ctx.TransformLine("a<|user_cursor|>b<|user_cursor|>c")
 	assert.Equal(t, "abc", result, "all instances stripped from the line")
@@ -89,7 +89,7 @@ func TestContext_TransformLine_StripsAllInstancesOnOneLine(t *testing.T) {
 }
 
 func TestContext_TransformLine_SkipLineWhenMarkerOnly(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	result := ctx.TransformLine("<|user_cursor|>")
 	assert.Equal(t, "", result, "line stripped to empty")
@@ -98,7 +98,7 @@ func TestContext_TransformLine_SkipLineWhenMarkerOnly(t *testing.T) {
 }
 
 func TestContext_TransformLine_SkipLineWithWhitespace(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	result := ctx.TransformLine("  <|user_cursor|>  ")
 	assert.Equal(t, "    ", result, "whitespace preserved in return value")
@@ -106,14 +106,14 @@ func TestContext_TransformLine_SkipLineWithWhitespace(t *testing.T) {
 }
 
 func TestContext_TransformLine_NoSkipWhenContentRemains(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	ctx.TransformLine("    return arr<|user_cursor|>")
 	assert.False(t, ctx.ShouldSkipLine(), "content remains — do not skip")
 }
 
 func TestContext_TransformLine_SkipLineResets(t *testing.T) {
-	ctx := &Context{CursorMarker: "<|user_cursor|>"}
+	ctx := &StreamState{CursorMarker: "<|user_cursor|>"}
 
 	ctx.TransformLine("<|user_cursor|>")
 	assert.True(t, ctx.ShouldSkipLine(), "first call: skip")

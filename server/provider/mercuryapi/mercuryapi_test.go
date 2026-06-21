@@ -14,7 +14,7 @@ import (
 	"cursortab/types"
 )
 
-func completionInputFromRequestForTest(req *types.CompletionRequest) sourcectx.CompletionInput {
+func completionInputForTest(req *types.CompletionRequest) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
 		Trigger: req.Source,
 		Current: sourcectx.CurrentSnapshot{
@@ -337,7 +337,7 @@ func TestProviderGetCompletion(t *testing.T) {
 		CursorCol: 5,
 	}
 
-	resp, err := provider.GetCompletion(context.Background(), completionInputFromRequestForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 1, len(resp.Completions), "completions count")
 	assert.Equal(t, 1, resp.Completions[0].StartLine, "start line")
@@ -373,7 +373,7 @@ func TestProviderGetCompletionUsesConfiguredModel(t *testing.T) {
 		CursorCol: 5,
 	}
 
-	_, err := provider.GetCompletion(context.Background(), completionInputFromRequestForTest(req))
+	_, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
 	assert.NoError(t, err, "GetCompletion")
 }
 
@@ -399,7 +399,7 @@ func TestProviderGetCompletionEmpty(t *testing.T) {
 		CursorCol: 0,
 	}
 
-	resp, err := provider.GetCompletion(context.Background(), completionInputFromRequestForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 0, len(resp.Completions), "should be empty")
 }
@@ -427,7 +427,7 @@ func TestProviderGetCompletionNoOp(t *testing.T) {
 		CursorCol: 0,
 	}
 
-	resp, err := provider.GetCompletion(context.Background(), completionInputFromRequestForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 0, len(resp.Completions), "should be empty for no-op")
 }
@@ -442,7 +442,7 @@ func TestProviderEmptyLines(t *testing.T) {
 		CursorCol: 0,
 	}
 
-	resp, err := provider.GetCompletion(context.Background(), completionInputFromRequestForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 0, len(resp.Completions), "should be empty")
 }
@@ -575,7 +575,7 @@ func TestMultilineCompletion(t *testing.T) {
 		CursorCol: 0,
 	}
 
-	resp, err := provider.GetCompletion(context.Background(), completionInputFromRequestForTest(req))
+	resp, err := provider.GetCompletion(context.Background(), completionInputForTest(req))
 	assert.NoError(t, err, "GetCompletion")
 	assert.Equal(t, 1, len(resp.Completions), "completions count")
 	assert.Equal(t, 3, len(resp.Completions[0].Lines), "should have 3 lines")

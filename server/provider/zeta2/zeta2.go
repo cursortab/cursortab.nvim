@@ -135,13 +135,13 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 // the stage builder sees it (to keep it out of the user's buffer) and use
 // the captured position to populate a CursorPredictionTarget in parseCompletion.
 func armCursorMarkerStripping() provider.Preprocessor {
-	return func(p *provider.Provider, ctx *provider.Context) error {
+	return func(p *provider.Provider, ctx *provider.StreamState) error {
 		ctx.CursorMarker = cursorMarker
 		return nil
 	}
 }
 
-func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+func buildPrompt(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
 	prompt := assemblePrompt(p, ctx)
 
 	return &openai.CompletionRequest{
@@ -242,7 +242,7 @@ func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) strin
 }
 
 // assemblePrompt builds the full SeedCoder FIM prompt in SPM order.
-func assemblePrompt(p *provider.Provider, ctx *provider.Context) string {
+func assemblePrompt(p *provider.Provider, ctx *provider.StreamState) string {
 	trimmed := ctx.TrimmedLines
 	input := ctx.Input
 	current := input.Current
@@ -621,7 +621,7 @@ func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai
 // The raw text is expected to be the replacement content for the CURRENT
 // block, possibly terminated by ">>>>>>> UPDATED\n" or the literal
 // "NO_EDITS" sentinel.
-func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
+func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
 	raw := ctx.Result.Text
 
 	// Strip the trailing end marker if the model emitted it (with or without newline).
@@ -687,16 +687,17 @@ func stripCursorMarker(text, marker string) string {
 }
 
 // buildCursorTarget translates the streamed-line marker position captured by
-// provider.Context.TransformLine into a CursorPredictionTarget pointing at the
-// post-edit buffer row/col. ShouldRetrigger is set so the engine automatically
-// fires a prefetch at that location once the current completion is accepted.
+// provider.StreamState.TransformLine into a CursorPredictionTarget pointing at
+// the post-edit buffer row/col. ShouldRetrigger is set so the engine
+// automatically fires a prefetch at that location once the current completion
+// is accepted.
 //
 // The streamed response is the replacement for the editable region, so the
 // marker's streamed-line index equals its row index within the new editable
 // region in the post-edit buffer. The absolute buffer row (1-indexed) is:
 //
 //	WindowStart + editableStart + CursorMarkerLine + 1
-func buildCursorTarget(ctx *provider.Context, editableStart int, newLines []string) *types.CursorPredictionTarget {
+func buildCursorTarget(ctx *provider.StreamState, editableStart int, newLines []string) *types.CursorPredictionTarget {
 	lineIdx := ctx.CursorMarkerLine
 	if lineIdx < 0 {
 		lineIdx = 0
@@ -715,9 +716,6 @@ func buildCursorTarget(ctx *provider.Context, editableStart int, newLines []stri
 		expected = newLines[lineIdx]
 	}
 	relativePath := ctx.Input.Current.File.Path
-	if relativePath == "" && ctx.Request != nil {
-		relativePath = ctx.Request.FilePath
-	}
 
 	return &types.CursorPredictionTarget{
 		RelativePath:    relativePath,

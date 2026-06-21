@@ -126,16 +126,20 @@ const (
 	StreamingTypeTokens                      // Token-by-token (inline)
 )
 
+type ProviderStreamState interface {
+	ProviderStreamState()
+}
+
 // LineStreamProvider extends Provider with line-by-line streaming capabilities.
 // For providers like sweep, zeta, zeta-2, fim that stream by lines.
 type LineStreamProvider interface {
 	Provider
 	GetStreamingType() StreamingType
-	PrepareLineStream(ctx context.Context, req *types.CompletionRequest) (LineStream, any, error)
+	PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (LineStream, ProviderStreamState, error)
 	// ValidateFirstLine validates the first line (called after first line received)
-	ValidateFirstLine(providerCtx any, firstLine string) error
+	ValidateFirstLine(providerState ProviderStreamState, firstLine string) error
 	// FinishLineStream runs postprocessors on the final accumulated result
-	FinishLineStream(providerCtx any, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error)
+	FinishLineStream(providerState ProviderStreamState, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error)
 }
 
 // TokenStreamProvider extends Provider with token-by-token streaming capabilities.
@@ -145,9 +149,9 @@ type TokenStreamProvider interface {
 	GetStreamingType() StreamingType
 	// PrepareTokenStream prepares the stream and returns it along with provider context.
 	// The stream emits cumulative text (not deltas) for idempotent UI updates.
-	PrepareTokenStream(ctx context.Context, req *types.CompletionRequest) (LineStream, any, error)
+	PrepareTokenStream(ctx context.Context, input ctx.CompletionInput) (LineStream, ProviderStreamState, error)
 	// FinishTokenStream runs postprocessors on the final accumulated result
-	FinishTokenStream(providerCtx any, text string) (*types.CompletionResponse, error)
+	FinishTokenStream(providerState ProviderStreamState, text string) (*types.CompletionResponse, error)
 }
 
 // LineStream provides incremental line-by-line streaming
@@ -157,7 +161,7 @@ type LineStream interface {
 }
 
 // TrimmedContext provides access to trim info from the provider.
-// Implemented by provider.Context to allow engine to extract window offset.
+// Implemented by provider-owned stream state to allow engine to extract window offset.
 type TrimmedContext interface {
 	GetWindowStart() int       // 0-indexed start offset of trimmed window
 	GetTrimmedLines() []string // Lines sent to the model (nil if no trimming)
@@ -178,8 +182,7 @@ type PrefillContext interface {
 // TransformLine runs on every streamed line (including first and last) before
 // validation, accumulation, and stage building. Providers use it to strip
 // in-band markers the model emits inline in its output (e.g. Zeta2's
-// <|user_cursor|> cursor-position sentinel). A default no-op implementation
-// is provided by provider.Context.
+// <|user_cursor|> cursor-position sentinel).
 type StreamContext interface {
 	GetStreamOldLines() []string           // old lines for diff (nil = not applicable)
 	GetStreamBaseOffset() int              // 0-indexed base offset in buffer
@@ -201,12 +204,8 @@ type StreamingState struct {
 	// Accumulated text for postprocessing
 	AccumulatedText strings.Builder
 
-	// Provider context for postprocessing
-	ProviderContext any
-	Validated       bool
-
-	// Request data needed for finalization
-	Request *types.CompletionRequest
+	ProviderState ProviderStreamState
+	Validated     bool
 
 	// Track if we've rendered the first stage during streaming
 	// Only render one stage during streaming; rest handled at completion
@@ -218,11 +217,8 @@ type TokenStreamingState struct {
 	// Accumulated text (cumulative, not deltas)
 	AccumulatedText string
 
-	// Provider context for postprocessing
-	ProviderContext any
-
-	// Request data needed for finalization
-	Request *types.CompletionRequest
+	ProviderState ProviderStreamState
+	LineCount     int
 
 	// Line prefix: text before cursor on current line (for rendering full line)
 	LinePrefix string

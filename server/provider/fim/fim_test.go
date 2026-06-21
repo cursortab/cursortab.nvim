@@ -10,22 +10,9 @@ import (
 	"testing"
 )
 
-func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
-	input := ctx.Input
-	if ctx.Request != nil {
-		input.Trigger = ctx.Request.Source
-		input.Current.Workspace.Path = ctx.Request.WorkspacePath
-		input.Current.Workspace.ID = ctx.Request.WorkspaceID
-		input.Current.File.Path = ctx.Request.FilePath
-		input.Current.File.Lines = ctx.Request.Lines
-		input.Current.File.Version = ctx.Request.Version
-		input.Current.Cursor.Row = ctx.Request.CursorRow
-		input.Current.Cursor.Col = ctx.Request.CursorCol
-		input.Current.View.ViewportHeight = ctx.Request.ViewportHeight
-		input.Current.View.MaxVisibleLines = ctx.Request.MaxVisibleLines
-	}
+func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
 	return &provider.BatchContext{
-		Input:        input,
+		Input:        ctx.Input,
 		TrimmedLines: ctx.TrimmedLines,
 		WindowStart:  ctx.WindowStart,
 		WindowEnd:    ctx.WindowEnd,
@@ -36,11 +23,36 @@ func batchContextFromContext(ctx *provider.Context) *provider.BatchContext {
 	}
 }
 
-func buildPromptForTest(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
+func inputFromRequest(req *types.CompletionRequest) sourcectx.CompletionInput {
+	return sourcectx.CompletionInput{
+		Trigger: req.Source,
+		Current: sourcectx.CurrentSnapshot{
+			Workspace: sourcectx.WorkspaceRef{
+				Path: req.WorkspacePath,
+				ID:   req.WorkspaceID,
+			},
+			File: sourcectx.FileSnapshot{
+				Path:    req.FilePath,
+				Lines:   req.Lines,
+				Version: req.Version,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: req.CursorRow,
+				Col: req.CursorCol,
+			},
+			View: sourcectx.ViewConstraints{
+				ViewportHeight:  req.ViewportHeight,
+				MaxVisibleLines: req.MaxVisibleLines,
+			},
+		},
+	}
+}
+
+func buildPromptForTest(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
 	return buildBatch(p, batchContextFromContext(ctx))
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
+func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
 	return parseBatch(p, batchContextFromContext(ctx), ctx.Result)
 }
 
@@ -69,9 +81,8 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:        sourcectx.CompletionInput{},
-		Request:      &types.CompletionRequest{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
 	}
@@ -92,7 +103,7 @@ func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 5},
@@ -120,7 +131,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 4},
@@ -150,7 +161,7 @@ func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 100}, // Beyond line length
@@ -171,12 +182,12 @@ func TestParseCompletion_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"hello world"},
 			CursorRow: 1,
 			CursorCol: 5,
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: " there",
 		},
@@ -197,12 +208,12 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"func main() {"},
 			CursorRow: 1,
 			CursorCol: 13,
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: "\n  fmt.Println()\n",
 		},
@@ -230,7 +241,7 @@ func TestBuildPrompt_RepoContext(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Workspace: sourcectx.WorkspaceRef{Path: "/home/user/myproject"},
@@ -281,7 +292,7 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Workspace: sourcectx.WorkspaceRef{Path: "/home/user/myproject"},
@@ -313,7 +324,7 @@ func TestBuildPrompt_RepoContextStopTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File:   sourcectx.FileSnapshot{Path: "main.go"},
@@ -346,9 +357,8 @@ func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input:        sourcectx.CompletionInput{},
-		Request:      &types.CompletionRequest{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
 	}
@@ -367,7 +377,7 @@ func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 5},
@@ -391,7 +401,7 @@ func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 4},
@@ -415,7 +425,7 @@ func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
+	ctx := &provider.StreamState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 100},
@@ -437,12 +447,12 @@ func TestParseCompletion_SingleLineWithAfterCursor(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
+	ctx := &provider.StreamState{
+		Input: inputFromRequest(&types.CompletionRequest{
 			Lines:     []string{"func()"},
 			CursorRow: 1,
 			CursorCol: 4, // After "func"
-		},
+		}),
 		Result: &openai.StreamResult{
 			Text: "tion",
 		},

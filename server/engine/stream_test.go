@@ -10,7 +10,7 @@ import (
 
 // fakeStreamContext is a minimal StreamContext for testing handleStreamLine
 // wiring. It records raw inputs and delegates marker stripping to the same
-// algorithm as provider.Context (can't embed it due to import cycle).
+// algorithm as provider.StreamState (can't embed it due to import cycle).
 type fakeStreamContext struct {
 	marker        string
 	received      []string
@@ -21,6 +21,7 @@ type fakeStreamContext struct {
 	skipLine      bool
 }
 
+func (*fakeStreamContext) ProviderStreamState()                    {}
 func (f *fakeStreamContext) GetStreamOldLines() []string           { return nil }
 func (f *fakeStreamContext) GetStreamBaseOffset() int              { return 0 }
 func (f *fakeStreamContext) TransformFirstLine(line string) string { return line }
@@ -73,8 +74,7 @@ func TestHandleStreamLine_CallsTransformLineBeforeAccumulation(t *testing.T) {
 			"test.go",
 			100,
 		),
-		ProviderContext: fakeCtx,
-		Request:         &types.CompletionRequest{FilePath: "test.go", Lines: buf.lines},
+		ProviderState: fakeCtx,
 	}
 
 	// Stream a sequence of lines, one containing the marker.
@@ -116,8 +116,7 @@ func TestHandleStreamLine_SkipsMarkerOnlyLine(t *testing.T) {
 		StageBuilder: text.NewIncrementalStageBuilder(
 			buf.lines, 1, 3, 50, 1, 50, 1, 0, "test.go", 100,
 		),
-		ProviderContext: fakeCtx,
-		Request:         &types.CompletionRequest{FilePath: "test.go", Lines: buf.lines},
+		ProviderState: fakeCtx,
 	}
 
 	eng.handleStreamLine("a")
@@ -153,8 +152,7 @@ func TestHandleStreamLine_TransformLineIsNoopWithoutMarker(t *testing.T) {
 		StageBuilder: text.NewIncrementalStageBuilder(
 			buf.lines, 1, 3, 50, 1, 50, 1, 0, "test.go", 100,
 		),
-		ProviderContext: fakeCtx,
-		Request:         &types.CompletionRequest{FilePath: "test.go", Lines: buf.lines},
+		ProviderState: fakeCtx,
 	}
 
 	eng.handleStreamLine("some line with <|user_cursor|> in it")

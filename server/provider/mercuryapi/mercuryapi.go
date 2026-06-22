@@ -111,19 +111,12 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 	}
 }
 
-func (p *Provider) ContextRequirements(_ sourcectx.RequestKind) sourcectx.ContextRequirements {
-	limits := engine.DefaultContextLimits()
-	return sourcectx.ContextRequirements{
+func (p *Provider) RequiredMaterials() sourcectx.Materials {
+	return sourcectx.Materials{
 		sourcectx.Diagnostics{},
-		sourcectx.Treesitter{MaxSiblings: limits.MaxSiblings},
-		sourcectx.GitDiff{
-			MaxBytes:          limits.MaxDiffBytes,
-			MaxChangedSymbols: limits.MaxChangedSymbols,
-		},
-		sourcectx.RecentFiles{
-			Limit:      limits.MaxRecentSnapshots,
-			FirstLines: limits.FileChunkLines,
-		},
+		sourcectx.Treesitter{},
+		sourcectx.GitDiff{},
+		sourcectx.RecentFiles{},
 		sourcectx.EditHistory{},
 	}
 }
@@ -174,29 +167,29 @@ func (p *Provider) GetCompletion(ctx context.Context, input sourcectx.Completion
 
 	// Calculate editable and context regions
 	var syntaxRanges []*types.LineRange
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok && treesitter.Data != nil {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok && treesitter.Data != nil {
 		syntaxRanges = treesitter.Data.SyntaxRanges
 	}
 	editableStart, editableEnd, contextStart, contextEnd := computeRegions(lines, current.Cursor.Row, syntaxRanges)
 
 	var diffHistories []*types.FileDiffHistory
-	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok {
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
 		diffHistories = editHistory.Files
 	}
 	var recentSnapshots []*types.RecentBufferSnapshot
-	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
 		recentSnapshots = recentFiles.Files
 	}
 	var diagnostics *types.Diagnostics
-	if diagnosticsMaterial, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+	if diagnosticsMaterial, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
 		diagnostics = diagnosticsMaterial.Data
 	}
 	var treesitter *types.TreesitterContext
-	if treesitterMaterial, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+	if treesitterMaterial, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok {
 		treesitter = treesitterMaterial.Data
 	}
 	var gitDiff *types.GitDiffContext
-	if gitDiffMaterial, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+	if gitDiffMaterial, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok {
 		gitDiff = gitDiffMaterial.Data
 	}
 

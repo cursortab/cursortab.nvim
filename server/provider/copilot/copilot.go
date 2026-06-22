@@ -114,7 +114,7 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 	}
 }
 
-func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+func (p *Provider) RequiredMaterials() ctx.Materials {
 	return nil
 }
 
@@ -191,7 +191,7 @@ func buildDocumentURI(current ctx.CurrentSnapshot) string {
 	if strings.HasPrefix(filePath, "/") {
 		return "file://" + filePath
 	}
-	return "file://" + current.Workspace.Path + "/" + filePath
+	return "file://" + current.WorkspacePath + "/" + filePath
 }
 
 // HandleNESResponse is called by the RPC handler when Copilot responds

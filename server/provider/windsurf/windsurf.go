@@ -303,7 +303,7 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 	}
 }
 
-func (p *Provider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+func (p *Provider) RequiredMaterials() ctx.Materials {
 	return nil
 }
 
@@ -377,7 +377,7 @@ func buildWindsurfRequest(info *buffer.WindsurfInfo, current ctx.CurrentSnapshot
 	lineEnding := "\n"
 	language := resolveLanguage(current.File.Path)
 	absFilePath, _ := filepath.Abs(current.File.Path)
-	absWorkspacePath, _ := filepath.Abs(current.Workspace.Path)
+	absWorkspacePath, _ := filepath.Abs(current.WorkspacePath)
 
 	return windsurfRequest{
 		Metadata: windsurfMetadata{

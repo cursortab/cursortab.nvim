@@ -20,7 +20,7 @@
 //	line 10: [ERROR] undefined: foo (source: gopls)
 //	```
 //
-//	### Code Context:                      (omitted if no treesitter context)
+//	### Code Context:                        (omitted if no treesitter context)
 //	Enclosing scope: func handleRequest(w http.ResponseWriter, r *http.Request) {
 //	Sibling symbols:
 //	  line 5: func otherFunc() {
@@ -67,62 +67,52 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Name:                          "zeta",
 		Config:                        config,
 		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType:                 provider.StreamingLines,
+		LineStreaming:                 true,
 		CompleteWithTextRightOfCursor: true,
 		PrefetchAfterCursorTarget:     true,
-		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
-			Diagnostics: true,
-			Treesitter:  true,
-			GitDiff:     true,
-			RecentFiles: true,
-			EditHistory: true,
-		}),
-		DiffBuilder: provider.FormatDiffHistory(provider.DiffHistoryOptions{
-			HeaderTemplate: "User edited %q:\n",
-			Prefix:         "```diff\n",
-			Suffix:         "\n```",
-			Separator:      "\n\n",
-		}),
-		BuildBatch: buildBatch,
-		ParseBatch: parseBatch,
-		Validators: []provider.Validator{
-			provider.ValidateFirstLineAnchor(0.25),
+		Materials: sourcectx.Materials{
+			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
 		},
-		StopTokens: []string{"\n<|editable_region_end|>"},
+		BuildRequest:       buildRequest,
+		ParseResult:        parseResult,
+		FirstLineValidator: provider.ValidateFirstLineAnchor(0.25),
+		StopTokens:         []string{"\n<|editable_region_end|>"},
 	}
 }
 
-func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
-	return buildPromptFromBatch(p, ctx)
-}
-
-func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
 	input := ctx.Input
 
 	userExcerpt := buildUserExcerpt(input.Current, ctx)
 	userEdits := ""
-	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
-		userEdits = p.DiffBuilder(editHistory.Files)
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
+		userEdits = provider.FormatDiffHistory(editHistory.Files, provider.DiffHistoryOptions{
+			HeaderTemplate: "User edited %q:\n",
+			Prefix:         "```diff\n",
+			Suffix:         "\n```",
+			Separator:      "\n\n",
+		})
 	}
 	diagnosticsText := ""
-	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
 		diagnosticsText = formatDiagnosticsForPrompt(diagnostics.Data)
 	}
 	treesitterText := ""
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok {
 		treesitterText = formatTreesitterForPrompt(treesitter.Data)
 	}
 	gitDiffText := ""
-	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok {
 		gitDiffText = formatGitDiffForPrompt(gitDiff.Data)
 	}
 	recentFilesText := ""
-	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
 		recentFilesText = formatRecentFilesForPrompt(recentFiles.Files)
 	}
 	prompt := buildInstructionPrompt(userEdits, diagnosticsText, treesitterText, gitDiffText, recentFilesText, userExcerpt)
 
-	return &openai.CompletionRequest{
+	return provider.PreparedRequest{Completion: &openai.CompletionRequest{
 		Model:       p.Config.ProviderModel,
 		Prompt:      prompt,
 		Temperature: p.Config.ProviderTemperature,
@@ -131,10 +121,10 @@ func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext) *ope
 		Stop:        []string{"\n<|editable_region_end|>"},
 		N:           1,
 		Echo:        false,
-	}
+	}}
 }
 
-func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.BatchContext) string {
+func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.RequestState) string {
 	var promptBuilder strings.Builder
 	lines := current.File.Lines
 
@@ -150,7 +140,7 @@ func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.BatchCont
 	cursorLine := cursorRow - 1
 
 	editableStart := ctx.WindowStart
-	editableEnd := ctx.WindowEnd
+	editableEnd := ctx.WindowStart + len(ctx.TrimmedLines)
 
 	contextLinesBefore := 5
 	contextLinesAfter := 5
@@ -327,23 +317,24 @@ func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, r
 	return promptBuilder.String()
 }
 
-func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if resp, done := provider.RejectEmptyBatch(p, result); done {
-		return resp, true
+func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	if resp, done := provider.RejectEmptyResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.StripRepetitionBatch(p, result); done {
-		return resp, true
+	if resp, done := provider.StripRepetitionResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.ValidateAnchorPositionBatch(p, ctx, result, 0.25); done {
-		return resp, true
+	if resp, done := provider.ValidateAnchorPositionResult(p, ctx, result, 0.25); done {
+		return resp
 	}
-	if resp, done := provider.AnchorTruncationBatch(p, ctx, result, 0.75); done {
-		return resp, true
+	endLineInc, resp, done := provider.AnchorTruncationResult(p, ctx, result, 0.75)
+	if done {
+		return resp
 	}
-	return parseBatchCompletion(p, ctx, result)
+	return parseCompletion(p, ctx, result, endLineInc)
 }
 
-func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult, endLineInc int) *types.CompletionResponse {
 	completionText := result.Text
 	lines := ctx.Input.Current.File.Lines
 
@@ -354,14 +345,14 @@ func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, resu
 
 	startIdx := strings.Index(content, startMarker)
 	if startIdx == -1 {
-		return parseSimpleBatchCompletion(p, ctx, result)
+		return parseSimpleCompletion(p, ctx, result, endLineInc)
 	}
 
 	content = content[startIdx:]
 
 	newlineIdx := strings.Index(content, "\n")
 	if newlineIdx == -1 {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 	content = content[newlineIdx+1:]
 
@@ -374,31 +365,30 @@ func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, resu
 	}
 
 	editableStart := ctx.WindowStart
-	editableEnd := ctx.WindowEnd
+	editableEnd := ctx.WindowStart + len(ctx.TrimmedLines)
 	oldLines := lines[editableStart:editableEnd]
 	oldText := strings.Join(oldLines, "\n")
 
 	if newText == oldText {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
 	newLines := strings.Split(newText, "\n")
 
-	endLineInc := ctx.EndLineInc
 	if endLineInc == 0 {
 		endLineInc = min(editableStart+len(newLines), editableEnd)
 	}
 
-	return p.BuildBatchCompletion(ctx, editableStart+1, endLineInc, newLines)
+	return p.BuildCompletion(ctx, editableStart+1, endLineInc, newLines)
 }
 
-func parseSimpleBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+func parseSimpleCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult, endLineInc int) *types.CompletionResponse {
 	completionText := result.Text
 	current := ctx.Input.Current
 
 	completionLines := strings.Split(completionText, "\n")
 	if len(completionLines) == 0 {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
 	cursorRow := current.Cursor.Row
@@ -422,9 +412,9 @@ func parseSimpleBatchCompletion(p *provider.Provider, ctx *provider.BatchContext
 	resultLines = append(resultLines, completionLines[1:]...)
 
 	endLine := cursorRow + len(completionLines) - 1
-	if ctx.EndLineInc > 0 {
-		endLine = ctx.EndLineInc
+	if endLineInc > 0 {
+		endLine = endLineInc
 	}
 
-	return p.BuildBatchCompletion(ctx, cursorRow, endLine, resultLines)
+	return p.BuildCompletion(ctx, cursorRow, endLine, resultLines)
 }

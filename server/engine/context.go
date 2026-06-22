@@ -41,9 +41,9 @@ func (e *Engine) saveCurrentFileState() {
 	}
 
 	state := e.newFileStateFromBuffer()
-	state.FirstLines = firstN(e.buffer.Lines(), e.contextLimits.FileChunkLines)
+	state.FirstLines = firstN(e.buffer.Lines(), defaultFileChunkLines)
 	e.fileStateStore[e.buffer.Path()] = state
-	e.trimFileStateStore(3) // Keep at most 3 files for FileChunks
+	e.trimFileStateStore(defaultMaxRecentSnapshots)
 }
 
 // handleFileSwitch manages file state when switching between files.
@@ -68,9 +68,9 @@ func (e *Engine) handleFileSwitch(oldPath, newPath string, currentLines []string
 
 	if oldPath != "" {
 		state := e.newFileStateFromBuffer()
-		// Capture first lines for FileChunks context
-		state.FirstLines = firstN(currentLines, e.contextLimits.FileChunkLines)
+		state.FirstLines = firstN(currentLines, defaultFileChunkLines)
 		e.fileStateStore[oldPath] = state
+		e.trimFileStateStore(defaultMaxRecentSnapshots)
 	}
 
 	if state, exists := e.fileStateStore[newPath]; exists {
@@ -151,6 +151,9 @@ type fileStateEntry struct {
 
 // trimFileStateStore keeps only the most recently accessed maxFiles files
 func (e *Engine) trimFileStateStore(maxFiles int) {
+	if maxFiles <= 0 {
+		return
+	}
 	if len(e.fileStateStore) <= maxFiles {
 		return
 	}

@@ -31,6 +31,7 @@ func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *tes
 	eng.manuallyTriggered = true
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
+	defer streamCancel()
 	eng.streamingState = &StreamingState{}
 	eng.streamingCancel = streamCancel
 	eng.acceptedDuringStreaming = true
@@ -855,7 +856,7 @@ func TestRequestPrefetch_NoRaceWithFileStateStoreWrites(t *testing.T) {
 
 	for range 100 {
 		eng.mu.Lock()
-		eng.requestPrefetch(types.CompletionSourceTyping, 1, 0, prefetchOpts{})
+		eng.requestPrefetch(1, 0, prefetchOpts{})
 		eng.mu.Unlock()
 		time.Sleep(time.Millisecond)
 	}

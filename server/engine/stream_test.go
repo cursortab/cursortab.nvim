@@ -8,28 +8,19 @@ import (
 	"testing"
 )
 
-// fakeStreamContext is a minimal StreamContext for testing handleStreamLine
+// fakeProviderStreamState is a minimal ProviderStreamState for testing handleStreamLine
 // wiring. It records raw inputs and delegates marker stripping to the same
 // algorithm as provider.StreamState (can't embed it due to import cycle).
-type fakeStreamContext struct {
+type fakeProviderStreamState struct {
 	marker        string
 	received      []string
 	cursorSeen    bool
 	cursorLine    int
 	cursorCol     int
 	linesReceived int
-	skipLine      bool
 }
 
-func (*fakeStreamContext) ProviderStreamState()                    {}
-func (f *fakeStreamContext) GetStreamOldLines() []string           { return nil }
-func (f *fakeStreamContext) GetStreamBaseOffset() int              { return 0 }
-func (f *fakeStreamContext) TransformFirstLine(line string) string { return line }
-func (f *fakeStreamContext) TransformLastLine(line string) string  { return line }
-func (f *fakeStreamContext) ShouldSkipLine() bool                  { return f.skipLine }
-
-func (f *fakeStreamContext) TransformLine(line string) string {
-	f.skipLine = false
+func (f *fakeProviderStreamState) TransformLine(line string) (string, bool) {
 	f.received = append(f.received, line)
 	defer func() { f.linesReceived++ }()
 	if f.marker != "" {
@@ -42,15 +33,15 @@ func (f *fakeStreamContext) TransformLine(line string) string {
 		}
 		stripped := strings.ReplaceAll(line, f.marker, "")
 		if strings.TrimSpace(stripped) == "" && strings.Contains(line, f.marker) {
-			f.skipLine = true
+			return stripped, true
 		}
-		return stripped
+		return stripped, false
 	}
-	return line
+	return line, false
 }
 
 // TestHandleStreamLine_CallsTransformLineBeforeAccumulation verifies that
-// handleStreamLine runs the StreamContext.TransformLine hook before the line
+// handleStreamLine runs the ProviderStreamState.TransformLine hook before the line
 // hits AccumulatedText or the stage builder. This is the fix for zeta2's
 // <|user_cursor|> marker leaking into rendered stages.
 func TestHandleStreamLine_CallsTransformLineBeforeAccumulation(t *testing.T) {
@@ -60,7 +51,7 @@ func TestHandleStreamLine_CallsTransformLineBeforeAccumulation(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	fakeCtx := &fakeStreamContext{marker: "<|user_cursor|>"}
+	fakeCtx := &fakeProviderStreamState{marker: "<|user_cursor|>"}
 
 	eng.state = stateStreamingCompletion
 	eng.streamingState = &StreamingState{
@@ -109,7 +100,7 @@ func TestHandleStreamLine_SkipsMarkerOnlyLine(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	fakeCtx := &fakeStreamContext{marker: "<|user_cursor|>"}
+	fakeCtx := &fakeProviderStreamState{marker: "<|user_cursor|>"}
 
 	eng.state = stateStreamingCompletion
 	eng.streamingState = &StreamingState{
@@ -136,7 +127,7 @@ func TestHandleStreamLine_SkipsMarkerOnlyLine(t *testing.T) {
 }
 
 // TestHandleStreamLine_TransformLineIsNoopWithoutMarker verifies that a
-// StreamContext with an empty marker pattern is a harmless no-op — all other
+// ProviderStreamState with an empty marker pattern is a harmless no-op — all other
 // providers remain untouched.
 func TestHandleStreamLine_TransformLineIsNoopWithoutMarker(t *testing.T) {
 	buf := newMockBuffer()
@@ -145,7 +136,7 @@ func TestHandleStreamLine_TransformLineIsNoopWithoutMarker(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	fakeCtx := &fakeStreamContext{}
+	fakeCtx := &fakeProviderStreamState{}
 
 	eng.state = stateStreamingCompletion
 	eng.streamingState = &StreamingState{
@@ -162,106 +153,6 @@ func TestHandleStreamLine_TransformLineIsNoopWithoutMarker(t *testing.T) {
 	acc := eng.streamingState.AccumulatedText.String()
 	assert.True(t, strings.Contains(acc, "<|user_cursor|>"),
 		"empty-marker hook does not strip anything")
-}
-
-func TestTokenStreamingKeepPartial_TypingMatchesPartial(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello wo"} // User typed "wo" which matches partial stream
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	// Simulate token streaming state with partial result
-	eng.state = stateStreamingCompletion
-	eng.tokenStreamingState = &TokenStreamingState{
-		AccumulatedText: "world",
-		LinePrefix:      "hello ",
-		LineNum:         1,
-	}
-	// This would have been set by handleTokenChunk
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
-	eng.tokenStreamChan = make(chan string) // Non-nil to indicate active stream
-
-	// Trigger text change during streaming
-	eng.doRejectStreamingAndDebounce()
-
-	// Should transition to HasCompletion state since typing matches
-	assert.Equal(t, stateHasCompletion, eng.state, "state after matching typing during streaming")
-
-	// Completions should be preserved
-	assert.Greater(t, len(eng.completions), 0, "completions count")
-
-	// Token streaming state should be cleared
-	assert.Nil(t, eng.tokenStreamingState, "tokenStreamingState after cancellation")
-}
-
-func TestTokenStreamingKeepPartial_TypingDoesNotMatch(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello xyz"} // User typed something different
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	// Simulate token streaming state with partial result
-	eng.state = stateStreamingCompletion
-	eng.tokenStreamingState = &TokenStreamingState{
-		AccumulatedText: "world",
-		LinePrefix:      "hello ",
-		LineNum:         1,
-	}
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
-	eng.tokenStreamChan = make(chan string)
-
-	// Trigger text change during streaming
-	eng.doRejectStreamingAndDebounce()
-
-	// Should transition to Idle state since typing doesn't match
-	assert.Equal(t, stateIdle, eng.state, "state after mismatching typing during streaming")
-
-	// Completions should be cleared
-	assert.Nil(t, eng.completions, "completions after mismatch")
-
-	// ClearUI should have been called
-	assert.Greater(t, buf.clearUICalls, 0, "ClearUI should have been called")
-}
-
-func TestTokenStreamingKeepPartial_FullyTyped(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello world"} // User typed the full completion
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	// Simulate token streaming state with partial result
-	eng.state = stateStreamingCompletion
-	eng.tokenStreamingState = &TokenStreamingState{
-		AccumulatedText: "world",
-		LinePrefix:      "hello ",
-		LineNum:         1,
-	}
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
-	eng.tokenStreamChan = make(chan string)
-
-	// Trigger text change during streaming
-	eng.doRejectStreamingAndDebounce()
-
-	// Should transition to Idle since fully typed
-	assert.Equal(t, stateIdle, eng.state, "state after fully typing completion during streaming")
 }
 
 func TestLineStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
@@ -302,10 +193,8 @@ func TestLineStreamingReject_NoKeepPartial(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	// Simulate line streaming state (NOT token streaming)
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &StreamingState{} // Line streaming state
-	eng.tokenStreamingState = nil          // No token streaming
+	eng.streamingState = &StreamingState{}
 	eng.streamLinesChan = make(chan string)
 
 	// Trigger text change during streaming
@@ -363,41 +252,6 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 	assert.Equal(t, stateIdle, eng.state, "state after suppressing streamed stage")
 	assert.Nil(t, eng.streamingState, "streaming state after suppression")
 	assert.Nil(t, eng.streamLinesChan, "stream channel after suppression")
-}
-
-func TestCancelTokenStreamingKeepPartial(t *testing.T) {
-	buf := newMockBuffer()
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	// Set up token streaming state
-	eng.tokenStreamChan = make(chan string)
-	eng.tokenStreamingState = &TokenStreamingState{
-		AccumulatedText: "test",
-		LineNum:         1,
-	}
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"test line"},
-	}}
-	eng.completionOriginalLines = []string{""}
-
-	// Cancel keeping partial
-	eng.cancelTokenStreamingKeepPartial()
-
-	// Token stream channel should be nil
-	assert.Nil(t, eng.tokenStreamChan, "tokenStreamChan after cancel")
-
-	// Token streaming state should be nil
-	assert.Nil(t, eng.tokenStreamingState, "tokenStreamingState after cancel")
-
-	// But completions should be preserved
-	assert.NotNil(t, eng.completions, "completions after cancel")
-
-	// And completionOriginalLines should be preserved
-	assert.NotNil(t, eng.completionOriginalLines, "completionOriginalLines after cancel")
 }
 
 // TestStreamingAccept_FinalizedStageMismatch tests that when a stage rendered during

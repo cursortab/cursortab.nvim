@@ -8,23 +8,28 @@ import (
 )
 
 type completionInputOptions struct {
-	kind              ctx.RequestKind
-	source            types.CompletionSource
 	lines             []string
 	cursorRow         int
 	cursorCol         int
 	hasCursorOverride bool
 }
 
-func (e *Engine) buildCompletionInput(opts completionInputOptions) (ctx.CompletionInput, ctx.ContextSourceInput) {
+func (e *Engine) buildContextSourceInput(opts completionInputOptions, requirements ctx.Materials) ctx.ContextSourceInput {
 	current := e.buildCurrentSnapshot(opts)
-	snapshot := e.buildFileContextSnapshot()
-	sourceInput := buildContextSourceInput(current, snapshot, e.buffer)
-	return ctx.CompletionInput{
-		Kind:    opts.kind,
-		Trigger: opts.source,
-		Current: current,
-	}, sourceInput
+	snapshot := e.buildFileContextSnapshot(requirements)
+	return ctx.ContextSourceInput{
+		Current:  current,
+		Snapshot: snapshot,
+		Buffer:   e.buffer,
+		Limits: ctx.CollectionLimits{
+			MaxSiblings:        defaultMaxSiblings,
+			MaxDiffBytes:       defaultMaxDiffBytes,
+			MaxChangedSymbols:  defaultMaxChangedSymbols,
+			MaxRecentSnapshots: defaultMaxRecentSnapshots,
+			MaxDiffTokens:      e.config.MaxDiffTokens,
+			MaxUserActions:     defaultMaxUserActions,
+		},
+	}
 }
 
 func (e *Engine) buildCurrentSnapshot(opts completionInputOptions) ctx.CurrentSnapshot {
@@ -39,86 +44,79 @@ func (e *Engine) buildCurrentSnapshot(opts completionInputOptions) ctx.CurrentSn
 		col = opts.cursorCol
 	}
 	return ctx.CurrentSnapshot{
-		Workspace: ctx.WorkspaceRef{
-			Path: e.WorkspacePath,
-			ID:   e.WorkspaceID,
-		},
+		WorkspacePath: e.WorkspacePath,
 		File: ctx.FileSnapshot{
-			Path:    e.buffer.Path(),
-			Lines:   slices.Clone(lines),
-			Version: e.buffer.Version(),
+			Path:  e.buffer.Path(),
+			Lines: slices.Clone(lines),
 		},
 		Cursor: ctx.CursorPosition{
 			Row: row,
 			Col: col,
 		},
-		View: ctx.ViewConstraints{
-			ViewportHeight:  e.getViewportHeightConstraint(),
-			MaxVisibleLines: e.config.MaxVisibleLines,
-		},
+		ViewportHeight: e.getViewportHeightConstraint(),
 	}
 }
 
-func (e *Engine) buildFileContextSnapshot() ctx.FileContextSnapshot {
+func (e *Engine) buildFileContextSnapshot(requirements ctx.Materials) ctx.FileContextSnapshot {
+	needs := requirements.FileContextNeeds()
+	if !needs.RecentFileLines &&
+		!needs.RecentFileDiffHistories &&
+		!needs.CurrentDiffHistories &&
+		!needs.UserActions {
+		return ctx.FileContextSnapshot{}
+	}
+
 	currentPath := e.buffer.Path()
 	nowNs := e.clock.Now().UnixNano()
-	recentFiles := make([]ctx.FileContextFile, 0, len(e.fileStateStore))
-	for _, entry := range e.fileStatesByRecency(func(path string, _ *FileState) bool {
-		return path != currentPath
-	}) {
-		recentFiles = append(recentFiles, ctx.FileContextFile{
-			Path:          entry.path,
-			FirstLines:    slices.Clone(entry.state.FirstLines),
-			DiffHistories: cloneDiffEntries(entry.state.DiffHistories),
-			LastAccessNs:  entry.state.LastAccessNs,
-		})
+
+	var recentFiles []ctx.RecentFileSnapshot
+	if needs.RecentFileLines || needs.RecentFileDiffHistories {
+		recentFiles = make([]ctx.RecentFileSnapshot, 0, len(e.fileStateStore))
+		for _, entry := range e.fileStatesByRecency(func(path string, _ *FileState) bool {
+			return path != currentPath
+		}) {
+			recent := ctx.RecentFileSnapshot{
+				Path:         entry.path,
+				LastAccessNs: entry.state.LastAccessNs,
+			}
+			if needs.RecentFileLines {
+				recent.FirstLines = slices.Clone(entry.state.FirstLines)
+			}
+			if needs.RecentFileDiffHistories {
+				recent.DiffHistories = clonePtrSlice(entry.state.DiffHistories)
+			}
+			recentFiles = append(recentFiles, recent)
+		}
 	}
+
+	var currentDiffHistories []*types.DiffEntry
+	if needs.CurrentDiffHistories {
+		currentDiffHistories = clonePtrSlice(e.buffer.DiffHistories())
+	}
+
+	var userActions []*types.UserAction
+	if needs.UserActions {
+		userActions = clonePtrSlice(e.userActions)
+	}
+
 	return ctx.FileContextSnapshot{
-		CurrentFile: ctx.FileContextFile{
-			Path:          currentPath,
-			FirstLines:    firstN(e.buffer.Lines(), e.contextLimits.FileChunkLines),
-			DiffHistories: cloneDiffEntries(e.buffer.DiffHistories()),
-			LastAccessNs:  nowNs,
-		},
-		RecentFiles: recentFiles,
-		UserActions: cloneUserActions(e.userActions),
-		NowNs:       nowNs,
+		CurrentDiffHistories: currentDiffHistories,
+		RecentFiles:          recentFiles,
+		UserActions:          userActions,
+		NowNs:                nowNs,
 	}
 }
 
-func buildContextSourceInput(current ctx.CurrentSnapshot, snapshot ctx.FileContextSnapshot, buffer ctx.BufferContextReader) ctx.ContextSourceInput {
-	return ctx.ContextSourceInput{
-		Current:  current,
-		Snapshot: snapshot,
-		Buffer:   buffer,
-	}
-}
-
-func cloneDiffEntries(entries []*types.DiffEntry) []*types.DiffEntry {
-	if entries == nil {
+func clonePtrSlice[T any](items []*T) []*T {
+	if items == nil {
 		return nil
 	}
-	cloned := make([]*types.DiffEntry, len(entries))
-	for i, entry := range entries {
-		if entry == nil {
+	cloned := make([]*T, len(items))
+	for i, item := range items {
+		if item == nil {
 			continue
 		}
-		clone := *entry
-		cloned[i] = &clone
-	}
-	return cloned
-}
-
-func cloneUserActions(actions []*types.UserAction) []*types.UserAction {
-	if actions == nil {
-		return nil
-	}
-	cloned := make([]*types.UserAction, len(actions))
-	for i, action := range actions {
-		if action == nil {
-			continue
-		}
-		clone := *action
+		clone := *item
 		cloned[i] = &clone
 	}
 	return cloned

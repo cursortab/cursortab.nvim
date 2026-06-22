@@ -51,6 +51,10 @@ func (systemClock) Now() time.Time {
 	return time.Now()
 }
 
+func newLifecycleContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithCancel(parent)
+}
+
 type Engine struct {
 	WorkspacePath string
 	WorkspaceID   string
@@ -96,20 +100,14 @@ type Engine struct {
 	streamingState          *StreamingState
 	streamingCancel         context.CancelFunc
 	streamLinesChan         <-chan string // Lines channel (nil when not streaming)
-	streamLineNum           int           // Line counter for current stream
 	acceptedDuringStreaming bool          // True if user accepted partial during streaming
-
-	// Token streaming state (token-by-token for inline)
-	tokenStreamingState *TokenStreamingState
-	tokenStreamChan     <-chan string // Token stream channel (nil when not streaming)
 
 	// Mode tracking
 	inInsertMode      bool
 	manuallyTriggered bool
 
 	// Config options
-	config        EngineConfig
-	contextLimits ContextLimits
+	config EngineConfig
 
 	// Per-file state that persists across file switches (for context restoration)
 	fileStateStore map[string]*FileState
@@ -127,7 +125,7 @@ type Engine struct {
 
 	lastCompletionSource      types.CompletionSource
 	completionsSinceAccept    int
-	pendingMetricsInfo        *types.MetricsInfo // stored from batch completion for showCurrentStage
+	pendingMetricsInfo        *types.MetricsInfo // stored from provider completion for showCurrentStage
 	rejectedCompletions       map[string][]*rejectedCompletion
 	currentRejectedCompletion *rejectedCompletion
 }
@@ -152,7 +150,6 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 		ctx:                    nil,
 		eventChan:              make(chan Event, 100),
 		config:                 config,
-		contextLimits:          DefaultContextLimits(),
 		idleTimer:              nil,
 		textChangeTimer:        nil,
 		mu:                     sync.RWMutex{},
@@ -194,7 +191,7 @@ func (e *Engine) Start(ctx context.Context) {
 		return
 	}
 
-	e.mainCtx, e.mainCancel = context.WithCancel(ctx)
+	e.mainCtx, e.mainCancel = newLifecycleContext(ctx)
 	e.mu.Unlock()
 
 	go e.eventLoop(e.mainCtx)
@@ -298,7 +295,7 @@ func (e *Engine) RegisterEventHandler() {
 		eventType := EventTypeFromString(event)
 		if eventType != "" {
 			select {
-			case e.eventChan <- Event{Type: eventType, Data: nil}:
+			case e.eventChan <- Event{Type: eventType}:
 			case <-e.mainCtx.Done():
 				return
 			}
@@ -368,7 +365,7 @@ func (e *Engine) startTextChangeTimer() {
 		}
 
 		select {
-		case e.eventChan <- Event{Type: EventTextChangeTimeout, Data: nil}:
+		case e.eventChan <- Event{Type: EventTextChangeTimeout}:
 		case <-mainCtx.Done():
 		}
 	})
@@ -395,7 +392,7 @@ func (e *Engine) isModeEnabled() bool {
 
 // recordUserAction adds an action to the ring buffer, evicting oldest if full
 func (e *Engine) recordUserAction(action *types.UserAction) {
-	maxActions := DefaultContextLimits().MaxUserActions
+	maxActions := defaultMaxUserActions
 	if maxActions <= 0 {
 		return
 	}
@@ -520,16 +517,8 @@ func (e *Engine) recordMetricsShown(info *types.MetricsInfo) {
 		}
 	}
 
-	sourceInput := e.buildMetricsSourceInput()
-	e.currentSnapshot = e.captureSnapshot(sourceInput)
+	e.currentSnapshot = e.captureSnapshot()
 	e.sendMetric(metrics.EventShown)
-}
-
-func MetricsSnapshotRequirements(maxSiblings int) ctx.ContextRequirements {
-	return ctx.ContextRequirements{
-		ctx.Diagnostics{},
-		ctx.Treesitter{MaxSiblings: maxSiblings},
-	}
 }
 
 func (e *Engine) sendMetric(eventType metrics.EventType) {
@@ -586,14 +575,9 @@ func classifyScope(signature string) string {
 	}
 }
 
-func (e *Engine) buildMetricsSourceInput() ctx.ContextSourceInput {
+func (e *Engine) captureSnapshot() *metrics.Snapshot {
 	current := e.buildCurrentSnapshot(completionInputOptions{})
-	snapshot := e.buildFileContextSnapshot()
-	return buildContextSourceInput(current, snapshot, e.buffer)
-}
-
-func (e *Engine) captureSnapshot(sourceInput ctx.ContextSourceInput) *metrics.Snapshot {
-	current := sourceInput.Current
+	fileContext := e.buildFileContextSnapshot(ctx.Materials{ctx.EditHistory{}, ctx.UserActions{}})
 	lines := current.File.Lines
 	row := current.Cursor.Row
 
@@ -642,9 +626,17 @@ func (e *Engine) captureSnapshot(sourceInput ctx.ContextSourceInput) *metrics.Sn
 		completionLines = len(e.completions[0].Lines)
 	}
 
-	editCount, predictedEditRatio, timeSinceLastEditMs := metricsDiffStatsFromSnapshot(sourceInput.Snapshot, e.config.MaxDiffTokens)
-	typingSpeed := metricsTypingSpeed(sourceInput.Snapshot.UserActions)
-	recentActions := metricsRecentActions(sourceInput.Snapshot.UserActions)
+	editCount, predictedEditRatio, timeSinceLastEditMs := metricsDiffStatsFromSnapshot(fileContext, e.config.MaxDiffTokens)
+	typingSpeed := metricsTypingSpeed(fileContext.UserActions)
+	recentActions := metricsRecentActions(fileContext.UserActions)
+	hasDiagnostics := false
+	if diagnostics := e.buffer.Diagnostics(); diagnostics != nil && len(diagnostics.Items) > 0 {
+		hasDiagnostics = true
+	}
+	treesitterScope := "other"
+	if treesitter := e.buffer.TreesitterSymbols(row, current.Cursor.Col, defaultMaxSiblings); treesitter != nil {
+		treesitterScope = classifyScope(treesitter.EnclosingSignature)
+	}
 
 	stageIndex := 0
 	if e.stagedCompletion != nil {
@@ -683,36 +675,13 @@ func (e *Engine) captureSnapshot(sourceInput ctx.ContextSourceInput) *metrics.Sn
 		TimeSinceLastEditMs:    timeSinceLastEditMs,
 		TypingSpeed:            typingSpeed,
 		RecentActions:          recentActions,
-		HasDiagnostics:         false,
-		TreesitterScope:        "other",
+		HasDiagnostics:         hasDiagnostics,
+		TreesitterScope:        treesitterScope,
 		EditCount:              editCount,
 		PredictedEditRatio:     predictedEditRatio,
 		CompletionsSinceAccept: e.completionsSinceAccept,
 	}
-	e.applyMetricsContext(snapshot, sourceInput)
 	return snapshot
-}
-
-func (e *Engine) applyMetricsContext(snapshot *metrics.Snapshot, sourceInput ctx.ContextSourceInput) {
-	parent := e.mainCtx
-	if parent == nil {
-		parent = context.Background()
-	}
-	collected, err := ctx.Collect(parent, sourceInput, MetricsSnapshotRequirements(e.contextLimits.MaxSiblings))
-	if err != nil {
-		logger.Debug("metrics context collect failed: %v", err)
-		return
-	}
-	for _, material := range collected {
-		switch material := material.(type) {
-		case ctx.Diagnostics:
-			snapshot.HasDiagnostics = material.Data != nil && len(material.Data.Items) > 0
-		case ctx.Treesitter:
-			if material.Data != nil {
-				snapshot.TreesitterScope = classifyScope(material.Data.EnclosingSignature)
-			}
-		}
-	}
 }
 
 func metricsDiffStatsFromSnapshot(snapshot ctx.FileContextSnapshot, maxDiffTokens int) (int, float64, int) {
@@ -735,9 +704,9 @@ func metricsDiffStatsFromSnapshot(snapshot ctx.FileContextSnapshot, maxDiffToken
 	}
 
 	for _, file := range snapshot.RecentFiles {
-		addDiffStats(buffer.ProcessDiffHistory(cloneDiffEntries(file.DiffHistories), snapshot.NowNs))
+		addDiffStats(buffer.ProcessDiffHistory(file.DiffHistories, snapshot.NowNs))
 	}
-	currentDiffs := buffer.ProcessDiffHistory(cloneDiffEntries(snapshot.CurrentFile.DiffHistories), snapshot.NowNs)
+	currentDiffs := buffer.ProcessDiffHistory(snapshot.CurrentDiffHistories, snapshot.NowNs)
 	if maxDiffTokens > 0 {
 		currentDiffs = utils.TrimDiffEntries(currentDiffs, maxDiffTokens)
 	}

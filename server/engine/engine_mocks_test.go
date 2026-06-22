@@ -312,7 +312,7 @@ func (p *mockProvider) CanDo() ProviderCanDo {
 	return p.canDo
 }
 
-func (p *mockProvider) ContextRequirements(_ ctx.RequestKind) ctx.ContextRequirements {
+func (p *mockProvider) RequiredMaterials() ctx.Materials {
 	return nil
 }
 

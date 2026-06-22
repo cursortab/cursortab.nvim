@@ -13,223 +13,86 @@ import (
 	"strings"
 )
 
-// HTTPTransportSetter is implemented by clients that allow their outgoing
+// httpTransportSetter is implemented by clients that allow their outgoing
 // HTTP transport to be replaced. Used by the eval harness for record/replay.
-type HTTPTransportSetter interface {
+type httpTransportSetter interface {
 	SetHTTPTransport(rt http.RoundTripper)
 }
 
-// Re-exports of engine streaming-type constants so sub-provider packages
-// (zeta, fim, inline, sweep, ...) can reference them as provider.StreamingX
-// without taking a direct dependency on the engine package.
-const (
-	StreamingNone   = engine.StreamingTypeNone
-	StreamingLines  = engine.StreamingTypeLines
-	StreamingTokens = engine.StreamingTypeTokens
-)
-
-// Compile-time checks that Provider implements the required interfaces
 var _ engine.Provider = (*Provider)(nil)
 var _ engine.LineStreamProvider = (*Provider)(nil)
-var _ engine.TokenStreamProvider = (*Provider)(nil)
 
-// Client interface for API calls (enables mocking in tests)
-type Client interface {
+type client interface {
 	DoCompletion(ctx context.Context, req *openai.CompletionRequest) (*openai.CompletionResponse, error)
 	DoLineStream(ctx context.Context, req *openai.CompletionRequest, maxLines int, stopTokens []string) *openai.LineStream
-	DoTokenStream(ctx context.Context, req *openai.CompletionRequest, maxChars int, stopTokens []string) *openai.LineStream
 }
 
-// Validator validates streaming content (e.g., first line anchor validation)
-// Called after receiving the first line. Return error to cancel the stream.
-type Validator func(p *Provider, ctx *StreamState, firstLine string) error
+type firstLineValidator func(p *Provider, ctx *StreamState, firstLine string) error
 
-// DiffHistoryBuilder processes multi-file diff history into a string for the prompt
-type DiffHistoryBuilder func(history []*types.FileDiffHistory) string
+type requestBuilder func(p *Provider, ctx *RequestState) PreparedRequest
+type resultParser func(p *Provider, ctx *RequestState, result *openai.StreamResult) *types.CompletionResponse
+type streamResultParser func(p *Provider, ctx *StreamState, result *openai.StreamResult) *types.CompletionResponse
 
-type BatchBuilder func(p *Provider, ctx *BatchContext) *openai.CompletionRequest
-type BatchParser func(p *Provider, ctx *BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool)
+// PreparedRequest is the provider request plus response/stream handling facts
+// derived while rendering that request.
+type PreparedRequest struct {
+	Completion       *openai.CompletionRequest
+	Prefill          string
+	LineStreamConfig engine.LineStreamConfig
+}
 
-type BatchContext struct {
-	Input         ctx.CompletionInput
-	TrimmedLines  []string
-	WindowStart   int
-	WindowEnd     int
-	CursorLine    int
-	MaxLines      int
-	EndLineInc    int
-	Prefill       string
-	EditableStart int
-	EditableEnd   int
-
-	StreamOldLines []string
-	StreamBaseOff  int
-	FirstLinePfx   string
-	LastLineSfx    string
-
-	CursorMarker     string
-	CursorMarkerSeen bool
-	CursorMarkerLine int
-	CursorMarkerCol  int
+// RequestState is provider-owned state for one collected CompletionInput.
+// It carries the collected input and shared trimmed window.
+type RequestState struct {
+	Input        ctx.CompletionInput
+	TrimmedLines []string
+	WindowStart  int
+	CursorLine   int
 }
 
 type StreamState struct {
-	Input        ctx.CompletionInput
-	TrimmedLines []string
-	WindowStart  int    // 0-indexed
-	WindowEnd    int    // 0-indexed, exclusive
-	CursorLine   int    // 0-indexed within trimmed lines
-	MaxLines     int    // for streaming limit (0 = no limit)
-	EndLineInc   int    // 1-indexed inclusive end line, set by AnchorTruncation (0 = not set)
-	Prefill      string // prompt suffix prepended to result before postprocessors
-	Result       *openai.StreamResult
+	*RequestState
 
-	// Stream context for FIM-style providers (implements engine.StreamContext)
-	StreamOldLines []string // custom old lines for streaming diff (nil = not applicable)
-	StreamBaseOff  int      // 0-indexed base offset in buffer
-	FirstLinePfx   string   // prefix to prepend to first streamed line
-	LastLineSfx    string   // suffix to append to last streamed line
-
-	// Per-line cursor-marker stripping (e.g. Zeta2's <|user_cursor|> sentinel).
-	// Providers that need to strip in-band markers from every streamed line set
-	// CursorMarker while building the batch prompt. TransformLine then strips
-	// the marker and records the position of its first occurrence in CursorMarkerLine /
-	// CursorMarkerCol (measured in the post-strip line sequence and the
-	// post-strip byte column, respectively). LinesReceived counts every line
-	// that has flowed through TransformLine so far, giving the marker's line
-	// index within the streamed response.
-	CursorMarker     string // sentinel to strip, or "" for no-op
-	CursorMarkerSeen bool   // true once the marker has been observed
-	CursorMarkerLine int    // 0-indexed line in the streamed response
-	CursorMarkerCol  int    // 0-indexed byte offset within the stripped line
-	LinesReceived    int    // running count of streamed lines seen by TransformLine
-	SkipLine         bool   // true when TransformLine consumed a marker-only line
-
-	// Cached editable range for FIM providers. Set by assemblePrompt,
-	// reused by parseCompletion to avoid recomputing.
-	EditableStart int // [start, end) within TrimmedLines
-	EditableEnd   int
+	cursorMarker     string
+	cursorMarkerSeen bool
+	cursorMarkerLine int
+	linesReceived    int
 }
 
-func (*StreamState) ProviderStreamState() {}
-
-// GetWindowStart returns the 0-indexed start offset of the trimmed window.
-func (c *StreamState) GetWindowStart() int {
-	return c.WindowStart
-}
-
-// GetTrimmedLines returns the trimmed lines sent to the model.
-func (c *StreamState) GetTrimmedLines() []string {
-	return c.TrimmedLines
-}
-
-// GetPrefill returns the prompt prefill text.
-func (c *StreamState) GetPrefill() string {
-	return c.Prefill
-}
-
-// GetStreamOldLines returns custom old lines for streaming diff.
-func (c *StreamState) GetStreamOldLines() []string {
-	return c.StreamOldLines
-}
-
-// GetStreamBaseOffset returns the 0-indexed base offset in buffer.
-func (c *StreamState) GetStreamBaseOffset() int {
-	return c.StreamBaseOff
-}
-
-// TransformFirstLine prepends the stored prefix to the first streamed line.
-func (c *StreamState) TransformFirstLine(line string) string {
-	return c.FirstLinePfx + line
-}
-
-// TransformLastLine appends the stored suffix to the last streamed line.
-func (c *StreamState) TransformLastLine(line string) string {
-	return line + c.LastLineSfx
-}
-
-// TransformLine strips the provider-configured CursorMarker (if any) from
-// every streamed line and records the marker's first observed position.
-// No-op counter increment when no CursorMarker is set.
-//
-// When the marker constitutes the entire line, SkipLine is set so the caller
-// can drop the line from accumulation and stage building.
-func (c *StreamState) TransformLine(line string) string {
-	c.SkipLine = false
-	defer func() { c.LinesReceived++ }()
-	if c.CursorMarker == "" {
-		return line
+func (c *StreamState) TransformLine(line string) (string, bool) {
+	defer func() { c.linesReceived++ }()
+	if c.cursorMarker == "" {
+		return line, false
 	}
-	if !c.CursorMarkerSeen {
-		if idx := strings.Index(line, c.CursorMarker); idx >= 0 {
-			c.CursorMarkerSeen = true
-			c.CursorMarkerLine = c.LinesReceived
-			c.CursorMarkerCol = idx
+	if !c.cursorMarkerSeen {
+		if idx := strings.Index(line, c.cursorMarker); idx >= 0 {
+			c.cursorMarkerSeen = true
+			c.cursorMarkerLine = c.linesReceived
 		}
 	}
-	stripped := strings.ReplaceAll(line, c.CursorMarker, "")
-	if strings.TrimSpace(stripped) == "" && strings.Contains(line, c.CursorMarker) {
-		c.SkipLine = true
-	}
-	return stripped
+	stripped := strings.ReplaceAll(line, c.cursorMarker, "")
+	return stripped, strings.TrimSpace(stripped) == "" && strings.Contains(line, c.cursorMarker)
 }
 
-// ShouldSkipLine returns true when the last TransformLine call consumed a
-// marker-only line that should be dropped from the stream.
-func (c *StreamState) ShouldSkipLine() bool {
-	return c.SkipLine
+func (c *StreamState) CursorMarkerPosition() (int, bool) {
+	return c.cursorMarkerLine, c.cursorMarkerSeen
 }
 
-// Provider implements engine.Provider with a configurable pipeline
+// Provider implements engine.Provider with provider-specific render and parse functions.
 type Provider struct {
 	Name                          string
 	Config                        *types.ProviderConfig
-	Client                        Client
-	StreamingType                 engine.StreamingType // Type of streaming (None, Lines, Tokens)
+	Client                        client
+	LineStreaming                 bool
 	CompleteWithTextRightOfCursor bool
 	PrefetchAfterCursorTarget     bool
-	BuildBatch                    BatchBuilder
-	ParseBatch                    BatchParser
-	Validators                    []Validator        // Validators run on first line during streaming
-	StopTokens                    []string           // Stop tokens for streaming (provider-specific)
-	DiffBuilder                   DiffHistoryBuilder // Processes diff history for the prompt
-	BuildContextRequirements      ContextRequirementsBuilder
-}
-
-type ContextRequirementsBuilder func(kind ctx.RequestKind) ctx.ContextRequirements
-
-type MaterialOptions struct {
-	Diagnostics bool
-	Treesitter  bool
-	GitDiff     bool
-	RecentFiles bool
-	EditHistory bool
-	UserActions bool
-}
-
-func Materials(opts MaterialOptions) ContextRequirementsBuilder {
-	return func(_ ctx.RequestKind) ctx.ContextRequirements {
-		var requirements ctx.ContextRequirements
-		if opts.Diagnostics {
-			requirements = append(requirements, ctx.Diagnostics{})
-		}
-		if opts.Treesitter {
-			requirements = append(requirements, ctx.Treesitter{})
-		}
-		if opts.GitDiff {
-			requirements = append(requirements, ctx.GitDiff{})
-		}
-		if opts.RecentFiles {
-			requirements = append(requirements, ctx.RecentFiles{})
-		}
-		if opts.EditHistory {
-			requirements = append(requirements, ctx.EditHistory{})
-		}
-		if opts.UserActions {
-			requirements = append(requirements, ctx.UserActions{})
-		}
-		return requirements
-	}
+	BuildRequest                  requestBuilder
+	ParseResult                   resultParser
+	ParseStreamResult             streamResultParser
+	StreamCursorMarker            string
+	FirstLineValidator            firstLineValidator
+	StopTokens                    []string // Stop tokens for streaming (provider-specific)
+	Materials                     ctx.Materials
 }
 
 func (p *Provider) CanDo() engine.ProviderCanDo {
@@ -239,17 +102,14 @@ func (p *Provider) CanDo() engine.ProviderCanDo {
 	}
 }
 
-func (p *Provider) ContextRequirements(kind ctx.RequestKind) ctx.ContextRequirements {
-	if p.BuildContextRequirements == nil {
-		return nil
-	}
-	return p.BuildContextRequirements(kind)
+func (p *Provider) RequiredMaterials() ctx.Materials {
+	return p.Materials
 }
 
 // SetHTTPTransport forwards the transport override to the underlying client
 // if it supports it. Used by the eval harness.
 func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
-	if setter, ok := p.Client.(HTTPTransportSetter); ok {
+	if setter, ok := p.Client.(httpTransportSetter); ok {
 		setter.SetHTTPTransport(rt)
 	}
 }
@@ -257,19 +117,19 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 // GetCompletion implements engine.Provider
 func (p *Provider) GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	defer logger.Trace("Provider.GetCompletion")()
-	if p.BuildBatch == nil || p.ParseBatch == nil {
-		return p.EmptyResponse(), fmt.Errorf("%s: batch flow is not configured", p.Name)
+	if p.BuildRequest == nil || p.ParseResult == nil {
+		return p.EmptyResponse(), fmt.Errorf("%s: request flow is not configured", p.Name)
 	}
 
-	pctx, skip := p.prepareBatch(input)
+	pctx, maxLines, skip := p.prepareRequestState(input)
 	if skip {
 		return p.EmptyResponse(), nil
 	}
 
-	completionReq := p.BuildBatch(p, pctx)
-	p.logRequest(completionReq, pctx.MaxLines)
+	prepared := p.BuildRequest(p, pctx)
+	p.logRequest(prepared.Completion, maxLines)
 
-	resp, err := p.Client.DoCompletion(ctx, completionReq)
+	resp, err := p.Client.DoCompletion(ctx, prepared.Completion)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p.Name, err)
 	}
@@ -279,32 +139,29 @@ func (p *Provider) GetCompletion(ctx context.Context, input ctx.CompletionInput)
 		result.Text = resp.Choices[0].Text
 		result.FinishReason = resp.Choices[0].FinishReason
 	}
-	if pctx.Prefill != "" {
-		result.Text = pctx.Prefill + result.Text
+	if prepared.Prefill != "" {
+		result.Text = prepared.Prefill + result.Text
 	}
 	p.logResponse(result)
 
-	if resp, done := p.ParseBatch(p, pctx, result); done {
-		return resp, nil
-	}
-
-	return p.EmptyResponse(), nil
+	return p.ParseResult(p, pctx, result), nil
 }
 
-func (p *Provider) prepareBatch(input ctx.CompletionInput) (*BatchContext, bool) {
+func (p *Provider) prepareRequestState(input ctx.CompletionInput) (*RequestState, int, bool) {
 	current := input.Current
 	if !p.CompleteWithTextRightOfCursor && current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
 		currentLine := current.File.Lines[current.Cursor.Row-1]
 		if current.Cursor.Col < len(currentLine) {
 			logger.Debug("%s: skipping, text after cursor", p.Name)
-			return nil, true
+			return nil, 0, true
 		}
 	}
 
-	pctx := &BatchContext{Input: input}
+	pctx := &RequestState{Input: input}
+	maxLines := 0
 	cursorLine := current.Cursor.Row - 1
 	var syntaxRanges []*types.LineRange
-	if material, ok := ctx.Find[ctx.Treesitter](input.Context); ok && material.Data != nil {
+	if material, ok := ctx.Find[ctx.Treesitter](input.Materials); ok && material.Data != nil {
 		syntaxRanges = material.Data.SyntaxRanges
 	}
 	contextSize := p.Config.ProviderContextSize
@@ -321,21 +178,19 @@ func (p *Provider) prepareBatch(input ctx.CompletionInput) (*BatchContext, bool)
 	pctx.TrimmedLines = trimmedLines
 	pctx.CursorLine = newCursorLine
 	pctx.WindowStart = trimOffset
-	pctx.WindowEnd = trimOffset + len(trimmedLines)
 
 	if didTrim {
-		pctx.MaxLines = len(trimmedLines)
+		maxLines = len(trimmedLines)
 	}
-	if current.View.ViewportHeight > 0 {
-		if pctx.MaxLines == 0 || current.View.ViewportHeight < pctx.MaxLines {
-			pctx.MaxLines = current.View.ViewportHeight
+	if current.ViewportHeight > 0 {
+		if maxLines == 0 || current.ViewportHeight < maxLines {
+			maxLines = current.ViewportHeight
 		}
 	}
 
-	return pctx, false
+	return pctx, maxLines, false
 }
 
-// EmptyResponse returns an empty completion response
 func (p *Provider) EmptyResponse() *types.CompletionResponse {
 	return &types.CompletionResponse{
 		Completions:  []*types.Completion{},
@@ -343,10 +198,10 @@ func (p *Provider) EmptyResponse() *types.CompletionResponse {
 	}
 }
 
-func (p *Provider) BuildBatchCompletion(ctx *BatchContext, startLine, endLineInc int, lines []string) (*types.CompletionResponse, bool) {
+func (p *Provider) BuildCompletion(ctx *RequestState, startLine, endLineInc int, lines []string) *types.CompletionResponse {
 	currentLines := ctx.Input.Current.File.Lines
-	if endLineInc <= len(currentLines) && IsNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
-		return p.EmptyResponse(), true
+	if endLineInc <= len(currentLines) && isNoOpReplacement(lines, currentLines[startLine-1:endLineInc]) {
+		return p.EmptyResponse()
 	}
 
 	completion := &types.Completion{
@@ -358,7 +213,7 @@ func (p *Provider) BuildBatchCompletion(ctx *BatchContext, startLine, endLineInc
 	return &types.CompletionResponse{
 		Completions:  []*types.Completion{completion},
 		CursorTarget: nil,
-	}, true
+	}
 }
 
 func (p *Provider) logRequest(req *openai.CompletionRequest, maxLines int) {
@@ -383,102 +238,76 @@ func (p *Provider) logResponse(result *openai.StreamResult) {
 		result.Text)
 }
 
-// GetStreamingType returns the streaming type for this provider.
-func (p *Provider) GetStreamingType() engine.StreamingType {
-	return p.StreamingType
+func (p *Provider) StreamsLines() bool {
+	return p.LineStreaming
 }
 
-func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *StreamState, error) {
-	if p.BuildBatch == nil {
-		return nil, nil, fmt.Errorf("%s: batch flow is not configured", p.Name)
+func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *StreamState, engine.LineStreamConfig, int, error) {
+	if p.BuildRequest == nil {
+		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: request flow is not configured", p.Name)
 	}
 
-	batchCtx, skip := p.prepareBatch(input)
+	state, maxLines, skip := p.prepareRequestState(input)
 	if skip {
-		return nil, &StreamState{Input: input}, ErrSkipCompletion
+		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: skip completion", p.Name)
 	}
 
-	completionReq := p.BuildBatch(p, batchCtx)
+	prepared := p.BuildRequest(p, state)
 	pctx := &StreamState{
-		Input:          batchCtx.Input,
-		TrimmedLines:   batchCtx.TrimmedLines,
-		WindowStart:    batchCtx.WindowStart,
-		WindowEnd:      batchCtx.WindowEnd,
-		CursorLine:     batchCtx.CursorLine,
-		MaxLines:       batchCtx.MaxLines,
-		EndLineInc:     batchCtx.EndLineInc,
-		Prefill:        batchCtx.Prefill,
-		StreamOldLines: batchCtx.StreamOldLines,
-		StreamBaseOff:  batchCtx.StreamBaseOff,
-		FirstLinePfx:   batchCtx.FirstLinePfx,
-		LastLineSfx:    batchCtx.LastLineSfx,
-		CursorMarker:   batchCtx.CursorMarker,
-		EditableStart:  batchCtx.EditableStart,
-		EditableEnd:    batchCtx.EditableEnd,
+		RequestState: state,
+		cursorMarker: p.StreamCursorMarker,
 	}
-	return completionReq, pctx, nil
+	streamConfig := engine.LineStreamConfig{
+		WindowStart: state.WindowStart,
+		OldLines:    state.TrimmedLines,
+		Prefill:     prepared.Prefill,
+	}
+	if prepared.LineStreamConfig.OldLines != nil {
+		streamConfig.WindowStart = prepared.LineStreamConfig.WindowStart
+		streamConfig.OldLines = prepared.LineStreamConfig.OldLines
+	} else if len(streamConfig.OldLines) == 0 {
+		streamConfig.OldLines = input.Current.File.Lines
+	}
+	return prepared.Completion, pctx, streamConfig, maxLines, nil
 }
 
-// finishStream applies the streamed text to the context and runs postprocessors.
+// finishStream applies the streamed text to the provider state and parses it.
 func (p *Provider) finishStream(providerState engine.ProviderStreamState, result *openai.StreamResult) (*types.CompletionResponse, error) {
 	pctx, ok := providerState.(*StreamState)
 	if !ok {
 		return p.EmptyResponse(), fmt.Errorf("invalid provider context type")
 	}
-	pctx.Result = result
 	p.logResponse(result)
 
-	if p.ParseBatch == nil {
-		return p.EmptyResponse(), fmt.Errorf("%s: batch parser is not configured", p.Name)
+	if p.ParseResult == nil {
+		return p.EmptyResponse(), fmt.Errorf("%s: result parser is not configured", p.Name)
 	}
 
-	batchCtx := &BatchContext{
-		Input:            pctx.Input,
-		TrimmedLines:     pctx.TrimmedLines,
-		WindowStart:      pctx.WindowStart,
-		WindowEnd:        pctx.WindowEnd,
-		CursorLine:       pctx.CursorLine,
-		MaxLines:         pctx.MaxLines,
-		EndLineInc:       pctx.EndLineInc,
-		Prefill:          pctx.Prefill,
-		EditableStart:    pctx.EditableStart,
-		EditableEnd:      pctx.EditableEnd,
-		StreamOldLines:   pctx.StreamOldLines,
-		StreamBaseOff:    pctx.StreamBaseOff,
-		FirstLinePfx:     pctx.FirstLinePfx,
-		LastLineSfx:      pctx.LastLineSfx,
-		CursorMarker:     pctx.CursorMarker,
-		CursorMarkerSeen: pctx.CursorMarkerSeen,
-		CursorMarkerLine: pctx.CursorMarkerLine,
-		CursorMarkerCol:  pctx.CursorMarkerCol,
+	if p.ParseStreamResult != nil {
+		return p.ParseStreamResult(p, pctx, result), nil
 	}
-	if resp, done := p.ParseBatch(p, batchCtx, result); done {
-		return resp, nil
-	}
-	return p.EmptyResponse(), nil
+
+	return p.ParseResult(p, pctx.RequestState, result), nil
 }
 
-// PrepareLineStream runs preprocessors, builds the prompt, and returns the stream.
-// Returns (stream, providerContext, error). Implements engine.LineStreamProvider.
-func (p *Provider) PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, engine.ProviderStreamState, error) {
+func (p *Provider) PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, engine.ProviderStreamState, engine.LineStreamConfig, error) {
 	defer logger.Trace("Provider.PrepareLineStream")()
-	completionReq, pctx, err := p.prepareStreamInput(input)
+	completionReq, pctx, streamConfig, maxLines, err := p.prepareStreamInput(input)
 	if err != nil {
-		return nil, pctx, err
+		return nil, pctx, streamConfig, err
 	}
-	p.logRequest(completionReq, pctx.MaxLines)
-	return p.Client.DoLineStream(ctx, completionReq, pctx.MaxLines, p.StopTokens), pctx, nil
+	p.logRequest(completionReq, maxLines)
+	return p.Client.DoLineStream(ctx, completionReq, maxLines, p.StopTokens), pctx, streamConfig, nil
 }
 
-// ValidateFirstLine runs validators on the first received line (implements engine.LineStreamProvider)
 func (p *Provider) ValidateFirstLine(providerState engine.ProviderStreamState, firstLine string) error {
 	pctx, ok := providerState.(*StreamState)
 	if !ok {
 		return fmt.Errorf("invalid provider context type")
 	}
 
-	for _, validator := range p.Validators {
-		if err := validator(p, pctx, firstLine); err != nil {
+	if p.FirstLineValidator != nil {
+		if err := p.FirstLineValidator(p, pctx, firstLine); err != nil {
 			logger.Debug("%s: first line validation failed: %v", p.Name, err)
 			return err
 		}
@@ -486,32 +315,10 @@ func (p *Provider) ValidateFirstLine(providerState engine.ProviderStreamState, f
 	return nil
 }
 
-// FinishLineStream runs postprocessors on the accumulated result (implements engine.LineStreamProvider)
 func (p *Provider) FinishLineStream(providerState engine.ProviderStreamState, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error) {
 	return p.finishStream(providerState, &openai.StreamResult{
 		Text:         text,
 		FinishReason: finishReason,
 		StoppedEarly: stoppedEarly,
-	})
-}
-
-// PrepareTokenStream runs preprocessors, builds the prompt, and returns a token stream.
-// Returns (stream, providerContext, error). Implements engine.TokenStreamProvider.
-func (p *Provider) PrepareTokenStream(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, engine.ProviderStreamState, error) {
-	defer logger.Trace("Provider.PrepareTokenStream")()
-	completionReq, pctx, err := p.prepareStreamInput(input)
-	if err != nil {
-		return nil, pctx, err
-	}
-	p.logRequest(completionReq, 0) // maxLines=0 for token streaming
-	return p.Client.DoTokenStream(ctx, completionReq, 0, p.StopTokens), pctx, nil
-}
-
-// FinishTokenStream runs postprocessors on the final accumulated result (implements engine.TokenStreamProvider)
-func (p *Provider) FinishTokenStream(providerState engine.ProviderStreamState, text string) (*types.CompletionResponse, error) {
-	return p.finishStream(providerState, &openai.StreamResult{
-		Text:         text,
-		FinishReason: "stop",
-		StoppedEarly: false,
 	})
 }

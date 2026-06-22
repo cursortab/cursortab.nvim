@@ -12,62 +12,14 @@ import (
 	"cursortab/utils"
 )
 
-func (e *Engine) collectCompletionInput(parent context.Context, input ctx.CompletionInput, sourceInput ctx.ContextSourceInput) (ctx.CompletionInput, error) {
-	if parent == nil {
-		parent = context.Background()
-	}
-	requirements := e.applyContextRequirementLimits(e.provider.ContextRequirements(input.Kind))
+func (e *Engine) collectCompletionInput(parent context.Context, sourceInput ctx.ContextSourceInput, requirements ctx.Materials) (ctx.CompletionInput, error) {
+	input := ctx.CompletionInput{Current: sourceInput.Current}
 	collected, err := ctx.Collect(parent, sourceInput, requirements)
 	if err != nil {
 		return input, err
 	}
-	input.Context = collected
+	input.Materials = collected
 	return input, nil
-}
-
-func (e *Engine) applyContextRequirementLimits(requirements ctx.ContextRequirements) ctx.ContextRequirements {
-	if len(requirements) == 0 {
-		return nil
-	}
-	applied := make(ctx.ContextRequirements, len(requirements))
-	for i, requirement := range requirements {
-		switch material := requirement.(type) {
-		case ctx.Treesitter:
-			if material.MaxSiblings == 0 {
-				material.MaxSiblings = e.contextLimits.MaxSiblings
-			}
-			applied[i] = material
-		case ctx.GitDiff:
-			if material.MaxBytes == 0 {
-				material.MaxBytes = e.contextLimits.MaxDiffBytes
-			}
-			if material.MaxChangedSymbols == 0 {
-				material.MaxChangedSymbols = e.contextLimits.MaxChangedSymbols
-			}
-			applied[i] = material
-		case ctx.RecentFiles:
-			if material.Limit == 0 {
-				material.Limit = e.contextLimits.MaxRecentSnapshots
-			}
-			if material.FirstLines == 0 {
-				material.FirstLines = e.contextLimits.FileChunkLines
-			}
-			applied[i] = material
-		case ctx.EditHistory:
-			if material.MaxTokens == 0 {
-				material.MaxTokens = e.config.MaxDiffTokens
-			}
-			applied[i] = material
-		case ctx.UserActions:
-			if material.Limit == 0 {
-				material.Limit = e.contextLimits.MaxUserActions
-			}
-			applied[i] = material
-		default:
-			applied[i] = requirement
-		}
-	}
-	return applied
 }
 
 // requestCompletion initiates a completion request.
@@ -110,22 +62,19 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	e.lastCompletionSource = source
 
-	input, sourceInput := e.buildCompletionInput(completionInputOptions{
-		kind:   ctx.RequestCompletion,
-		source: source,
-	})
+	requirements := e.provider.RequiredMaterials()
+	sourceInput := e.buildContextSourceInput(completionInputOptions{}, requirements)
 
-	var err error
-	input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
+	input, err := e.collectCompletionInput(e.mainCtx, sourceInput, requirements)
 	if err != nil {
 		select {
-		case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
+		case e.eventChan <- Event{Type: EventCompletionError, Err: err}:
 		case <-e.mainCtx.Done():
 		}
 		return
 	}
 
-	startBatch := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
+	startProviderRequest := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
 		e.state = statePendingCompletion
 		reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
 		e.currentCancel = cancel
@@ -134,29 +83,24 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 			result, err := fetch(reqCtx)
 			if err != nil {
 				select {
-				case e.eventChan <- Event{Type: EventCompletionError, Data: err}:
+				case e.eventChan <- Event{Type: EventCompletionError, Err: err}:
 				case <-e.mainCtx.Done():
 				}
 				return
 			}
 			select {
-			case e.eventChan <- Event{Type: EventCompletionReady, Data: result}:
+			case e.eventChan <- Event{Type: EventCompletionReady, Response: result}:
 			case <-e.mainCtx.Done():
 			}
 		}()
 	}
 
-	if lineProvider, ok := e.provider.(LineStreamProvider); ok && lineProvider.GetStreamingType() == StreamingTypeLines {
+	if lineProvider, ok := e.provider.(LineStreamProvider); ok && lineProvider.StreamsLines() {
 		e.requestStreamingCompletion(lineProvider, input)
 		return
 	}
 
-	if tokenProvider, ok := e.provider.(TokenStreamProvider); ok && tokenProvider.GetStreamingType() == StreamingTypeTokens {
-		e.requestTokenStreamingCompletion(tokenProvider, input)
-		return
-	}
-
-	startBatch(func(ctx context.Context) (*types.CompletionResponse, error) {
+	startProviderRequest(func(ctx context.Context) (*types.CompletionResponse, error) {
 		return e.provider.GetCompletion(ctx, input)
 	})
 }
@@ -184,7 +128,7 @@ type prefetchOpts struct {
 
 // requestPrefetch requests a completion for a specific cursor position without changing the engine state.
 // Used to speculatively request completions ahead of user actions.
-func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, overrideCol int, opts prefetchOpts) {
+func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts) {
 	if e.stopped {
 		return
 	}
@@ -205,19 +149,17 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 
 	// Build the frozen request input before the goroutine starts so it cannot
 	// race with later buffer or file-state mutations.
-	input, sourceInput := e.buildCompletionInput(completionInputOptions{
-		kind:              ctx.RequestPrefetch,
-		source:            source,
+	requirements := e.provider.RequiredMaterials()
+	sourceInput := e.buildContextSourceInput(completionInputOptions{
 		lines:             opts.Lines,
 		cursorRow:         overrideRow,
 		cursorCol:         overrideCol,
 		hasCursorOverride: true,
-	})
-	var err error
-	input, err = e.collectCompletionInput(e.mainCtx, input, sourceInput)
+	}, requirements)
+	input, err := e.collectCompletionInput(e.mainCtx, sourceInput, requirements)
 	if err != nil {
 		select {
-		case e.eventChan <- Event{Type: EventPrefetchError, Data: err}:
+		case e.eventChan <- Event{Type: EventPrefetchError, Err: err}:
 		case <-e.mainCtx.Done():
 		}
 		return
@@ -229,13 +171,13 @@ func (e *Engine) requestPrefetch(source types.CompletionSource, overrideRow, ove
 			result, err := fetch(reqCtx)
 			if err != nil {
 				select {
-				case e.eventChan <- Event{Type: EventPrefetchError, Data: err}:
+				case e.eventChan <- Event{Type: EventPrefetchError, Err: err}:
 				case <-e.mainCtx.Done():
 				}
 				return
 			}
 			select {
-			case e.eventChan <- Event{Type: EventPrefetchReady, Data: result}:
+			case e.eventChan <- Event{Type: EventPrefetchReady, Response: result}:
 			case <-e.mainCtx.Done():
 			}
 		}()
@@ -404,7 +346,7 @@ func (e *Engine) prefetchAtNMinusOne() {
 	// The cursor target accounts for line count changes from the stage.
 	overrideRow := max(1, int(stage.CursorTarget.LineNumber))
 
-	e.requestPrefetch(types.CompletionSourceTyping, overrideRow, 0, prefetchOpts{Lines: lines})
+	e.requestPrefetch(overrideRow, 0, prefetchOpts{Lines: lines})
 	e.prefetchState = prefetchWaitingForCursorPrediction
 }
 
@@ -425,6 +367,6 @@ func (e *Engine) prefetchAtCursorTarget() {
 	}
 
 	overrideRow := max(1, int(e.cursorTarget.LineNumber))
-	e.requestPrefetch(types.CompletionSourceTyping, overrideRow, 0, prefetchOpts{})
+	e.requestPrefetch(overrideRow, 0, prefetchOpts{})
 	e.prefetchState = prefetchWaitingForCursorPrediction
 }

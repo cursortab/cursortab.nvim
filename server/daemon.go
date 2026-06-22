@@ -41,6 +41,10 @@ type Daemon struct {
 	cancel      context.CancelFunc
 }
 
+func newDaemonContext() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
+}
+
 func NewDaemon(config Config) (*Daemon, error) {
 	apiKey := ""
 	if config.Provider.ApiKeyEnv != "" {
@@ -135,7 +139,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := newDaemonContext()
 
 	return &Daemon{
 		config:   config,

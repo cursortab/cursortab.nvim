@@ -28,7 +28,7 @@
 // cursor as `prompt` and the text after as `suffix` on the OpenAI completions
 // API (e.g. DeepSeek). No cross-file context is added in this mode.
 //
-// Lines are trimmed to a window around the cursor via the TrimContent preprocessor.
+// Lines are trimmed to a window around the cursor before the prompt is rendered.
 package fim
 
 import (
@@ -38,6 +38,7 @@ import (
 
 	"cursortab/client/openai"
 	sourcectx "cursortab/ctx"
+	"cursortab/logger"
 	"cursortab/provider"
 	"cursortab/types"
 )
@@ -48,32 +49,23 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Name:                          "fim",
 		Config:                        config,
 		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType:                 provider.StreamingNone,
 		CompleteWithTextRightOfCursor: true,
-		BuildBatch:                    buildBatch,
-		ParseBatch:                    parseBatch,
+		Materials:                     sourcectx.Materials{sourcectx.Treesitter{}},
+		BuildRequest:                  buildRequest,
+		ParseResult:                   parseResult,
 	}
 
 	if config.FIMTokens != nil && config.FIMTokens.FileSep != "" {
-		p.BuildContextRequirements = provider.Materials(provider.MaterialOptions{
-			Diagnostics: true,
-			Treesitter:  true,
-			GitDiff:     true,
-			RecentFiles: true,
-			EditHistory: true,
-		})
-		p.DiffBuilder = provider.FormatDiffHistory(provider.DiffHistoryOptions{
-			HeaderTemplate: config.FIMTokens.FileSep + "%s.diff\n",
-			Prefix:         "",
-			Suffix:         "",
-			Separator:      "",
-		})
+		p.Materials = append(p.Materials,
+			sourcectx.Diagnostics{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
+		)
 	}
 
 	return p
 }
 
-func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
 	// Build prefix and suffix content (common to both modes)
 	var prefixContent strings.Builder
 	var suffixContent strings.Builder
@@ -101,7 +93,7 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 
 	// Prompt+suffix mode (OpenAI completions API style): fim_tokens not configured
 	if tokens == nil {
-		return &openai.CompletionRequest{
+		return provider.PreparedRequest{Completion: &openai.CompletionRequest{
 			Model:       p.Config.ProviderModel,
 			Prompt:      prefixContent.String(),
 			Suffix:      suffixContent.String(),
@@ -110,7 +102,7 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 			TopK:        p.Config.ProviderTopK,
 			N:           1,
 			Echo:        false,
-		}
+		}}
 	}
 
 	// Tokenized FIM mode: concatenate tokens into a single prompt
@@ -132,7 +124,7 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 		stop = append(stop, tokens.FileSep)
 	}
 
-	return &openai.CompletionRequest{
+	return provider.PreparedRequest{Completion: &openai.CompletionRequest{
 		Model:       p.Config.ProviderModel,
 		Prompt:      prompt.String(),
 		Temperature: p.Config.ProviderTemperature,
@@ -141,18 +133,18 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 		Stop:        stop,
 		N:           1,
 		Echo:        false,
-	}
+	}}
 }
 
 // buildRepoContext prepends cross-file context using repo-level FIM tokens.
-func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.BatchContext) {
+func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.RequestState) {
 	input := ctx.Input
 	current := input.Current
 	fileSep := p.Config.FIMTokens.FileSep
 	repoName := p.Config.FIMTokens.RepoName
 
 	// Repo name header
-	workspace := filepath.Base(current.Workspace.Path)
+	workspace := filepath.Base(current.WorkspacePath)
 	if workspace == "" || workspace == "." {
 		workspace = "repo"
 	}
@@ -161,7 +153,7 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Ba
 	b.WriteString("\n")
 
 	// Recent files
-	if recent, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+	if recent, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
 		for _, snap := range recent.Files {
 			b.WriteString(fileSep)
 			b.WriteString(snap.FilePath)
@@ -172,7 +164,7 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Ba
 	}
 
 	// Diagnostics
-	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
 		if diagText := provider.FormatDiagnosticsText(diagnostics.Data); diagText != "" {
 			b.WriteString(fileSep)
 			b.WriteString("context/diagnostics\n")
@@ -181,7 +173,7 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Ba
 	}
 
 	// Treesitter context
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok && treesitter.Data != nil {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok && treesitter.Data != nil {
 		ts := treesitter.Data
 		hasContent := ts.EnclosingSignature != "" || len(ts.Siblings) > 0 || len(ts.Imports) > 0
 		if hasContent {
@@ -200,14 +192,16 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Ba
 	}
 
 	// Diff history
-	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
-		if diffSection := p.DiffBuilder(editHistory.Files); diffSection != "" {
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
+		if diffSection := provider.FormatDiffHistory(editHistory.Files, provider.DiffHistoryOptions{
+			HeaderTemplate: fileSep + "%s.diff\n",
+		}); diffSection != "" {
 			b.WriteString(diffSection)
 		}
 	}
 
 	// Git diff (staged changes)
-	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok && gitDiff.Data != nil && gitDiff.Data.Diff != "" {
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok && gitDiff.Data != nil && gitDiff.Data.Diff != "" {
 		b.WriteString(fileSep)
 		b.WriteString("context/staged_diff\n")
 		b.WriteString(gitDiff.Data.Diff)
@@ -220,18 +214,18 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Ba
 	b.WriteString("\n")
 }
 
-func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if resp, done := provider.RejectEmptyBatch(p, result); done {
-		return resp, true
+func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	if resp, done := provider.RejectEmptyResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.StripRepetitionBatch(p, result); done {
-		return resp, true
+	if resp, done := provider.StripRepetitionResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.DropLastLineIfTruncatedBatch(p, ctx, result); done {
-		return resp, true
+	if resp, done := dropLastLineIfTruncatedResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.RejectLeadingNewlineWithSuffixBatch(p, ctx, result); done {
-		return resp, true
+	if resp, done := rejectLeadingNewlineWithSuffixResult(p, ctx, result); done {
+		return resp
 	}
 
 	completionText := result.Text
@@ -281,7 +275,58 @@ func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai
 	}
 
 	// FIM inserts content at cursor position - always replace only the current line
-	return p.BuildBatchCompletion(ctx, current.Cursor.Row, current.Cursor.Row, resultLines)
+	return p.BuildCompletion(ctx, current.Cursor.Row, current.Cursor.Row, resultLines)
+}
+
+func dropLastLineIfTruncatedResult(p *provider.Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if result.FinishReason != "length" && !result.StoppedEarly {
+		return nil, false
+	}
+
+	lines := strings.Split(result.Text, "\n")
+	originalLineCount := len(lines)
+	if len(lines) <= 1 {
+		logger.Info("%s: rejected, truncated single line", p.Name)
+		return p.EmptyResponse(), true
+	}
+
+	lines = lines[:len(lines)-1]
+	result.Text = strings.Join(lines, "\n")
+	if strings.TrimSpace(result.Text) == "" {
+		logger.Info("%s: rejected, empty after dropping truncated line", p.Name)
+		return p.EmptyResponse(), true
+	}
+
+	logger.Info("%s: truncated, dropped last line (%d -> %d lines)",
+		p.Name, originalLineCount, len(lines))
+	return nil, false
+}
+
+func rejectLeadingNewlineWithSuffixResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	current := ctx.Input.Current
+	if current.Cursor.Row < 1 || current.Cursor.Row > len(current.File.Lines) {
+		return nil, false
+	}
+
+	currentLine := current.File.Lines[current.Cursor.Row-1]
+	cursorCol := min(current.Cursor.Col, len(currentLine))
+	atEOL := cursorCol >= len(strings.TrimRight(currentLine, " \t"))
+	if !atEOL || !strings.HasPrefix(result.Text, "\n") {
+		return nil, false
+	}
+
+	afterCursor := currentLine[cursorCol:]
+	var suffixBuilder strings.Builder
+	suffixBuilder.WriteString(afterCursor)
+	for i := current.Cursor.Row; i < len(current.File.Lines); i++ {
+		suffixBuilder.WriteString("\n")
+		suffixBuilder.WriteString(current.File.Lines[i])
+	}
+	if strings.TrimSpace(suffixBuilder.String()) == "" {
+		return nil, false
+	}
+
+	return p.EmptyResponse(), true
 }
 
 // stripSuffixOverlap removes the longest suffix of completion that matches a

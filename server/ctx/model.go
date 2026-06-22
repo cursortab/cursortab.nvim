@@ -1,39 +1,12 @@
 package ctx
 
-import (
-	"context"
+import "context"
 
-	"cursortab/types"
-)
+// Materials is a set of context material values. The concrete Go type is the
+// material identity; zero-value materials are also collection requests.
+type Materials []material
 
-type RequestKind string
-
-const (
-	RequestCompletion RequestKind = "completion"
-	RequestPrefetch   RequestKind = "prefetch"
-	RequestEval       RequestKind = "eval"
-)
-
-type ContextSourceID string
-
-const (
-	SourceDiagnostics ContextSourceID = "diagnostics"
-	SourceTreesitter  ContextSourceID = "treesitter"
-	SourceGitDiff     ContextSourceID = "git_diff"
-	SourceRecentFiles ContextSourceID = "recent_files"
-	SourceEditHistory ContextSourceID = "edit_history"
-	SourceUserActions ContextSourceID = "user_actions"
-)
-
-type ContextMaterial interface {
-	SourceID() ContextSourceID
-	contextMaterial()
-}
-
-type ContextRequirements []ContextMaterial
-type CollectedContext []ContextMaterial
-
-func Find[T ContextMaterial](materials CollectedContext) (T, bool) {
+func Find[T material](materials Materials) (T, bool) {
 	for _, material := range materials {
 		if typed, ok := material.(T); ok {
 			return typed, true
@@ -43,42 +16,32 @@ func Find[T ContextMaterial](materials CollectedContext) (T, bool) {
 	return zero, false
 }
 
-type collectableMaterial interface {
-	ContextMaterial
-	collect(context.Context, ContextSourceInput) (ContextMaterial, error)
+type material interface {
+	collect(context.Context, ContextSourceInput) (material, error)
 }
 
+// CompletionInput is the provider-visible request shape: current editor state
+// plus the materials the provider asked the collector to gather.
 type CompletionInput struct {
-	Kind    RequestKind
-	Trigger types.CompletionSource
-	Current CurrentSnapshot
-	Context CollectedContext
+	Current   CurrentSnapshot
+	Materials Materials
 }
 
 type CurrentSnapshot struct {
-	Workspace WorkspaceRef
-	File      FileSnapshot
-	Cursor    CursorPosition
-	View      ViewConstraints
-}
-
-type WorkspaceRef struct {
-	Path string
-	ID   string
+	WorkspacePath  string
+	File           FileSnapshot
+	Cursor         CursorPosition
+	ViewportHeight int
 }
 
 type FileSnapshot struct {
-	Path    string
-	Lines   []string
-	Version int
+	Path  string
+	Lines []string
 }
 
 type CursorPosition struct {
+	// Row is 1-indexed.
 	Row int
+	// Col is a 0-indexed byte column.
 	Col int
-}
-
-type ViewConstraints struct {
-	ViewportHeight  int
-	MaxVisibleLines int
 }

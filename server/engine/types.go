@@ -11,8 +11,6 @@ import (
 	"cursortab/types"
 )
 
-// Buffer defines the interface for buffer operations.
-// Implemented by buffer.NvimBuffer for Neovim integration.
 type Buffer interface {
 	Sync(workspacePath string) (*buffer.SyncResult, error)
 	Lines() []string
@@ -41,18 +39,16 @@ type Buffer interface {
 	ClearUI() error
 	MoveCursor(line int, center, mark bool) error
 	RegisterEventHandler(handler func(event string)) error
-	// Partial accept operations
-	// keepUI=true skips clearing the extmark namespace so the UI persists until rerenderPartial replaces it.
 	InsertText(line, col int, text string, keepUI bool) error // Insert text at position (1-indexed line, 0-indexed col)
 	ReplaceLine(line int, content string, keepUI bool) error  // Replace a single line (1-indexed)
 	InsertLine(line int, content string, keepUI bool) error   // Insert a new line at position (1-indexed)
 }
 
-// Provider defines the interface that all AI providers must implement.
-// Implemented by inline.Provider, sweep.Provider, zeta.Provider, zeta2.Provider.
+// Provider owns material declarations and turns a collected CompletionInput into
+// a completion response. Engine code must not derive provider policy from names.
 type Provider interface {
 	CanDo() ProviderCanDo
-	ContextRequirements(kind ctx.RequestKind) ctx.ContextRequirements
+	RequiredMaterials() ctx.Materials
 	GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error)
 }
 
@@ -61,173 +57,57 @@ type ProviderCanDo struct {
 	PrefetchAfterCursorTarget     bool
 }
 
-// ContextLimits controls engine-owned defaults for collected context.
-type ContextLimits struct {
-	MaxUserActions     int // Ring buffer size for user action tracking.
-	FileChunkLines     int // Lines per recent file snapshot.
-	MaxRecentSnapshots int // Number of recent file snapshots.
-	MaxDiffBytes       int // Git diff byte threshold before switching to symbols.
-	MaxChangedSymbols  int // Max symbols extracted from large diffs.
-	MaxSiblings        int // Max treesitter sibling nodes.
-	MaxInputLines      int // Input line limit for hosted APIs.
-	MaxInputBytes      int // Input byte limit for hosted APIs.
-}
-
-// DefaultContextLimits returns the default context limits.
-func DefaultContextLimits() ContextLimits {
-	return ContextLimits{
-		MaxUserActions:     16,
-		FileChunkLines:     30,
-		MaxRecentSnapshots: 3,
-		MaxDiffBytes:       4096,
-		MaxChangedSymbols:  50,
-		MaxSiblings:        50,
-		MaxInputLines:      50_000,
-		MaxInputBytes:      10_000_000,
-	}
-}
-
-// WithDefaults returns a copy with zero values replaced by defaults.
-func (cl ContextLimits) WithDefaults() ContextLimits {
-	d := DefaultContextLimits()
-	if cl.MaxUserActions == 0 {
-		cl.MaxUserActions = d.MaxUserActions
-	}
-	if cl.FileChunkLines == 0 {
-		cl.FileChunkLines = d.FileChunkLines
-	}
-	if cl.MaxRecentSnapshots == 0 {
-		cl.MaxRecentSnapshots = d.MaxRecentSnapshots
-	}
-	if cl.MaxDiffBytes == 0 {
-		cl.MaxDiffBytes = d.MaxDiffBytes
-	}
-	if cl.MaxChangedSymbols == 0 {
-		cl.MaxChangedSymbols = d.MaxChangedSymbols
-	}
-	if cl.MaxSiblings == 0 {
-		cl.MaxSiblings = d.MaxSiblings
-	}
-	if cl.MaxInputLines == 0 {
-		cl.MaxInputLines = d.MaxInputLines
-	}
-	if cl.MaxInputBytes == 0 {
-		cl.MaxInputBytes = d.MaxInputBytes
-	}
-	return cl
-}
-
-// StreamingType describes how a provider streams completion content.
-type StreamingType int
-
 const (
-	StreamingTypeNone   StreamingType = iota // Batch mode
-	StreamingTypeLines                       // Line-by-line (sweep, zeta, zeta-2, fim)
-	StreamingTypeTokens                      // Token-by-token (inline)
+	defaultMaxUserActions     = 16
+	defaultFileChunkLines     = 30
+	defaultMaxRecentSnapshots = 3
+	defaultMaxDiffBytes       = 4096
+	defaultMaxChangedSymbols  = 50
+	defaultMaxSiblings        = 50
 )
 
+// ProviderStreamState is opaque to engine code except for per-line stream text transformation.
 type ProviderStreamState interface {
-	ProviderStreamState()
+	TransformLine(line string) (string, bool)
 }
 
-// LineStreamProvider extends Provider with line-by-line streaming capabilities.
-// For providers like sweep, zeta, zeta-2, fim that stream by lines.
+// LineStreamConfig is the engine-visible part of a prepared line stream.
+type LineStreamConfig struct {
+	WindowStart int
+	OldLines    []string
+	Prefill     string
+}
+
 type LineStreamProvider interface {
 	Provider
-	GetStreamingType() StreamingType
-	PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (LineStream, ProviderStreamState, error)
-	// ValidateFirstLine validates the first line (called after first line received)
+	StreamsLines() bool
+	PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (LineStream, ProviderStreamState, LineStreamConfig, error)
 	ValidateFirstLine(providerState ProviderStreamState, firstLine string) error
-	// FinishLineStream runs postprocessors on the final accumulated result
+	// FinishLineStream lets the provider finalize its streamed text. Ordinary
+	// streaming UI is built from streamed lines; after-accept handling consumes
+	// the returned response to compute follow-up cursor prediction.
 	FinishLineStream(providerState ProviderStreamState, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error)
 }
 
-// TokenStreamProvider extends Provider with token-by-token streaming capabilities.
-// For providers like inline that stream individual tokens for ghost text.
-type TokenStreamProvider interface {
-	Provider
-	GetStreamingType() StreamingType
-	// PrepareTokenStream prepares the stream and returns it along with provider context.
-	// The stream emits cumulative text (not deltas) for idempotent UI updates.
-	PrepareTokenStream(ctx context.Context, input ctx.CompletionInput) (LineStream, ProviderStreamState, error)
-	// FinishTokenStream runs postprocessors on the final accumulated result
-	FinishTokenStream(providerState ProviderStreamState, text string) (*types.CompletionResponse, error)
-}
-
-// LineStream provides incremental line-by-line streaming
 type LineStream interface {
-	LinesChan() <-chan string // Channel for complete lines
-	Cancel()                  // Cancel the stream early
+	LinesChan() <-chan string
+	Cancel()
 }
 
-// TrimmedContext provides access to trim info from the provider.
-// Implemented by provider-owned stream state to allow engine to extract window offset.
-type TrimmedContext interface {
-	GetWindowStart() int       // 0-indexed start offset of trimmed window
-	GetTrimmedLines() []string // Lines sent to the model (nil if no trimming)
-}
-
-// PrefillContext provides the prompt prefill that was sent as part of the prompt.
-// The engine pre-feeds these lines into the stage builder so streaming lines
-// align correctly with old lines.
-type PrefillContext interface {
-	GetPrefill() string
-}
-
-// StreamContext provides custom old lines and line transforms for streaming.
-// Used by FIM providers where streamed lines are partial (middle-fill) and need
-// transformation before diffing. When implemented, the engine uses these old lines
-// and base offset instead of TrimmedContext, and transforms the first/last lines.
-//
-// TransformLine runs on every streamed line (including first and last) before
-// validation, accumulation, and stage building. Providers use it to strip
-// in-band markers the model emits inline in its output (e.g. Zeta2's
-// <|user_cursor|> cursor-position sentinel).
-type StreamContext interface {
-	GetStreamOldLines() []string           // old lines for diff (nil = not applicable)
-	GetStreamBaseOffset() int              // 0-indexed base offset in buffer
-	TransformFirstLine(line string) string // transform first streamed line
-	TransformLastLine(line string) string  // transform last streamed line
-	TransformLine(line string) string      // transform every streamed line
-	ShouldSkipLine() bool                  // true when TransformLine consumed a marker-only line
-}
-
-// StreamingState holds state during incremental line streaming
 type StreamingState struct {
-	// Stage building
 	StageBuilder *text.IncrementalStageBuilder
 
-	// Buffering for truncation safety
 	PendingLine    string // Buffer for last line (drop if truncated)
 	HasPendingLine bool
 
-	// Accumulated text for postprocessing
 	AccumulatedText strings.Builder
 
 	ProviderState ProviderStreamState
 	Validated     bool
 
-	// Track if we've rendered the first stage during streaming
-	// Only render one stage during streaming; rest handled at completion
 	FirstStageRendered bool
 }
 
-// TokenStreamingState holds state during token-by-token streaming
-type TokenStreamingState struct {
-	// Accumulated text (cumulative, not deltas)
-	AccumulatedText string
-
-	ProviderState ProviderStreamState
-	LineCount     int
-
-	// Line prefix: text before cursor on current line (for rendering full line)
-	LinePrefix string
-
-	// Line number where ghost text is shown (1-indexed)
-	LineNum int
-}
-
-// state represents the current state of the engine's state machine
 type state int
 
 const (
@@ -235,10 +115,9 @@ const (
 	statePendingCompletion
 	stateHasCompletion
 	stateHasCursorTarget
-	stateStreamingCompletion // New state for incremental streaming
+	stateStreamingCompletion
 )
 
-// String returns a human-readable name for the state
 func (s state) String() string {
 	switch s {
 	case stateIdle:
@@ -256,7 +135,6 @@ func (s state) String() string {
 	}
 }
 
-// prefetchState represents the state of prefetch operations
 type prefetchState int
 
 const (

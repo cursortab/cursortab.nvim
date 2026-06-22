@@ -50,6 +50,7 @@ import (
 
 	"cursortab/client/openai"
 	sourcectx "cursortab/ctx"
+	"cursortab/engine"
 	"cursortab/provider"
 	"cursortab/text"
 	"cursortab/types"
@@ -71,8 +72,8 @@ const (
 )
 
 // Editable region sizing. Zed uses token budgets (350 editable, 150 context)
-// for the cloud endpoint. We approximate with line counts, then let
-// provider.TrimContent bound the total excerpt by ProviderMaxTokens.
+// for the cloud endpoint. We approximate with line counts inside the shared
+// request window bounded by ProviderMaxTokens.
 const (
 	editableLinesBefore  = 15
 	editableLinesAfter   = 15
@@ -86,43 +87,43 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Name:                          "zeta-2",
 		Config:                        config,
 		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType:                 provider.StreamingLines,
+		LineStreaming:                 true,
 		CompleteWithTextRightOfCursor: true,
 		PrefetchAfterCursorTarget:     true,
-		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
-			Diagnostics: true,
-			Treesitter:  true,
-			GitDiff:     true,
-			RecentFiles: true,
-			EditHistory: true,
-		}),
-		DiffBuilder: buildEditHistory,
-		BuildBatch:  buildBatch,
-		ParseBatch:  parseBatch,
-		StopTokens:  []string{endMarker, strings.TrimSuffix(endMarker, "\n")},
+		Materials: sourcectx.Materials{
+			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
+		},
+		BuildRequest:       buildRequest,
+		ParseResult:        parseResult,
+		ParseStreamResult:  parseStreamResult,
+		StopTokens:         []string{endMarker, strings.TrimSuffix(endMarker, "\n")},
+		StreamCursorMarker: cursorMarker,
 	}
 }
 
-func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
-	prompt := assembleBatchPrompt(p, ctx)
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
+	prompt, streamOldLines, streamBaseOffset := assemblePrompt(p, ctx)
 
-	return &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
-		Prompt:      prompt,
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
-		Stop:        p.StopTokens,
-		N:           1,
-		Echo:        false,
+	return provider.PreparedRequest{
+		Completion: &openai.CompletionRequest{
+			Model:       p.Config.ProviderModel,
+			Prompt:      prompt,
+			Temperature: p.Config.ProviderTemperature,
+			MaxTokens:   p.Config.ProviderMaxTokens,
+			TopK:        p.Config.ProviderTopK,
+			Stop:        p.StopTokens,
+			N:           1,
+			Echo:        false,
+		},
+		LineStreamConfig: engine.LineStreamConfig{OldLines: streamOldLines, WindowStart: streamBaseOffset},
 	}
 }
 
-func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) string {
+func assemblePrompt(p *provider.Provider, ctx *provider.RequestState) (string, []string, int) {
 	trimmed := ctx.TrimmedLines
 	input := ctx.Input
 	current := input.Current
-	ctx.CursorMarker = cursorMarker
 	if len(trimmed) == 0 {
 		var b strings.Builder
 		b.WriteString(fimSuffix)
@@ -136,12 +137,10 @@ func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) strin
 		b.WriteString("\n")
 		b.WriteString(separator)
 		b.WriteString(fimMiddle)
-		return b.String()
+		return b.String(), nil, 0
 	}
 
-	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(input.Context))
-	ctx.EditableStart = editableStart
-	ctx.EditableEnd = editableEnd
+	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(input.Materials))
 
 	beforeLines := trimmed[:editableStart]
 	editLines := trimmed[editableStart:editableEnd]
@@ -151,8 +150,7 @@ func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) strin
 	for len(streamOld) > 0 && strings.TrimSpace(streamOld[len(streamOld)-1]) == "" {
 		streamOld = streamOld[:len(streamOld)-1]
 	}
-	ctx.StreamOldLines = streamOld
-	ctx.StreamBaseOff = ctx.WindowStart + editableStart
+	streamBaseOffset := ctx.WindowStart + editableStart
 
 	var b strings.Builder
 
@@ -166,21 +164,21 @@ func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) strin
 
 	b.WriteString(fimPrefix)
 
-	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
 		writeRecentFilesPseudoFiles(&b, recentFiles.Files)
 	}
-	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
 		writeDiagnosticsPseudoFile(&b, diagnostics.Data)
 	}
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok {
 		writeTreesitterPseudoFile(&b, treesitter.Data)
 	}
-	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok {
 		writeGitDiffPseudoFile(&b, gitDiff.Data)
 	}
 
-	if editHistoryMaterial, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
-		editHistory := p.DiffBuilder(editHistoryMaterial.Files)
+	if editHistoryMaterial, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
+		editHistory := buildEditHistory(editHistoryMaterial.Files)
 		if editHistory != "" {
 			b.WriteString(fileMarker)
 			b.WriteString("edit_history\n")
@@ -208,7 +206,7 @@ func assembleBatchPrompt(p *provider.Provider, ctx *provider.BatchContext) strin
 	b.WriteString(separator)
 	b.WriteString(fimMiddle)
 
-	return b.String()
+	return b.String(), streamOld, streamBaseOffset
 }
 
 // computeEditableRange returns [start, end) line indices within trimmed lines
@@ -262,7 +260,7 @@ func computeEditableRange(trimmed []string, cursorLine, windowStart int, syntaxR
 
 // treesitterRanges extracts syntax ranges from collected context, returning nil
 // when treesitter context is unavailable.
-func treesitterRanges(materials sourcectx.CollectedContext) []*types.LineRange {
+func treesitterRanges(materials sourcectx.Materials) []*types.LineRange {
 	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](materials); ok && treesitter.Data != nil {
 		return treesitter.Data.SyntaxRanges
 	}
@@ -463,14 +461,14 @@ func buildEditHistory(history []*types.FileDiffHistory) string {
 	return b.String()
 }
 
-func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if resp, done := provider.RejectEmptyBatch(p, result); done {
-		return resp, true
+func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	if resp, done := provider.RejectEmptyResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.StripRepetitionBatch(p, result); done {
-		return resp, true
+	if resp, done := provider.StripRepetitionResult(p, result); done {
+		return resp
 	}
-	return parseBatchCompletion(p, ctx, result)
+	return parseCompletion(p, ctx, result)
 }
 
 // stripCursorMarker removes the cursor marker from the response text. Lines
@@ -505,9 +503,9 @@ func stripCursorMarker(text, marker string) string {
 // marker's streamed-line index equals its row index within the new editable
 // region in the post-edit buffer. The absolute buffer row (1-indexed) is:
 //
-//	WindowStart + editableStart + CursorMarkerLine + 1
-func buildCursorTarget(ctx *provider.BatchContext, editableStart int, newLines []string) *types.CursorPredictionTarget {
-	lineIdx := ctx.CursorMarkerLine
+//	WindowStart + editableStart + markerLine + 1
+func buildCursorTarget(ctx *provider.RequestState, editableStart, markerLine int, newLines []string) *types.CursorPredictionTarget {
+	lineIdx := markerLine
 	if lineIdx < 0 {
 		lineIdx = 0
 	}
@@ -534,38 +532,49 @@ func buildCursorTarget(ctx *provider.BatchContext, editableStart int, newLines [
 	}
 }
 
-func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	return parseCompletionWithCursorMarker(p, ctx, result, false, 0)
+}
+
+func parseStreamResult(p *provider.Provider, ctx *provider.StreamState, result *openai.StreamResult) *types.CompletionResponse {
+	cursorMarkerLine, cursorMarkerSeen := ctx.CursorMarkerPosition()
+	return parseCompletionWithCursorMarker(p, ctx.RequestState, result, cursorMarkerSeen, cursorMarkerLine)
+}
+
+func parseCompletionWithCursorMarker(
+	p *provider.Provider,
+	ctx *provider.RequestState,
+	result *openai.StreamResult,
+	cursorMarkerSeen bool,
+	cursorMarkerLine int,
+) *types.CompletionResponse {
 	raw := result.Text
 
 	raw = strings.TrimSuffix(raw, endMarker)
 	raw = strings.TrimSuffix(raw, strings.TrimSuffix(endMarker, "\n"))
 
 	if strings.HasPrefix(strings.TrimSpace(raw), noEditsMarker) {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
 	raw = stripCursorMarker(raw, cursorMarker)
 
 	if raw == "" {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
 	newLines := text.SplitLines(raw)
 	if len(newLines) == 0 {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
-	editableStart := ctx.EditableStart
-	editableEnd := ctx.EditableEnd
-	if editableEnd == 0 {
-		editableStart, editableEnd = computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Input.Context))
-	}
+	editableStart, editableEnd := computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Input.Materials))
 	startLine := ctx.WindowStart + editableStart + 1
 	endLineInc := ctx.WindowStart + editableEnd
 
-	resp, ok := p.BuildBatchCompletion(ctx, startLine, endLineInc, newLines)
-	if ok && resp != nil && len(resp.Completions) > 0 && ctx.CursorMarkerSeen {
-		resp.CursorTarget = buildCursorTarget(ctx, editableStart, newLines)
+	resp := p.BuildCompletion(ctx, startLine, endLineInc, newLines)
+	if resp != nil && len(resp.Completions) > 0 && cursorMarkerSeen {
+		resp.CursorTarget = buildCursorTarget(ctx, editableStart, cursorMarkerLine, newLines)
 	}
-	return resp, ok
+	return resp
 }

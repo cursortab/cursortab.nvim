@@ -10,19 +10,6 @@ import (
 	"testing"
 )
 
-func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
-	return &provider.BatchContext{
-		Input:        ctx.Input,
-		TrimmedLines: ctx.TrimmedLines,
-		WindowStart:  ctx.WindowStart,
-		WindowEnd:    ctx.WindowEnd,
-		CursorLine:   ctx.CursorLine,
-		MaxLines:     ctx.MaxLines,
-		EndLineInc:   ctx.EndLineInc,
-		Prefill:      ctx.Prefill,
-	}
-}
-
 func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
 		Current: sourcectx.CurrentSnapshot{
@@ -37,26 +24,12 @@ func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.Com
 	}
 }
 
-func buildPromptForTest(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
-	return buildBatch(p, batchContextFromContext(ctx))
+func buildPromptForTest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
+	return buildRequest(p, ctx).Completion
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
-	return parseBatch(p, batchContextFromContext(ctx), ctx.Result)
-}
-
-func TestFIMTokensFromConfig(t *testing.T) {
-	config := &types.ProviderConfig{
-		FIMTokens: &types.FIMTokenConfig{
-			Prefix: "<PRE>",
-			Suffix: "<SUF>",
-			Middle: "<MID>",
-		},
-	}
-
-	assert.Equal(t, "<PRE>", config.FIMTokens.Prefix, "prefix token")
-	assert.Equal(t, "<SUF>", config.FIMTokens.Suffix, "suffix token")
-	assert.Equal(t, "<MID>", config.FIMTokens.Middle, "middle token")
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	return parseResult(p, ctx, result)
 }
 
 func TestBuildPrompt_EmptyLines(t *testing.T) {
@@ -70,7 +43,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input:        sourcectx.CompletionInput{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
@@ -92,7 +65,7 @@ func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 5},
@@ -120,7 +93,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 4},
@@ -150,7 +123,7 @@ func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 100}, // Beyond line length
@@ -171,16 +144,11 @@ func TestParseCompletion_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: completionInput([]string{"hello world"}, 1, 5),
-		Result: &openai.StreamResult{
-			Text: " there",
-		},
 	}
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: " there"})
 	assert.NotNil(t, resp, "response should not be nil")
 	assert.Len(t, 1, resp.Completions, "completions count")
 	// "hello" + " there" + " world"
@@ -193,20 +161,30 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: completionInput([]string{"func main() {"}, 1, 13),
-		Result: &openai.StreamResult{
-			Text: "\n  fmt.Println()\n",
-		},
 	}
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "\n  fmt.Println()\n"})
 	assert.Len(t, 1, resp.Completions, "completions count")
 	assert.Equal(t, 3, len(resp.Completions[0].Lines), "should have 3 lines")
 	assert.Equal(t, "func main() {", resp.Completions[0].Lines[0], "first line")
 	assert.Equal(t, "  fmt.Println()", resp.Completions[0].Lines[1], "middle line")
+}
+
+func TestParseCompletion_DropsTruncatedLastLine(t *testing.T) {
+	p := NewProvider(&types.ProviderConfig{ProviderModel: "test-model"})
+	ctx := &provider.RequestState{
+		Input: completionInput([]string{"hello world"}, 1, 5),
+	}
+
+	resp := parseCompletion(p, ctx, &openai.StreamResult{
+		Text:         " there\nincomplete",
+		FinishReason: "length",
+	})
+	assert.NotNil(t, resp, "response should not be nil")
+	assert.Len(t, 1, resp.Completions, "completions count")
+	assert.Equal(t, []string{"hello there world"}, resp.Completions[0].Lines, "completion lines")
 }
 
 func TestBuildPrompt_RepoContext(t *testing.T) {
@@ -222,14 +200,14 @@ func TestBuildPrompt_RepoContext(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
-				Workspace: sourcectx.WorkspaceRef{Path: "/home/user/myproject"},
-				File:      sourcectx.FileSnapshot{Path: "main.go"},
-				Cursor:    sourcectx.CursorPosition{Col: 5},
+				WorkspacePath: "/home/user/myproject",
+				File:          sourcectx.FileSnapshot{Path: "main.go"},
+				Cursor:        sourcectx.CursorPosition{Col: 5},
 			},
-			Context: sourcectx.CollectedContext{
+			Materials: sourcectx.Materials{
 				sourcectx.RecentFiles{Files: []*types.RecentBufferSnapshot{
 					{FilePath: "utils.go", Lines: []string{"package main", "", "func helper() {}"}},
 				}},
@@ -273,12 +251,12 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
-				Workspace: sourcectx.WorkspaceRef{Path: "/home/user/myproject"},
-				File:      sourcectx.FileSnapshot{Path: "main.go"},
-				Cursor:    sourcectx.CursorPosition{Col: 5},
+				WorkspacePath: "/home/user/myproject",
+				File:          sourcectx.FileSnapshot{Path: "main.go"},
+				Cursor:        sourcectx.CursorPosition{Col: 5},
 			},
 		},
 		TrimmedLines: []string{"hello world"},
@@ -305,7 +283,7 @@ func TestBuildPrompt_RepoContextStopTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				File:   sourcectx.FileSnapshot{Path: "main.go"},
@@ -338,7 +316,7 @@ func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input:        sourcectx.CompletionInput{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
@@ -358,7 +336,7 @@ func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 5},
@@ -382,7 +360,7 @@ func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 4},
@@ -406,7 +384,7 @@ func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 100},
@@ -428,16 +406,11 @@ func TestParseCompletion_SingleLineWithAfterCursor(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: completionInput([]string{"func()"}, 1, 4),
-		Result: &openai.StreamResult{
-			Text: "tion",
-		},
 	}
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "tion"})
 	assert.NotNil(t, resp, "response should not be nil")
 	// "func" + "tion" + "()"
 	assert.Equal(t, "function()", resp.Completions[0].Lines[0], "completion inserted at cursor with suffix")

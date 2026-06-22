@@ -9,19 +9,6 @@ import (
 	"testing"
 )
 
-func batchContextFromContext(ctx *provider.StreamState) *provider.BatchContext {
-	return &provider.BatchContext{
-		Input:        ctx.Input,
-		TrimmedLines: ctx.TrimmedLines,
-		WindowStart:  ctx.WindowStart,
-		WindowEnd:    ctx.WindowEnd,
-		CursorLine:   ctx.CursorLine,
-		MaxLines:     ctx.MaxLines,
-		EndLineInc:   ctx.EndLineInc,
-		Prefill:      ctx.Prefill,
-	}
-}
-
 func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
 	return sourcectx.CompletionInput{
 		Current: sourcectx.CurrentSnapshot{
@@ -36,12 +23,12 @@ func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.Com
 	}
 }
 
-func buildPromptForTest(p *provider.Provider, ctx *provider.StreamState) *openai.CompletionRequest {
-	return buildBatch(p, batchContextFromContext(ctx))
+func buildPromptForTest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
+	return buildRequest(p, ctx).Completion
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.StreamState) (*types.CompletionResponse, bool) {
-	return parseBatch(p, batchContextFromContext(ctx), ctx.Result)
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	return parseResult(p, ctx, result)
 }
 
 func TestBuildPrompt_EmptyLines(t *testing.T) {
@@ -52,7 +39,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input:        sourcectx.CompletionInput{},
 		TrimmedLines: []string{},
 		CursorLine:   0,
@@ -72,7 +59,7 @@ func TestBuildPrompt_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 5},
@@ -93,7 +80,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 4},
@@ -115,7 +102,7 @@ func TestBuildPrompt_CursorBeyondLineLength(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 100}, // Beyond line length
@@ -136,16 +123,11 @@ func TestParseCompletion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: completionInput([]string{"func main() {"}, 1, 13),
-		Result: &openai.StreamResult{
-			Text: " fmt.Println()",
-		},
 	}
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: " fmt.Println()"})
 	assert.NotNil(t, resp, "response should not be nil")
 	assert.Equal(t, 1, len(resp.Completions), "should have 1 completion")
 	assert.Equal(t, "func main() { fmt.Println()", resp.Completions[0].Lines[0], "completion merged with line")
@@ -157,17 +139,25 @@ func TestParseCompletion_CursorClamped(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: completionInput([]string{"abc"}, 1, 100),
-		Result: &openai.StreamResult{
-			Text: "def",
-		},
 	}
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "def"})
 	assert.Equal(t, "abcdef", resp.Completions[0].Lines[0], "cursor clamped to line end")
+}
+
+func TestParseCompletion_RejectsTruncatedResult(t *testing.T) {
+	p := NewProvider(&types.ProviderConfig{ProviderModel: "test-model"})
+	ctx := &provider.RequestState{
+		Input: completionInput([]string{"abc"}, 1, 3),
+	}
+
+	resp := parseCompletion(p, ctx, &openai.StreamResult{
+		Text:         "def",
+		FinishReason: "length",
+	})
+	assert.Len(t, 0, resp.Completions, "truncated result should not produce completion")
 }
 
 // TestBuildPrompt_StripsCursorLineTrailingWhitespace tests that when the cursor is at the
@@ -181,7 +171,7 @@ func TestBuildPrompt_StripsCursorLineTrailingWhitespace(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: sourcectx.CompletionInput{
 			Current: sourcectx.CurrentSnapshot{
 				Cursor: sourcectx.CursorPosition{Col: 4},
@@ -213,16 +203,13 @@ func TestParseCompletion_WhitespaceOnlyCursorLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.StreamState{
+	ctx := &provider.RequestState{
 		Input: completionInput([]string{"def bubble_sort(arr):", "    "}, 2, 4),
-		Result: &openai.StreamResult{
-			Text: "    n = len(arr)", // Model includes indentation since prompt had it stripped
-		},
 	}
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletion(p, ctx, &openai.StreamResult{
+		Text: "    n = len(arr)", // Model includes indentation since prompt had it stripped
+	})
 	assert.NotNil(t, resp, "response should not be nil")
 	assert.Equal(t, 1, len(resp.Completions), "should have 1 completion")
 	// Should be "    n = len(arr)" — not "        n = len(arr)" (double-indented)

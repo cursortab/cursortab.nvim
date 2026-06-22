@@ -22,9 +22,9 @@ type CursorPredictionTarget struct {
 	ShouldRetrigger bool
 }
 
-// CompletionResponse contains both completions and cursor prediction target
+// CompletionResponse contains candidate completions and an optional cursor target.
 type CompletionResponse struct {
-	Completions  []*Completion
+	Completions  []*Completion           // Ordered candidates; engine currently renders the first one.
 	CursorTarget *CursorPredictionTarget // Optional, from cursor_prediction_target
 	MetricsInfo  *MetricsInfo            // Optional, for providers that track metrics
 }

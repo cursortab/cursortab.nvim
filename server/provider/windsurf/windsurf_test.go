@@ -9,9 +9,7 @@ import (
 
 func makeCurrent(lines []string, cursorRow, cursorCol int) ctx.CurrentSnapshot {
 	return ctx.CurrentSnapshot{
-		Workspace: ctx.WorkspaceRef{
-			Path: "/test",
-		},
+		WorkspacePath: "/test",
 		File: ctx.FileSnapshot{
 			Path:  "/test/main.go",
 			Lines: lines,

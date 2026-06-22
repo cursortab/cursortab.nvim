@@ -63,34 +63,21 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		Name:                          "sweep",
 		Config:                        config,
 		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType:                 provider.StreamingLines,
+		LineStreaming:                 true,
 		CompleteWithTextRightOfCursor: true,
 		PrefetchAfterCursorTarget:     true,
-		BuildContextRequirements: provider.Materials(provider.MaterialOptions{
-			Diagnostics: true,
-			Treesitter:  true,
-			GitDiff:     true,
-			RecentFiles: true,
-			EditHistory: true,
-			UserActions: true,
-		}),
-		DiffBuilder: provider.FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n"),
-		BuildBatch:  buildBatch,
-		ParseBatch:  parseBatch,
-		Validators: []provider.Validator{
-			provider.ValidateFirstLineAnchor(0.25),
+		Materials: sourcectx.Materials{
+			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{}, sourcectx.UserActions{},
 		},
-		StopTokens: []string{"<|file_sep|>", "<|endoftext|>"},
+		BuildRequest:       buildRequest,
+		ParseResult:        parseResult,
+		FirstLineValidator: provider.ValidateFirstLineAnchor(0.25),
+		StopTokens:         []string{"<|file_sep|>", "<|endoftext|>"},
 	}
 }
 
-func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
-	return buildPromptFromBatch(p, ctx, func(prefill string) {
-		ctx.Prefill = prefill
-	})
-}
-
-func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setPrefill func(string)) *openai.CompletionRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
 	input := ctx.Input
 	current := input.Current
 	lines := current.File.Lines
@@ -107,7 +94,7 @@ func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setP
 		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n")
 
-		return &openai.CompletionRequest{
+		return provider.PreparedRequest{Completion: &openai.CompletionRequest{
 			Model:       p.Config.ProviderModel,
 			Prompt:      promptBuilder.String(),
 			Temperature: p.Config.ProviderTemperature,
@@ -116,7 +103,7 @@ func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setP
 			Stop:        p.StopTokens,
 			N:           1,
 			Echo:        false,
-		}
+		}}
 	}
 
 	// Broad file context (initial_file) - ~300 lines around cursor
@@ -130,36 +117,35 @@ func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setP
 	}
 
 	// Cross-file context (retrieval chunks from recent files)
-	if recent, ok := sourcectx.Find[sourcectx.RecentFiles](input.Context); ok {
+	if recent, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
 		if section := formatRetrievalSection(recent.Files); section != "" {
 			promptBuilder.WriteString(section)
 		}
 	}
 
 	// Treesitter context
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Context); ok {
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok {
 		if section := formatTreesitterSection(treesitter.Data); section != "" {
 			promptBuilder.WriteString(section)
 		}
 	}
 
 	// Diagnostics context
-	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Context); ok {
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
 		if section := formatDiagnosticsSection(diagnostics.Data); section != "" {
 			promptBuilder.WriteString(section)
 		}
 	}
 
 	// Diff history section (recent_changes)
-	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Context); ok && p.DiffBuilder != nil {
-		diffSection := p.DiffBuilder(editHistory.Files)
-		if diffSection != "" {
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
+		if diffSection := formatDiffHistoryOriginalUpdated(editHistory.Files, "<|file_sep|>%s.diff\n"); diffSection != "" {
 			promptBuilder.WriteString(diffSection)
 		}
 	}
 
 	// Git diff context
-	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Context); ok {
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok {
 		if section := formatGitDiffSection(gitDiff.Data); section != "" {
 			promptBuilder.WriteString(section)
 		}
@@ -173,7 +159,7 @@ func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setP
 	}
 
 	startLine := ctx.WindowStart + 1
-	endLine := ctx.WindowEnd
+	endLine := ctx.WindowStart + len(ctx.TrimmedLines)
 
 	promptBuilder.WriteString("<|file_sep|>original/")
 	promptBuilder.WriteString(current.File.Path)
@@ -202,40 +188,43 @@ func buildPromptFromBatch(p *provider.Provider, ctx *provider.BatchContext, setP
 
 	// Compute and add prefill
 	var actions []*types.UserAction
-	if userActions, ok := sourcectx.Find[sourcectx.UserActions](input.Context); ok {
+	if userActions, ok := sourcectx.Find[sourcectx.UserActions](input.Materials); ok {
 		actions = userActions.Actions
 	}
 	changesAboveCursor := hasRecentInsertionAboveCursor(actions, cursorLineInWindow, ctx.WindowStart)
 	prefill := computePrefill(codeBlock, relativeCursor, changesAboveCursor)
-	setPrefill(prefill)
 	promptBuilder.WriteString(prefill)
 
-	return &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
-		Prompt:      promptBuilder.String(),
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
-		Stop:        p.StopTokens,
-		N:           1,
-		Echo:        false,
+	return provider.PreparedRequest{
+		Completion: &openai.CompletionRequest{
+			Model:       p.Config.ProviderModel,
+			Prompt:      promptBuilder.String(),
+			Temperature: p.Config.ProviderTemperature,
+			MaxTokens:   p.Config.ProviderMaxTokens,
+			TopK:        p.Config.ProviderTopK,
+			Stop:        p.StopTokens,
+			N:           1,
+			Echo:        false,
+		},
+		Prefill: prefill,
 	}
 }
 
-func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if resp, done := provider.RejectEmptyBatch(p, result); done {
-		return resp, true
+func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	if resp, done := provider.RejectEmptyResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.StripRepetitionBatch(p, result); done {
-		return resp, true
+	if resp, done := provider.StripRepetitionResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.ValidateAnchorPositionBatch(p, ctx, result, 0.25); done {
-		return resp, true
+	if resp, done := provider.ValidateAnchorPositionResult(p, ctx, result, 0.25); done {
+		return resp
 	}
-	if resp, done := provider.AnchorTruncationBatch(p, ctx, result, 0.75); done {
-		return resp, true
+	endLineInc, resp, done := provider.AnchorTruncationResult(p, ctx, result, 0.75)
+	if done {
+		return resp
 	}
-	return parseBatchCompletion(p, ctx, result)
+	return parseCompletion(p, ctx, result, endLineInc)
 }
 
 func computeRelativeCursor(lines []string, cursorLine, cursorCol int) int {
@@ -391,6 +380,33 @@ func formatRetrievalSection(snapshots []*types.RecentBufferSnapshot) string {
 	return b.String()
 }
 
+func formatDiffHistoryOriginalUpdated(history []*types.FileDiffHistory, headerTemplate string) string {
+	if len(history) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, fileHistory := range history {
+		if len(fileHistory.DiffHistory) == 0 {
+			continue
+		}
+		for _, diffEntry := range fileHistory.DiffHistory {
+			if diffEntry.Original == diffEntry.Updated {
+				continue
+			}
+			if headerTemplate != "" {
+				fmt.Fprintf(&b, headerTemplate, fileHistory.FileName)
+			}
+			b.WriteString("original:\n")
+			b.WriteString(diffEntry.Original)
+			b.WriteString("\nupdated:\n")
+			b.WriteString(diffEntry.Updated)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
 func formatGitDiffSection(gd *types.GitDiffContext) string {
 	if gd == nil || gd.Diff == "" {
 		return ""
@@ -398,7 +414,7 @@ func formatGitDiffSection(gd *types.GitDiffContext) string {
 	return "<|file_sep|>context/staged_diff\n" + gd.Diff
 }
 
-func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult, endLineInc int) *types.CompletionResponse {
 	completionText := result.Text
 	lines := ctx.Input.Current.File.Lines
 
@@ -407,7 +423,7 @@ func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, resu
 	completionText = strings.TrimRight(completionText, " \t\n\r")
 
 	windowStart := ctx.WindowStart
-	windowEnd := ctx.WindowEnd
+	windowEnd := ctx.WindowStart + len(ctx.TrimmedLines)
 	if windowStart < 0 {
 		windowStart = 0
 	}
@@ -415,22 +431,21 @@ func parseBatchCompletion(p *provider.Provider, ctx *provider.BatchContext, resu
 		windowEnd = len(lines)
 	}
 	if windowStart >= windowEnd || windowStart >= len(lines) {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
 	oldLines := lines[windowStart:windowEnd]
 	oldText := strings.TrimRight(strings.Join(oldLines, "\n"), " \t\n\r")
 
 	if completionText == oldText {
-		return p.EmptyResponse(), true
+		return p.EmptyResponse()
 	}
 
 	newLines := strings.Split(completionText, "\n")
 
-	endLineInc := ctx.EndLineInc
 	if endLineInc == 0 {
 		endLineInc = min(windowStart+len(newLines), windowEnd)
 	}
 
-	return p.BuildBatchCompletion(ctx, windowStart+1, endLineInc, newLines)
+	return p.BuildCompletion(ctx, windowStart+1, endLineInc, newLines)
 }

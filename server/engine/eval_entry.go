@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	sourcectx "cursortab/ctx"
 	"cursortab/logger"
 	"cursortab/types"
 )
@@ -35,7 +34,7 @@ type EvalRequestResult struct {
 	CursorTargetLine int
 }
 
-// EvalRequestCompletion runs the full gating + provider + staging pipeline
+// EvalRequestCompletion runs gating, provider request, and staging
 // synchronously. It is the single entry point used by the eval harness — the
 // production Engine.requestCompletion spawns a goroutine and routes through
 // the event loop, which is not friendly to deterministic evaluation.
@@ -73,13 +72,11 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 	}
 	e.lastCompletionSource = types.CompletionSourceTyping
 
-	input, sourceInput := e.buildCompletionInput(completionInputOptions{
-		kind:   sourcectx.RequestEval,
-		source: types.CompletionSourceTyping,
-	})
+	requirements := e.provider.RequiredMaterials()
+	sourceInput := e.buildContextSourceInput(completionInputOptions{}, requirements)
 
 	start := time.Now()
-	input, err := e.collectCompletionInput(ctx, input, sourceInput)
+	input, err := e.collectCompletionInput(ctx, sourceInput, requirements)
 	if err != nil {
 		return result, fmt.Errorf("context: %w", err)
 	}

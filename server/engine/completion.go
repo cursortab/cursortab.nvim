@@ -17,6 +17,8 @@ func (e *Engine) handleCompletionReadyImpl(response *types.CompletionResponse) {
 		return
 	}
 
+	// CompletionResponse may contain multiple ordered candidates. The current
+	// engine UI renders the first candidate; candidate switching is not wired yet.
 	completion := response.Completions[0]
 
 	// Store metrics info for showCurrentStage to use

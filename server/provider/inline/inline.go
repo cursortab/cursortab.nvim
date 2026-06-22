@@ -7,13 +7,15 @@
 //
 // The model completes from the cursor position to end of line.
 // Stop token: \n (single-line completions only).
-// Lines are trimmed to a window around the cursor via the TrimContent preprocessor.
+// Lines are trimmed to a window around the cursor before the prompt is rendered.
 package inline
 
 import (
 	"strings"
 
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
+	"cursortab/logger"
 	"cursortab/provider"
 	"cursortab/types"
 )
@@ -21,21 +23,20 @@ import (
 // NewProvider creates a new inline completion provider
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	return &provider.Provider{
-		Name:          "inline",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingNone,
-		BuildBatch:    buildBatch,
-		ParseBatch:    parseBatch,
-		StopTokens:    []string{"\n"},
+		Name:         "inline",
+		Config:       config,
+		Client:       openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		Materials:    sourcectx.Materials{sourcectx.Treesitter{}},
+		BuildRequest: buildRequest,
+		ParseResult:  parseResult,
 	}
 }
 
-func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.CompletionRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
 	var promptBuilder strings.Builder
 
 	if len(ctx.TrimmedLines) == 0 {
-		return &openai.CompletionRequest{
+		return provider.PreparedRequest{Completion: &openai.CompletionRequest{
 			Model:       p.Config.ProviderModel,
 			Prompt:      "",
 			Temperature: p.Config.ProviderTemperature,
@@ -44,7 +45,7 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 			Stop:        []string{"\n"},
 			N:           1,
 			Echo:        false,
-		}
+		}}
 	}
 
 	for i := range ctx.CursorLine {
@@ -64,7 +65,7 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 		promptBuilder.WriteString(strings.TrimRight(prefix, " \t"))
 	}
 
-	return &openai.CompletionRequest{
+	return provider.PreparedRequest{Completion: &openai.CompletionRequest{
 		Model:       p.Config.ProviderModel,
 		Prompt:      promptBuilder.String(),
 		Temperature: p.Config.ProviderTemperature,
@@ -73,18 +74,18 @@ func buildBatch(p *provider.Provider, ctx *provider.BatchContext) *openai.Comple
 		Stop:        []string{"\n"},
 		N:           1,
 		Echo:        false,
-	}
+	}}
 }
 
-func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if resp, done := provider.RejectEmptyBatch(p, result); done {
-		return resp, true
+func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	if resp, done := provider.RejectEmptyResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.StripRepetitionBatch(p, result); done {
-		return resp, true
+	if resp, done := provider.StripRepetitionResult(p, result); done {
+		return resp
 	}
-	if resp, done := provider.RejectTruncatedBatch(p, result); done {
-		return resp, true
+	if resp, done := rejectTruncatedResult(p, result); done {
+		return resp
 	}
 
 	current := ctx.Input.Current
@@ -94,5 +95,13 @@ func parseBatch(p *provider.Provider, ctx *provider.BatchContext, result *openai
 	beforeCursor := strings.TrimRight(currentLine[:cursorCol], " \t")
 
 	newLine := beforeCursor + completionText
-	return p.BuildBatchCompletion(ctx, current.Cursor.Row, current.Cursor.Row, []string{newLine})
+	return p.BuildCompletion(ctx, current.Cursor.Row, current.Cursor.Row, []string{newLine})
+}
+
+func rejectTruncatedResult(p *provider.Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+	if result.FinishReason == "length" {
+		logger.Info("%s: rejected, truncated (finish_reason=length)", p.Name)
+		return p.EmptyResponse(), true
+	}
+	return nil, false
 }

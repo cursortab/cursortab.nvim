@@ -105,10 +105,7 @@ func TestSuppressForSingleDeletion(t *testing.T) {
 func TestSuppressForMidLine(t *testing.T) {
 	// Edit completion provider → never suppress mid-line
 	e := &Engine{
-		provider: newMockProviderWithCanDo(ProviderCanDo{
-			CompleteWithTextRightOfCursor: true,
-			PrefetchAfterCursorTarget:     true,
-		}),
+		provider: newMockProviderWithKind(CompletionEdit),
 		buffer: &mockBuffer{
 			lines: []string{"func process(items []string) {"},
 			row:   1,
@@ -119,7 +116,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Non-edit provider, cursor at end → no suppress
 	e = &Engine{
-		provider: newMockProviderWithCanDo(ProviderCanDo{}),
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"result = "},
 			row:   1,
@@ -130,9 +127,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// FIM provider → never suppress mid-line
 	e = &Engine{
-		provider: newMockProviderWithCanDo(ProviderCanDo{
-			CompleteWithTextRightOfCursor: true,
-		}),
+		provider: newMockProviderWithKind(CompletionFIM),
 		buffer: &mockBuffer{
 			lines: []string{"for _, item := range items {"},
 			row:   1,
@@ -143,7 +138,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Inline provider, cursor mid-line with code to right → suppress
 	e = &Engine{
-		provider: newMockProviderWithCanDo(ProviderCanDo{}),
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"for _, item := range items {"},
 			row:   1,
@@ -154,7 +149,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Non-edit provider, only closing paren to right → no suppress
 	e = &Engine{
-		provider: newMockProviderWithCanDo(ProviderCanDo{}),
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"result = append(result, )"},
 			row:   1,
@@ -165,7 +160,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Non-edit provider, closing bracket + semicolon → no suppress
 	e = &Engine{
-		provider: newMockProviderWithCanDo(ProviderCanDo{}),
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"doSomething();"},
 			row:   1,

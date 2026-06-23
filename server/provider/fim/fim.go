@@ -38,6 +38,7 @@ import (
 
 	"cursortab/client/openai"
 	sourcectx "cursortab/ctx"
+	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/provider"
 	"cursortab/types"
@@ -46,13 +47,13 @@ import (
 // NewProvider creates a new fill-in-the-middle completion provider
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
 	p := &provider.Provider{
-		Name:                          "fim",
-		Config:                        config,
-		Client:                        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		CompleteWithTextRightOfCursor: true,
-		Materials:                     sourcectx.Materials{sourcectx.Treesitter{}},
-		BuildRequest:                  buildRequest,
-		ParseResult:                   parseResult,
+		Name:         "fim",
+		Config:       config,
+		Client:       openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		Completion:   engine.CompletionFIM,
+		Materials:    sourcectx.Materials{sourcectx.Treesitter{}},
+		BuildRequest: buildRequest,
+		ParseResult:  parseResult,
 	}
 
 	if config.FIMTokens != nil && config.FIMTokens.FileSep != "" {

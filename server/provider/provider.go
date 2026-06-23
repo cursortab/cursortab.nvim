@@ -80,26 +80,27 @@ func (c *StreamState) CursorMarkerPosition() (int, bool) {
 
 // Provider implements engine.Provider with provider-specific render and parse functions.
 type Provider struct {
-	Name                          string
-	Config                        *types.ProviderConfig
-	Client                        client
-	LineStreaming                 bool
-	CompleteWithTextRightOfCursor bool
-	PrefetchAfterCursorTarget     bool
-	BuildRequest                  requestBuilder
-	ParseResult                   resultParser
-	ParseStreamResult             streamResultParser
-	StreamCursorMarker            string
-	FirstLineValidator            firstLineValidator
-	StopTokens                    []string // Stop tokens for streaming (provider-specific)
-	Materials                     ctx.Materials
+	Name               string
+	Config             *types.ProviderConfig
+	Client             client
+	Completion         engine.CompletionKind
+	InputAuthority     engine.CompletionInputAuthority
+	LineStreaming      bool
+	BuildRequest       requestBuilder
+	ParseResult        resultParser
+	ParseStreamResult  streamResultParser
+	StreamCursorMarker string
+	FirstLineValidator firstLineValidator
+	StopTokens         []string // Stop tokens for streaming (provider-specific)
+	Materials          ctx.Materials
 }
 
-func (p *Provider) CanDo() engine.ProviderCanDo {
-	return engine.ProviderCanDo{
-		CompleteWithTextRightOfCursor: p.CompleteWithTextRightOfCursor,
-		PrefetchAfterCursorTarget:     p.PrefetchAfterCursorTarget,
-	}
+func (p *Provider) CompletionKind() engine.CompletionKind {
+	return p.Completion
+}
+
+func (p *Provider) CompletionInputAuthority() engine.CompletionInputAuthority {
+	return p.InputAuthority
 }
 
 func (p *Provider) RequiredMaterials() ctx.Materials {
@@ -149,14 +150,6 @@ func (p *Provider) GetCompletion(ctx context.Context, input ctx.CompletionInput)
 
 func (p *Provider) prepareRequestState(input ctx.CompletionInput) (*RequestState, int, bool) {
 	current := input.Current
-	if !p.CompleteWithTextRightOfCursor && current.Cursor.Row >= 1 && current.Cursor.Row <= len(current.File.Lines) {
-		currentLine := current.File.Lines[current.Cursor.Row-1]
-		if current.Cursor.Col < len(currentLine) {
-			logger.Debug("%s: skipping, text after cursor", p.Name)
-			return nil, 0, true
-		}
-	}
-
 	pctx := &RequestState{Input: input}
 	maxLines := 0
 	cursorLine := current.Cursor.Row - 1

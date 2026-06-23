@@ -279,7 +279,8 @@ func (b *mockBatch) Execute() error {
 // mockProvider implements the Provider interface for testing
 type mockProvider struct {
 	mu              sync.Mutex
-	canDo           ProviderCanDo
+	completion      CompletionKind
+	inputAuthority  CompletionInputAuthority
 	completionResp  *types.CompletionResponse
 	completionErr   error
 	completionCalls int
@@ -288,10 +289,8 @@ type mockProvider struct {
 
 func newMockProvider() *mockProvider {
 	return &mockProvider{
-		canDo: ProviderCanDo{
-			CompleteWithTextRightOfCursor: true,
-			PrefetchAfterCursorTarget:     true,
-		},
+		completion:     CompletionEdit,
+		inputAuthority: InputSuppliedCurrent,
 		completionResp: &types.CompletionResponse{
 			Completions: []*types.Completion{{
 				StartLine:  1,
@@ -302,14 +301,24 @@ func newMockProvider() *mockProvider {
 	}
 }
 
-func newMockProviderWithCanDo(canDo ProviderCanDo) *mockProvider {
+func newMockProviderWithKind(kind CompletionKind) *mockProvider {
 	p := newMockProvider()
-	p.canDo = canDo
+	p.completion = kind
 	return p
 }
 
-func (p *mockProvider) CanDo() ProviderCanDo {
-	return p.canDo
+func newMockProviderWithAuthority(authority CompletionInputAuthority) *mockProvider {
+	p := newMockProvider()
+	p.inputAuthority = authority
+	return p
+}
+
+func (p *mockProvider) CompletionKind() CompletionKind {
+	return p.completion
+}
+
+func (p *mockProvider) CompletionInputAuthority() CompletionInputAuthority {
+	return p.inputAuthority
 }
 
 func (p *mockProvider) RequiredMaterials() ctx.Materials {

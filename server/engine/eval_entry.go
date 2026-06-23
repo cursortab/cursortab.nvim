@@ -74,6 +74,9 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 
 	requirements := e.provider.RequiredMaterials()
 	sourceInput := e.buildContextSourceInput(completionInputOptions{}, requirements)
+	if !completionInputCompatible(e.provider.CompletionKind(), sourceInput.Current) {
+		return result, nil
+	}
 
 	start := time.Now()
 	input, err := e.collectCompletionInput(ctx, sourceInput, requirements)

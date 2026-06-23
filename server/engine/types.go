@@ -44,18 +44,29 @@ type Buffer interface {
 	InsertLine(line int, content string, keepUI bool) error   // Insert a new line at position (1-indexed)
 }
 
-// Provider owns material declarations and turns a collected CompletionInput into
-// a completion response. Engine code must not derive provider policy from names.
+// Provider exposes the facts engine needs before a request, then runs the
+// provider with collected public context.
 type Provider interface {
-	CanDo() ProviderCanDo
+	CompletionKind() CompletionKind
+	CompletionInputAuthority() CompletionInputAuthority
 	RequiredMaterials() ctx.Materials
 	GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error)
 }
 
-type ProviderCanDo struct {
-	CompleteWithTextRightOfCursor bool
-	PrefetchAfterCursorTarget     bool
-}
+type CompletionKind int
+
+const (
+	CompletionInline CompletionKind = iota
+	CompletionFIM
+	CompletionEdit
+)
+
+type CompletionInputAuthority int
+
+const (
+	InputSuppliedCurrent CompletionInputAuthority = iota
+	InputLiveEditorState
+)
 
 const (
 	defaultMaxUserActions     = 16

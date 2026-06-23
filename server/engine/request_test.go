@@ -76,14 +76,12 @@ func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction after accept")
 }
 
-func TestAcceptCompletion_DoesNotPrefetchWithoutProviderCapability(t *testing.T) {
+func TestAcceptCompletion_DoesNotPrefetchWithLiveInputAuthority(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"hello"}
 	buf.row = 1
 	buf.col = 5
-	prov := newMockProviderWithCanDo(ProviderCanDo{
-		CompleteWithTextRightOfCursor: true,
-	})
+	prov := newMockProviderWithAuthority(InputLiveEditorState)
 	clock := newMockClock()
 	eng, cancel := createTestEngineWithContext(buf, prov, clock)
 	defer cancel()
@@ -103,7 +101,7 @@ func TestAcceptCompletion_DoesNotPrefetchWithoutProviderCapability(t *testing.T)
 
 	eng.acceptCompletion()
 
-	assert.Equal(t, prefetchNone, eng.prefetchState, "provider capability should gate cursor-target prefetch")
+	assert.Equal(t, prefetchNone, eng.prefetchState, "live input authority should gate cursor-target prefetch")
 	assert.Equal(t, 0, prov.completionCalls, "prefetch request should not be issued")
 }
 

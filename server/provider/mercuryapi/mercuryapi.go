@@ -104,11 +104,12 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 	}
 }
 
-func (p *Provider) CanDo() engine.ProviderCanDo {
-	return engine.ProviderCanDo{
-		CompleteWithTextRightOfCursor: true,
-		PrefetchAfterCursorTarget:     true,
-	}
+func (p *Provider) CompletionKind() engine.CompletionKind {
+	return engine.CompletionEdit
+}
+
+func (p *Provider) CompletionInputAuthority() engine.CompletionInputAuthority {
+	return engine.InputSuppliedCurrent
 }
 
 func (p *Provider) RequiredMaterials() sourcectx.Materials {

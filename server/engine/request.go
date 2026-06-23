@@ -12,6 +12,24 @@ import (
 	"cursortab/utils"
 )
 
+func emptyCompletionResponse() *types.CompletionResponse {
+	return &types.CompletionResponse{Completions: []*types.Completion{}}
+}
+
+func completionInputCompatible(kind CompletionKind, current ctx.CurrentSnapshot) bool {
+	if kind != CompletionInline {
+		return true
+	}
+	if current.Cursor.Row < 1 || current.Cursor.Row > len(current.File.Lines) {
+		return true
+	}
+	line := current.File.Lines[current.Cursor.Row-1]
+	if current.Cursor.Col >= len(line) {
+		return true
+	}
+	return inertSuffixPattern.MatchString(line[current.Cursor.Col:])
+}
+
 func (e *Engine) collectCompletionInput(parent context.Context, sourceInput ctx.ContextSourceInput, requirements ctx.Materials) (ctx.CompletionInput, error) {
 	input := ctx.CompletionInput{Current: sourceInput.Current}
 	collected, err := ctx.Collect(parent, sourceInput, requirements)
@@ -64,6 +82,14 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	requirements := e.provider.RequiredMaterials()
 	sourceInput := e.buildContextSourceInput(completionInputOptions{}, requirements)
+	if !completionInputCompatible(e.provider.CompletionKind(), sourceInput.Current) {
+		e.state = statePendingCompletion
+		select {
+		case e.eventChan <- Event{Type: EventCompletionReady, Response: emptyCompletionResponse()}:
+		case <-e.mainCtx.Done():
+		}
+		return
+	}
 
 	input, err := e.collectCompletionInput(e.mainCtx, sourceInput, requirements)
 	if err != nil {
@@ -156,6 +182,13 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 		cursorCol:         overrideCol,
 		hasCursorOverride: true,
 	}, requirements)
+	if !completionInputCompatible(e.provider.CompletionKind(), sourceInput.Current) {
+		select {
+		case e.eventChan <- Event{Type: EventPrefetchReady, Response: emptyCompletionResponse()}:
+		case <-e.mainCtx.Done():
+		}
+		return
+	}
 	input, err := e.collectCompletionInput(e.mainCtx, sourceInput, requirements)
 	if err != nil {
 		select {
@@ -321,9 +354,8 @@ func (e *Engine) handleDeferredCursorTarget() {
 // prefetchAtNMinusOne triggers prefetch when showing the last stage.
 // Applies the last stage's edit to the buffer snapshot so the model sees the
 // post-accept state, and centers the request on the cursor target position.
-// Disabled for providers that cannot prefetch after a cursor-target accept.
 func (e *Engine) prefetchAtNMinusOne() {
-	if !e.provider.CanDo().PrefetchAfterCursorTarget {
+	if !e.canPrefetchAfterCursorTarget() {
 		return
 	}
 	if e.stagedCompletion == nil {
@@ -352,9 +384,8 @@ func (e *Engine) prefetchAtNMinusOne() {
 
 // prefetchAtCursorTarget triggers prefetch after accepting to cursor target position.
 // This speculatively requests the next completion at the target location.
-// Disabled for providers that cannot prefetch after a cursor-target accept.
 func (e *Engine) prefetchAtCursorTarget() {
-	if !e.provider.CanDo().PrefetchAfterCursorTarget {
+	if !e.canPrefetchAfterCursorTarget() {
 		return
 	}
 	if e.cursorTarget == nil || !e.cursorTarget.ShouldRetrigger {
@@ -369,4 +400,9 @@ func (e *Engine) prefetchAtCursorTarget() {
 	overrideRow := max(1, int(e.cursorTarget.LineNumber))
 	e.requestPrefetch(overrideRow, 0, prefetchOpts{})
 	e.prefetchState = prefetchWaitingForCursorPrediction
+}
+
+func (e *Engine) canPrefetchAfterCursorTarget() bool {
+	return e.provider.CompletionKind() == CompletionEdit &&
+		e.provider.CompletionInputAuthority() == InputSuppliedCurrent
 }

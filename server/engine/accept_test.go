@@ -41,14 +41,14 @@ func TestReject_DropsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
 	eng.streamingState = &StreamingState{}
-	eng.streamingCancel = streamCancel
+	eng.completionStream = newMockCompletionStream(streamCancel)
 	eng.acceptedDuringStreaming = true
 	eng.state = stateHasCompletion
 
 	eng.reject()
 
 	assert.Nil(t, eng.streamingState, "streamingState should be cleared")
-	assert.Nil(t, eng.streamingCancel, "streamingCancel should be cleared")
+	assert.Nil(t, eng.completionStream, "completionStream should be cleared")
 	assert.False(t, eng.acceptedDuringStreaming, "acceptedDuringStreaming flag should be cleared")
 
 	select {

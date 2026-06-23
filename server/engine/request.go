@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 
 	"cursortab/ctx"
 	"cursortab/logger"
@@ -100,35 +101,33 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		return
 	}
 
-	startProviderRequest := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
-		e.state = statePendingCompletion
-		reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
-		e.currentCancel = cancel
-		go func() {
-			defer cancel()
-			result, err := fetch(reqCtx)
-			if err != nil {
-				select {
-				case e.eventChan <- Event{Type: EventCompletionError, Err: err}:
-				case <-e.mainCtx.Done():
-				}
-				return
-			}
+	e.state = statePendingCompletion
+	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+	e.currentCancel = cancel
+	go func() {
+		result, stream, err := e.provider.StartCompletion(reqCtx, input, true)
+		if err != nil {
+			cancel()
 			select {
-			case e.eventChan <- Event{Type: EventCompletionReady, Response: result}:
+			case e.eventChan <- Event{Type: EventCompletionError, Err: err}:
 			case <-e.mainCtx.Done():
 			}
-		}()
-	}
-
-	if lineProvider, ok := e.provider.(LineStreamProvider); ok && lineProvider.StreamsLines() {
-		e.requestStreamingCompletion(lineProvider, input)
-		return
-	}
-
-	startProviderRequest(func(ctx context.Context) (*types.CompletionResponse, error) {
-		return e.provider.GetCompletion(ctx, input)
-	})
+			return
+		}
+		if stream != nil {
+			select {
+			case e.eventChan <- Event{Type: EventCompletionReady, Stream: bindStreamCancel(stream, cancel)}:
+			case <-e.mainCtx.Done():
+				cancel()
+			}
+			return
+		}
+		cancel()
+		select {
+		case e.eventChan <- Event{Type: EventCompletionReady, Response: result}:
+		case <-e.mainCtx.Done():
+		}
+	}()
 }
 
 // getViewportHeightConstraint returns the viewport height constraint for completion requests.
@@ -198,27 +197,46 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 		return
 	}
 
-	startPrefetch := func(fetch func(context.Context) (*types.CompletionResponse, error)) {
-		go func() {
-			defer cancel()
-			result, err := fetch(reqCtx)
-			if err != nil {
-				select {
-				case e.eventChan <- Event{Type: EventPrefetchError, Err: err}:
-				case <-e.mainCtx.Done():
-				}
-				return
-			}
+	go func() {
+		defer cancel()
+		result, stream, err := e.provider.StartCompletion(reqCtx, input, false)
+		if err == nil && stream != nil {
+			stream.Cancel()
+			err = errors.New("provider returned stream for prefetch")
+		}
+		if err != nil {
 			select {
-			case e.eventChan <- Event{Type: EventPrefetchReady, Response: result}:
+			case e.eventChan <- Event{Type: EventPrefetchError, Err: err}:
 			case <-e.mainCtx.Done():
 			}
-		}()
-	}
+			return
+		}
+		select {
+		case e.eventChan <- Event{Type: EventPrefetchReady, Response: result}:
+		case <-e.mainCtx.Done():
+		}
+	}()
+}
 
-	startPrefetch(func(ctx context.Context) (*types.CompletionResponse, error) {
-		return e.provider.GetCompletion(ctx, input)
-	})
+type completionStreamWithCancel struct {
+	CompletionStream
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func bindStreamCancel(stream CompletionStream, cancel context.CancelFunc) CompletionStream {
+	return &completionStreamWithCancel{CompletionStream: stream, cancel: cancel}
+}
+
+func (s *completionStreamWithCancel) Cancel() {
+	s.CompletionStream.Cancel()
+	s.once.Do(s.cancel)
+}
+
+func (s *completionStreamWithCancel) Finish() (*types.CompletionResponse, error) {
+	resp, err := s.CompletionStream.Finish()
+	s.once.Do(s.cancel)
+	return resp, err
 }
 
 // handlePrefetchReady processes a successful prefetch response

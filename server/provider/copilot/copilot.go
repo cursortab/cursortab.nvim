@@ -119,26 +119,25 @@ func (p *Provider) RequiredMaterials() ctx.Materials {
 	return nil
 }
 
-// GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
-	defer logger.Trace("copilot.GetCompletion")()
+func (p *Provider) StartCompletion(reqCtx context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, engine.CompletionStream, error) {
+	defer logger.Trace("copilot.StartCompletion")()
 	current := input.Current
 
 	// Check if Copilot client is available
 	clientInfo, err := p.buffer.GetCopilotClient()
 	if err != nil {
 		logger.Error("failed to check copilot client: %v", err)
-		return p.emptyResponse(), nil
+		return p.emptyResponse(), nil, nil
 	}
 	if clientInfo == nil {
 		logger.Debug("copilot: no client attached")
-		return p.emptyResponse(), nil
+		return p.emptyResponse(), nil, nil
 	}
 
 	// Ensure handler is registered (and re-register on reconnection)
 	if err := p.ensureHandlerRegistered(clientInfo.ID); err != nil {
 		logger.Error("failed to register copilot handler: %v", err)
-		return p.emptyResponse(), nil
+		return p.emptyResponse(), nil, nil
 	}
 
 	uri := buildDocumentURI(current)
@@ -168,22 +167,23 @@ func (p *Provider) GetCompletion(reqCtx context.Context, input ctx.CompletionInp
 		reqID, uri, current.Cursor.Row, current.Cursor.Col)
 	if err := p.buffer.SendCopilotNESRequest(reqID, uri); err != nil {
 		logger.Error("failed to send NES request: %v", err)
-		return p.emptyResponse(), nil
+		return p.emptyResponse(), nil, nil
 	}
 
 	// Wait for response with context timeout
 	select {
 	case <-reqCtx.Done():
 		logger.Debug("copilot: request cancelled")
-		return p.emptyResponse(), nil
+		return p.emptyResponse(), nil, nil
 	case result := <-p.pendingResult:
 		if result.Error != nil {
 			logger.Warn("copilot: NES request failed: %v", result.Error)
-			return p.emptyResponse(), nil
+			return p.emptyResponse(), nil, nil
 		}
 
 		p.logResponse(result.Edits)
-		return p.convertEdits(result.Edits, current)
+		resp, err := p.convertEdits(result.Edits, current)
+		return resp, nil, err
 	}
 }
 

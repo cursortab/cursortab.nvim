@@ -98,7 +98,7 @@ type Engine struct {
 
 	// Streaming state (line-by-line)
 	streamingState          *StreamingState
-	streamingCancel         context.CancelFunc
+	completionStream        CompletionStream
 	streamLinesChan         <-chan string // Lines channel (nil when not streaming)
 	acceptedDuringStreaming bool          // True if user accepted partial during streaming
 

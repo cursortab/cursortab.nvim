@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // httpTransportSetter is implemented by clients that allow their outgoing
@@ -20,7 +21,6 @@ type httpTransportSetter interface {
 }
 
 var _ engine.Provider = (*Provider)(nil)
-var _ engine.LineStreamProvider = (*Provider)(nil)
 
 type client interface {
 	DoCompletion(ctx context.Context, req *openai.CompletionRequest) (*openai.CompletionResponse, error)
@@ -43,9 +43,10 @@ type lineStreamMode struct {
 // PreparedRequest is the provider request plus response/stream handling facts
 // derived while rendering that request.
 type PreparedRequest struct {
-	Completion       *openai.CompletionRequest
-	Prefill          string
-	LineStreamConfig engine.LineStreamConfig
+	Completion        *openai.CompletionRequest
+	Prefill           string
+	StreamWindowStart int
+	StreamOldLines    []string
 }
 
 // RequestState is provider-owned state for one collected CompletionInput.
@@ -128,24 +129,40 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 	}
 }
 
-// GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
-	defer logger.Trace("Provider.GetCompletion")()
+func (p *Provider) StartCompletion(ctx context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, engine.CompletionStream, error) {
+	defer logger.Trace("Provider.StartCompletion")()
 	if p.BuildRequest == nil || p.ParseResult == nil {
-		return p.EmptyResponse(), fmt.Errorf("%s: request flow is not configured", p.Name)
+		return p.EmptyResponse(), nil, fmt.Errorf("%s: request flow is not configured", p.Name)
 	}
 
 	pctx, maxLines, skip := p.prepareRequestState(input)
 	if skip {
-		return p.EmptyResponse(), nil
+		return p.EmptyResponse(), nil, nil
 	}
 
 	prepared := p.BuildRequest(p, pctx)
 	p.logRequest(prepared.Completion, maxLines)
 
+	if allowStream && p.lineStream != nil {
+		streamCtx := &StreamState{
+			RequestState: pctx,
+			cursorMarker: p.lineStream.cursorMarker,
+		}
+		windowStart := pctx.WindowStart
+		oldLines := pctx.TrimmedLines
+		if prepared.StreamOldLines != nil {
+			windowStart = prepared.StreamWindowStart
+			oldLines = prepared.StreamOldLines
+		} else if len(oldLines) == 0 {
+			oldLines = input.Current.File.Lines
+		}
+		stream := p.Client.DoLineStream(ctx, prepared.Completion, maxLines, p.lineStream.stopTokens)
+		return nil, newLineStreamRun(p, streamCtx, stream, windowStart, oldLines, prepared.Prefill), nil
+	}
+
 	resp, err := p.Client.DoCompletion(ctx, prepared.Completion)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", p.Name, err)
+		return nil, nil, fmt.Errorf("%s: %w", p.Name, err)
 	}
 
 	result := &openai.StreamResult{}
@@ -158,7 +175,7 @@ func (p *Provider) GetCompletion(ctx context.Context, input ctx.CompletionInput)
 	}
 	p.logResponse(result)
 
-	return p.ParseResult(p, pctx, result), nil
+	return p.ParseResult(p, pctx, result), nil, nil
 }
 
 func (p *Provider) prepareRequestState(input ctx.CompletionInput) (*RequestState, int, bool) {
@@ -244,48 +261,8 @@ func (p *Provider) logResponse(result *openai.StreamResult) {
 		result.Text)
 }
 
-func (p *Provider) StreamsLines() bool {
-	return p.lineStream != nil
-}
-
-func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *StreamState, engine.LineStreamConfig, int, error) {
-	if p.lineStream == nil {
-		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: line streaming is not configured", p.Name)
-	}
-	if p.BuildRequest == nil {
-		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: request flow is not configured", p.Name)
-	}
-
-	state, maxLines, skip := p.prepareRequestState(input)
-	if skip {
-		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: skip completion", p.Name)
-	}
-
-	prepared := p.BuildRequest(p, state)
-	pctx := &StreamState{
-		RequestState: state,
-		cursorMarker: p.lineStream.cursorMarker,
-	}
-	streamConfig := engine.LineStreamConfig{
-		WindowStart: state.WindowStart,
-		OldLines:    state.TrimmedLines,
-		Prefill:     prepared.Prefill,
-	}
-	if prepared.LineStreamConfig.OldLines != nil {
-		streamConfig.WindowStart = prepared.LineStreamConfig.WindowStart
-		streamConfig.OldLines = prepared.LineStreamConfig.OldLines
-	} else if len(streamConfig.OldLines) == 0 {
-		streamConfig.OldLines = input.Current.File.Lines
-	}
-	return prepared.Completion, pctx, streamConfig, maxLines, nil
-}
-
 // finishStream applies the streamed text to the provider state and parses it.
-func (p *Provider) finishStream(providerState engine.ProviderStreamState, result *openai.StreamResult) (*types.CompletionResponse, error) {
-	pctx, ok := providerState.(*StreamState)
-	if !ok {
-		return p.EmptyResponse(), fmt.Errorf("invalid provider context type")
-	}
+func (p *Provider) finishStream(pctx *StreamState, result *openai.StreamResult) (*types.CompletionResponse, error) {
 	p.logResponse(result)
 
 	if p.ParseResult == nil {
@@ -299,35 +276,116 @@ func (p *Provider) finishStream(providerState engine.ProviderStreamState, result
 	return p.ParseResult(p, pctx.RequestState, result), nil
 }
 
-func (p *Provider) PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (engine.LineStream, engine.ProviderStreamState, engine.LineStreamConfig, error) {
-	defer logger.Trace("Provider.PrepareLineStream")()
-	completionReq, pctx, streamConfig, maxLines, err := p.prepareStreamInput(input)
-	if err != nil {
-		return nil, pctx, streamConfig, err
-	}
-	p.logRequest(completionReq, maxLines)
-	return p.Client.DoLineStream(ctx, completionReq, maxLines, p.lineStream.stopTokens), pctx, streamConfig, nil
+type lineStreamRun struct {
+	provider    *Provider
+	state       *StreamState
+	stream      *openai.LineStream
+	windowStart int
+	oldLines    []string
+
+	lines      chan string
+	cancelCh   chan struct{}
+	cancelOnce sync.Once
+	finishOnce sync.Once
+
+	mu              sync.Mutex
+	accumulatedText strings.Builder
+	validated       bool
+	response        *types.CompletionResponse
+	err             error
 }
 
-func (p *Provider) ValidateFirstLine(providerState engine.ProviderStreamState, firstLine string) error {
-	pctx, ok := providerState.(*StreamState)
-	if !ok {
-		return fmt.Errorf("invalid provider context type")
+func newLineStreamRun(p *Provider, state *StreamState, stream *openai.LineStream, windowStart int, oldLines []string, prefill string) *lineStreamRun {
+	run := &lineStreamRun{
+		provider:    p,
+		state:       state,
+		stream:      stream,
+		windowStart: windowStart,
+		oldLines:    oldLines,
+		lines:       make(chan string, 100),
+		cancelCh:    make(chan struct{}),
 	}
+	go run.forwardLines(prefill)
+	return run
+}
 
-	if p.lineStream != nil && p.lineStream.firstLineValidator != nil {
-		if err := p.lineStream.firstLineValidator(p, pctx, firstLine); err != nil {
-			logger.Debug("%s: first line validation failed: %v", p.Name, err)
-			return err
+func (r *lineStreamRun) Lines() <-chan string {
+	return r.lines
+}
+
+func (r *lineStreamRun) Window() (int, []string) {
+	return r.windowStart, r.oldLines
+}
+
+func (r *lineStreamRun) Cancel() {
+	r.cancelOnce.Do(func() {
+		r.stream.Cancel()
+		close(r.cancelCh)
+	})
+}
+
+func (r *lineStreamRun) Finish() (*types.CompletionResponse, error) {
+	r.finishOnce.Do(func() {
+		result, ok := <-r.stream.DoneChan()
+		if !ok {
+			result = openai.StreamResult{FinishReason: "cancelled", StoppedEarly: true}
+		}
+		r.mu.Lock()
+		if r.err != nil {
+			r.mu.Unlock()
+			return
+		}
+		result.Text = r.accumulatedText.String()
+		r.mu.Unlock()
+		r.response, r.err = r.provider.finishStream(r.state, &result)
+	})
+	return r.response, r.err
+}
+
+func (r *lineStreamRun) forwardLines(prefill string) {
+	defer close(r.lines)
+	if prefill != "" {
+		for _, line := range strings.Split(strings.TrimSuffix(prefill, "\n"), "\n") {
+			if !r.emitLine(line) {
+				return
+			}
 		}
 	}
-	return nil
+	for line := range r.stream.LinesChan() {
+		if !r.emitLine(line) {
+			return
+		}
+	}
 }
 
-func (p *Provider) FinishLineStream(providerState engine.ProviderStreamState, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error) {
-	return p.finishStream(providerState, &openai.StreamResult{
-		Text:         text,
-		FinishReason: finishReason,
-		StoppedEarly: stoppedEarly,
-	})
+func (r *lineStreamRun) emitLine(line string) bool {
+	line, skip := r.state.TransformLine(line)
+	if skip {
+		return true
+	}
+	if !r.validated {
+		if mode := r.provider.lineStream; mode != nil && mode.firstLineValidator != nil {
+			if err := mode.firstLineValidator(r.provider, r.state, line); err != nil {
+				logger.Debug("%s: first line validation failed: %v", r.provider.Name, err)
+				r.mu.Lock()
+				r.err = err
+				r.mu.Unlock()
+				r.Cancel()
+				return false
+			}
+		}
+		r.validated = true
+	}
+
+	r.mu.Lock()
+	r.accumulatedText.WriteString(line)
+	r.accumulatedText.WriteString("\n")
+	r.mu.Unlock()
+
+	select {
+	case r.lines <- line:
+		return true
+	case <-r.cancelCh:
+		return false
+	}
 }

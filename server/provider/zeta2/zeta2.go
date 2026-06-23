@@ -114,7 +114,8 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 			N:           1,
 			Echo:        false,
 		},
-		LineStreamConfig: engine.LineStreamConfig{OldLines: streamOldLines, WindowStart: streamBaseOffset},
+		StreamOldLines:    streamOldLines,
+		StreamWindowStart: streamBaseOffset,
 	}
 }
 

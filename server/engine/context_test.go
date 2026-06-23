@@ -100,7 +100,7 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 		StartLine: 5, EndLineInc: 5, Lines: []string{"old file completion"},
 	}}
 	eng.currentCancel = currentCancel
-	eng.streamingCancel = streamCancel
+	eng.completionStream = newMockCompletionStream(streamCancel)
 	eng.streamingState = &StreamingState{}
 	eng.state = stateStreamingCompletion
 	eng.completions = []*types.Completion{{
@@ -115,7 +115,7 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	assert.Nil(t, eng.prefetchedCompletions, "prefetched completions cleared")
 	assert.Nil(t, eng.prefetchCancel, "prefetch cancel func cleared")
 	assert.Nil(t, eng.currentCancel, "current request cancel cleared")
-	assert.Nil(t, eng.streamingCancel, "streaming cancel cleared")
+	assert.Nil(t, eng.completionStream, "completion stream cleared")
 	assert.Nil(t, eng.streamingState, "streaming state cleared")
 	assert.Nil(t, eng.completions, "completions cleared")
 	assert.Nil(t, eng.stagedCompletion, "staged completion cleared")

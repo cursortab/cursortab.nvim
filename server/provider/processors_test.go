@@ -299,7 +299,7 @@ func TestValidateAnchorPosition(t *testing.T) {
 	}
 }
 
-func TestValidateFirstLineAnchor(t *testing.T) {
+func TestFirstLineAnchorValidator(t *testing.T) {
 	prov := &Provider{Name: "test"}
 
 	// Create 20 unique lines
@@ -342,16 +342,16 @@ func TestValidateFirstLineAnchor(t *testing.T) {
 				},
 			}
 
-			validator := ValidateFirstLineAnchor(tt.maxAnchorRatio)
+			validator := FirstLineAnchorValidator(tt.maxAnchorRatio)
 			err := validator(prov, ctx, tt.firstLine)
 
 			gotErr := err != nil
-			assert.Equal(t, tt.wantErr, gotErr, "ValidateFirstLineAnchor error status")
+			assert.Equal(t, tt.wantErr, gotErr, "FirstLineAnchorValidator error status")
 		})
 	}
 }
 
-func TestValidateFirstLineAnchor_SmallFile(t *testing.T) {
+func TestFirstLineAnchorValidator_SmallFile(t *testing.T) {
 	prov := &Provider{Name: "test"}
 
 	// Small file (< 10 lines) should skip validation
@@ -369,9 +369,9 @@ func TestValidateFirstLineAnchor_SmallFile(t *testing.T) {
 		},
 	}
 
-	validator := ValidateFirstLineAnchor(0.25)
+	validator := FirstLineAnchorValidator(0.25)
 	err := validator(prov, ctx, "completely different")
 
 	// Should not error for small files
-	assert.NoError(t, err, "ValidateFirstLineAnchor for small files")
+	assert.NoError(t, err, "FirstLineAnchorValidator for small files")
 }

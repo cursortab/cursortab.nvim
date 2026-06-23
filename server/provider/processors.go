@@ -181,9 +181,9 @@ func ValidateAnchorPositionResult(p *Provider, ctx *RequestState, result *openai
 	return nil, false
 }
 
-// ValidateFirstLineAnchor returns a validator that checks the first streamed line anchors correctly.
+// FirstLineAnchorValidator returns a validator that checks the first streamed line anchors correctly.
 // This is the streaming equivalent of ValidateAnchorPosition.
-func ValidateFirstLineAnchor(maxAnchorRatio float64) firstLineValidator {
+func FirstLineAnchorValidator(maxAnchorRatio float64) firstLineValidator {
 	return func(p *Provider, ctx *StreamState, firstLine string) error {
 		oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart : ctx.WindowStart+len(ctx.TrimmedLines)]
 		_, _, reject := checkAnchorPosition(firstLine, oldLines, maxAnchorRatio)

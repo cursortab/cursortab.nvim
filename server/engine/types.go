@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"cursortab/buffer"
@@ -50,7 +49,7 @@ type Provider interface {
 	CompletionKind() CompletionKind
 	CompletionInputAuthority() CompletionInputAuthority
 	RequiredMaterials() ctx.Materials
-	GetCompletion(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error)
+	StartCompletion(ctx context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, CompletionStream, error)
 }
 
 type CompletionKind int
@@ -77,32 +76,11 @@ const (
 	defaultMaxSiblings        = 50
 )
 
-// ProviderStreamState is opaque to engine code except for per-line stream text transformation.
-type ProviderStreamState interface {
-	TransformLine(line string) (string, bool)
-}
-
-// LineStreamConfig is the engine-visible part of a prepared line stream.
-type LineStreamConfig struct {
-	WindowStart int
-	OldLines    []string
-	Prefill     string
-}
-
-type LineStreamProvider interface {
-	Provider
-	StreamsLines() bool
-	PrepareLineStream(ctx context.Context, input ctx.CompletionInput) (LineStream, ProviderStreamState, LineStreamConfig, error)
-	ValidateFirstLine(providerState ProviderStreamState, firstLine string) error
-	// FinishLineStream lets the provider finalize its streamed text. Ordinary
-	// streaming UI is built from streamed lines; after-accept handling consumes
-	// the returned response to compute follow-up cursor prediction.
-	FinishLineStream(providerState ProviderStreamState, text string, finishReason string, stoppedEarly bool) (*types.CompletionResponse, error)
-}
-
-type LineStream interface {
-	LinesChan() <-chan string
+type CompletionStream interface {
+	Lines() <-chan string
+	Window() (windowStart int, oldLines []string)
 	Cancel()
+	Finish() (*types.CompletionResponse, error)
 }
 
 type StreamingState struct {
@@ -110,11 +88,6 @@ type StreamingState struct {
 
 	PendingLine    string // Buffer for last line (drop if truncated)
 	HasPendingLine bool
-
-	AccumulatedText strings.Builder
-
-	ProviderState ProviderStreamState
-	Validated     bool
 
 	FirstStageRendered bool
 }

@@ -78,7 +78,7 @@ func NewProvider(config *types.ProviderConfig) *provider.Provider {
 		BuildRequest: buildRequest,
 		ParseResult:  parseResult,
 	}
-	return p.UseLineStream(stopTokens, provider.ValidateFirstLineAnchor(0.25), "", nil)
+	return p.UseLineStream(stopTokens, provider.FirstLineAnchorValidator(0.25), "", nil)
 }
 
 func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {

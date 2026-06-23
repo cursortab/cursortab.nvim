@@ -35,6 +35,7 @@ const (
 type Event struct {
 	Type     EventType
 	Response *types.CompletionResponse
+	Stream   CompletionStream
 	Err      error
 }
 
@@ -300,6 +301,10 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 		}
 		if !e.isModeEnabled() {
 			e.reject()
+			return true
+		}
+		if event.Stream != nil {
+			e.startStreamingCompletion(event.Stream)
 			return true
 		}
 		e.handleCompletionReadyImpl(event.Response)

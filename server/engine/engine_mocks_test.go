@@ -325,15 +325,46 @@ func (p *mockProvider) RequiredMaterials() ctx.Materials {
 	return nil
 }
 
-func (p *mockProvider) GetCompletion(_ context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+func (p *mockProvider) StartCompletion(_ context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, CompletionStream, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.completionCalls++
 	p.lastInput = input
 	if p.completionErr != nil {
-		return nil, p.completionErr
+		return nil, nil, p.completionErr
 	}
-	return p.completionResp, nil
+	return p.completionResp, nil, nil
+}
+
+type mockCompletionStream struct {
+	lines       chan string
+	cancel      context.CancelFunc
+	windowStart int
+	oldLines    []string
+	response    *types.CompletionResponse
+	err         error
+}
+
+func newMockCompletionStream(cancel context.CancelFunc) *mockCompletionStream {
+	return &mockCompletionStream{lines: make(chan string), cancel: cancel}
+}
+
+func (s *mockCompletionStream) Lines() <-chan string {
+	return s.lines
+}
+
+func (s *mockCompletionStream) Window() (int, []string) {
+	return s.windowStart, s.oldLines
+}
+
+func (s *mockCompletionStream) Cancel() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+func (s *mockCompletionStream) Finish() (*types.CompletionResponse, error) {
+	return s.response, s.err
 }
 
 // mockClock implements Clock for testing

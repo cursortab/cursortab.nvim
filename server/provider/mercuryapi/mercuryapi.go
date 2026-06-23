@@ -156,14 +156,13 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	}
 }
 
-// GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
-	defer logger.Trace("mercuryapi.GetCompletion")()
+func (p *Provider) StartCompletion(ctx context.Context, input sourcectx.CompletionInput, allowStream bool) (*types.CompletionResponse, engine.CompletionStream, error) {
+	defer logger.Trace("mercuryapi.StartCompletion")()
 	current := input.Current
 	lines := current.File.Lines
 
 	if len(lines) == 0 {
-		return &types.CompletionResponse{}, nil
+		return &types.CompletionResponse{}, nil, nil
 	}
 
 	// Calculate editable and context regions
@@ -226,7 +225,7 @@ func (p *Provider) GetCompletion(ctx context.Context, input sourcectx.Completion
 
 	apiResp, err := p.client.DoCompletion(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	completionText := mercuryapi.ExtractCompletion(apiResp)
@@ -234,14 +233,14 @@ func (p *Provider) GetCompletion(ctx context.Context, input sourcectx.Completion
 	p.logResponse(apiResp, completionText)
 
 	if completionText == "" {
-		return &types.CompletionResponse{}, nil
+		return &types.CompletionResponse{}, nil, nil
 	}
 
 	newLines := strings.Split(completionText, "\n")
 
 	originalEditable := lines[editableStart-1 : editableEnd]
 	if slices.Equal(newLines, originalEditable) {
-		return &types.CompletionResponse{}, nil
+		return &types.CompletionResponse{}, nil, nil
 	}
 
 	// Calculate metrics info for the engine
@@ -258,7 +257,7 @@ func (p *Provider) GetCompletion(ctx context.Context, input sourcectx.Completion
 			Additions: additions,
 			Deletions: deletions,
 		},
-	}, nil
+	}, nil, nil
 }
 
 func (p *Provider) logRequest(req *mercuryapi.Request, editableStart, editableEnd, contextStart, contextEnd int) {

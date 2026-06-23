@@ -33,7 +33,7 @@ func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *tes
 	streamCtx, streamCancel := context.WithCancel(context.Background())
 	defer streamCancel()
 	eng.streamingState = &StreamingState{}
-	eng.streamingCancel = streamCancel
+	eng.completionStream = newMockCompletionStream(streamCancel)
 	eng.acceptedDuringStreaming = true
 	eng.state = stateIdle
 

@@ -1,79 +1,42 @@
 package engine
 
 import (
-	"context"
-	"strings"
-
-	sourcectx "cursortab/ctx"
 	"cursortab/text"
 	"cursortab/types"
 	"cursortab/utils"
 )
 
-// requestStreamingCompletion handles line-by-line streaming completions
-func (e *Engine) requestStreamingCompletion(provider LineStreamProvider, input sourcectx.CompletionInput) {
-	e.requestStreamingCompletionPrepared(input, func(ctx context.Context) (LineStream, ProviderStreamState, LineStreamConfig, error) {
-		return provider.PrepareLineStream(ctx, input)
-	})
-}
-
-func (e *Engine) requestStreamingCompletionPrepared(
-	input sourcectx.CompletionInput,
-	prepare func(context.Context) (LineStream, ProviderStreamState, LineStreamConfig, error),
-) {
+func (e *Engine) startStreamingCompletion(stream CompletionStream) {
 	e.state = stateStreamingCompletion
 
-	ctx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
-	e.streamingCancel = cancel
-
-	// Prepare the stream
-	stream, providerCtx, streamConfig, err := prepare(ctx)
-	if err != nil {
-		cancel()
-		e.state = stateIdle
-		return
-	}
-
 	viewportTop, viewportBottom := e.buffer.ViewportBounds()
+	windowStart, oldLines := stream.Window()
 
-	// Initialize streaming state
 	e.streamingState = &StreamingState{
 		StageBuilder: text.NewIncrementalStageBuilder(
-			streamConfig.OldLines,
-			streamConfig.WindowStart+1, // baseLineOffset (1-indexed)
+			oldLines,
+			windowStart+1, // baseLineOffset (1-indexed)
 			e.config.CursorPrediction.ProximityThreshold,
 			e.config.MaxVisibleLines,
 			viewportTop,
 			viewportBottom,
 			e.buffer.Row(),
 			e.buffer.Col(),
-			input.Current.File.Path,
+			e.buffer.Path(),
 			e.buffer.AvailableWidth(),
 		),
-		ProviderState: providerCtx,
 	}
-
-	// Inject prefill lines through handleStreamLine so the stage
-	// builder, accumulated text, and validation all see a complete line sequence
-	// starting from the top of the window.
-	if prefill := streamConfig.Prefill; prefill != "" {
-		for _, line := range strings.Split(strings.TrimSuffix(prefill, "\n"), "\n") {
-			e.handleStreamLine(line)
-		}
-	}
-
-	// Set stream channel directly - event loop will select on it
-	e.streamLinesChan = stream.LinesChan()
+	e.completionStream = stream
+	e.streamLinesChan = stream.Lines()
 }
 
 // cancelStreaming cancels an in-progress streaming completion.
 func (e *Engine) cancelStreaming() {
 	// Clear channels first - this immediately stops event loop from reading
 	e.streamLinesChan = nil
-	// Then cancel the HTTP request
-	if e.streamingCancel != nil {
-		e.streamingCancel()
-		e.streamingCancel = nil
+	if e.completionStream != nil {
+		e.completionStream.Cancel()
+		e.completionStream = nil
 	}
 	e.streamingState = nil
 	e.acceptedDuringStreaming = false
@@ -85,10 +48,9 @@ func (e *Engine) cancelStreaming() {
 func (e *Engine) cancelLineStreamingKeepPartial() {
 	// Clear channel first - stops event loop from reading
 	e.streamLinesChan = nil
-	// Cancel the HTTP request
-	if e.streamingCancel != nil {
-		e.streamingCancel()
-		e.streamingCancel = nil
+	if e.completionStream != nil {
+		e.completionStream.Cancel()
+		e.completionStream = nil
 	}
 	// Clear streaming state but keep completions and completionOriginalLines
 	// These were populated by renderStreamedStage and are needed for checkTypingMatchesPrediction
@@ -103,30 +65,8 @@ func (e *Engine) handleStreamLine(line string) {
 		return
 	}
 
-	var skip bool
-	line, skip = ss.ProviderState.TransformLine(line)
-	if skip {
-		return
-	}
-
-	// Accumulate text for provider parsing on stream completion.
-	ss.AccumulatedText.WriteString(line)
-	ss.AccumulatedText.WriteString("\n")
-
-	// First line validation
-	if !ss.Validated {
-		if sp, ok := e.provider.(LineStreamProvider); ok {
-			if err := sp.ValidateFirstLine(ss.ProviderState, line); err != nil {
-				e.cancelStreaming()
-				e.state = stateIdle
-				return
-			}
-		}
-		ss.Validated = true
-	}
-
 	// If user accepted during streaming, skip stage building (diffs would be wrong).
-	// Just accumulate text for cursor prediction computation when streaming completes.
+	// The provider-owned stream still keeps enough text to finish the response.
 	if e.acceptedDuringStreaming {
 		return
 	}
@@ -175,9 +115,14 @@ func (e *Engine) handleStreamCompleteSimple() {
 	// We need to recompute diff from accumulated text against current buffer
 	if e.acceptedDuringStreaming {
 		e.acceptedDuringStreaming = false
-		e.handleStreamCompleteAfterAccept(ss)
+		if e.completionStream != nil {
+			resp, err := e.completionStream.Finish()
+			if err == nil {
+				e.handleStreamCompleteAfterAccept(resp)
+			}
+			e.completionStream = nil
+		}
 		e.streamingState = nil
-		e.streamingCancel = nil
 		return
 	}
 
@@ -189,13 +134,8 @@ func (e *Engine) handleStreamCompleteSimple() {
 		ss.HasPendingLine = false
 	}
 
-	// Let the provider finalize/log the accumulated stream. Ordinary streaming
-	// UI is finalized from the incremental stage builder below; the returned
-	// response is only consumed by the after-accept path.
-	sp, ok := e.provider.(LineStreamProvider)
-	if ok {
-		accumulatedText := ss.AccumulatedText.String()
-		_, _ = sp.FinishLineStream(ss.ProviderState, accumulatedText, "stop", false)
+	if e.completionStream != nil {
+		_, _ = e.completionStream.Finish()
 	}
 
 	// Finalize remaining stages
@@ -203,7 +143,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 
 	// Clear streaming state
 	e.streamingState = nil
-	e.streamingCancel = nil
+	e.completionStream = nil
 
 	if stagingResult == nil || len(stagingResult.Stages) == 0 {
 		e.state = stateIdle
@@ -246,21 +186,9 @@ func (e *Engine) handleStreamCompleteSimple() {
 	}
 }
 
-// handleStreamCompleteAfterAccept handles stream completion when user accepted during streaming.
-// It recomputes diff from accumulated text against current buffer and shows cursor prediction.
-func (e *Engine) handleStreamCompleteAfterAccept(ss *StreamingState) {
-	// Get the line stream provider to parse the accumulated text.
-	sp, ok := e.provider.(LineStreamProvider)
-	if !ok {
-		return
-	}
-
-	accumulatedText := ss.AccumulatedText.String()
-	resp, err := sp.FinishLineStream(ss.ProviderState, accumulatedText, "stop", false)
-	if err != nil {
-		return
-	}
-
+// handleStreamCompleteAfterAccept recomputes diff from the final streamed
+// response against the buffer state after the already-accepted partial stage.
+func (e *Engine) handleStreamCompleteAfterAccept(resp *types.CompletionResponse) {
 	if resp == nil || len(resp.Completions) == 0 {
 		return
 	}

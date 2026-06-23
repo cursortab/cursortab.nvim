@@ -83,10 +83,14 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 	if err != nil {
 		return result, fmt.Errorf("context: %w", err)
 	}
-	resp, err := e.provider.GetCompletion(ctx, input)
+	resp, stream, err := e.provider.StartCompletion(ctx, input, false)
 	result.ProviderLatency = time.Since(start)
 	if err != nil {
 		return result, fmt.Errorf("provider: %w", err)
+	}
+	if stream != nil {
+		stream.Cancel()
+		return result, fmt.Errorf("provider: returned stream for eval request")
 	}
 
 	if resp == nil || len(resp.Completions) == 0 {

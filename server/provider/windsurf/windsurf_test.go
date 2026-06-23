@@ -52,7 +52,7 @@ func TestConvertResponse_EmptyItems(t *testing.T) {
 
 	resp, err := p.convertResponse(wsResp, current)
 	assert.NoError(t, err, "convertResponse error")
-	assert.Len(t, 0, resp.Completions, "completions")
+	assert.Nil(t, resp.Completion, "completions")
 }
 
 func TestConvertResponse_EmptyState(t *testing.T) {
@@ -64,7 +64,7 @@ func TestConvertResponse_EmptyState(t *testing.T) {
 
 	resp, err := p.convertResponse(wsResp, current)
 	assert.NoError(t, err, "convertResponse error")
-	assert.Len(t, 0, resp.Completions, "completions")
+	assert.Nil(t, resp.Completion, "completions")
 }
 
 func TestConvertSingleItem_SingleLineReplacement(t *testing.T) {
@@ -198,7 +198,7 @@ func TestConvertResponse_MetricsInfo(t *testing.T) {
 
 	resp, err := p.convertResponse(wsResp, current)
 	assert.NoError(t, err, "convertResponse error")
-	assert.Len(t, 1, resp.Completions, "completions")
+	assert.NotNil(t, resp.Completion, "completions")
 	assert.NotNil(t, resp.MetricsInfo, "metricsInfo")
 	assert.Equal(t, "comp-id-1", resp.MetricsInfo.ID, "metricsInfo.ID")
 }
@@ -284,7 +284,7 @@ func TestConvertSingleItem_ReconstructsFromCompletionParts(t *testing.T) {
 	item := windsurfCompletionItem{
 		Completion: windsurfCompletion{
 			CompletionID: "abc123",
-			Text:         "ignored fallback",
+			Text:         "ignored text",
 		},
 		Range: makeOffsetRange("0", "12", "0", "0", "12"),
 		CompletionParts: []windsurfCompletionPart{
@@ -307,7 +307,7 @@ func TestConvertSingleItem_ReconstructsBlockCompletionParts(t *testing.T) {
 	item := windsurfCompletionItem{
 		Completion: windsurfCompletion{
 			CompletionID: "abc123",
-			Text:         "ignored fallback",
+			Text:         "ignored text",
 		},
 		Range: makeOffsetRange("0", "10", "0", "0", "10"),
 		CompletionParts: []windsurfCompletionPart{

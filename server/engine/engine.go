@@ -59,17 +59,18 @@ type Engine struct {
 	WorkspacePath string
 	WorkspaceID   string
 
-	provider        Provider
-	buffer          Buffer
-	clock           Clock
-	state           state
-	ctx             context.Context
-	currentCancel   context.CancelFunc
-	prefetchCancel  context.CancelFunc
-	idleTimer       Timer
-	textChangeTimer Timer
-	mu              sync.RWMutex
-	eventChan       chan Event
+	provider            Provider
+	buffer              Buffer
+	clock               Clock
+	state               state
+	ctx                 context.Context
+	currentCancel       context.CancelFunc
+	completionRequestID uint64
+	prefetchCancel      context.CancelFunc
+	idleTimer           Timer
+	textChangeTimer     Timer
+	mu                  sync.RWMutex
+	eventChan           chan Event
 
 	// Main context and cancel for the engine lifecycle
 	mainCtx    context.Context
@@ -92,19 +93,17 @@ type Engine struct {
 	currentGroups []*text.Group
 
 	// Prefetch state
-	prefetchedCompletions  []*types.Completion
-	prefetchedCursorTarget *types.CursorPredictionTarget
-	prefetchState          prefetchState
+	prefetchedResponse *prefetchedCompletion
+	prefetchState      prefetchState
 
 	// Streaming state (line-by-line)
-	streamingState          *StreamingState
+	streamingState          *streamingState
 	completionStream        CompletionStream
 	streamLinesChan         <-chan string // Lines channel (nil when not streaming)
 	acceptedDuringStreaming bool          // True if user accepted partial during streaming
 
 	// Mode tracking
-	inInsertMode      bool
-	manuallyTriggered bool
+	inInsertMode bool
 
 	// Config options
 	config EngineConfig
@@ -141,26 +140,25 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 	workspaceID := fmt.Sprintf("%s-%d", workspacePath, os.Getpid())
 
 	e := &Engine{
-		WorkspacePath:          workspacePath,
-		WorkspaceID:            workspaceID,
-		provider:               provider,
-		buffer:                 buf,
-		clock:                  clock,
-		state:                  stateIdle,
-		ctx:                    nil,
-		eventChan:              make(chan Event, 100),
-		config:                 config,
-		idleTimer:              nil,
-		textChangeTimer:        nil,
-		mu:                     sync.RWMutex{},
-		completions:            nil,
-		cursorTarget:           nil,
-		prefetchedCompletions:  nil,
-		prefetchedCursorTarget: nil,
-		prefetchState:          prefetchNone,
-		stopped:                false,
-		fileStateStore:         make(map[string]*FileState),
-		rejectedCompletions:    make(map[string][]*rejectedCompletion),
+		WorkspacePath:       workspacePath,
+		WorkspaceID:         workspaceID,
+		provider:            provider,
+		buffer:              buf,
+		clock:               clock,
+		state:               stateIdle,
+		ctx:                 nil,
+		eventChan:           make(chan Event, 100),
+		config:              config,
+		idleTimer:           nil,
+		textChangeTimer:     nil,
+		mu:                  sync.RWMutex{},
+		completions:         nil,
+		cursorTarget:        nil,
+		prefetchedResponse:  nil,
+		prefetchState:       prefetchNone,
+		stopped:             false,
+		fileStateStore:      make(map[string]*FileState),
+		rejectedCompletions: make(map[string][]*rejectedCompletion),
 	}
 
 	// Initialize metrics: combine provider sender + community sender if available
@@ -244,7 +242,6 @@ func (e *Engine) resetCompletionFields() {
 	e.completionOriginalLines = nil
 	e.currentGroups = nil
 	e.currentRejectedCompletion = nil
-	e.manuallyTriggered = false
 	e.pendingMetricsInfo = nil
 }
 
@@ -270,8 +267,7 @@ func (e *Engine) cancelPrefetch() {
 // Does not cancel an in-flight prefetch (use cancelPrefetch for that).
 func (e *Engine) clearPrefetchResult() {
 	e.prefetchState = prefetchNone
-	e.prefetchedCompletions = nil
-	e.prefetchedCursorTarget = nil
+	e.prefetchedResponse = nil
 }
 
 // RegisterEventHandler registers the event handler for nvim RPC callbacks.
@@ -312,7 +308,7 @@ func (e *Engine) startIdleTimer() {
 	if e.config.IdleCompletionDelay < 0 {
 		return
 	}
-	if !e.isModeEnabled() {
+	if !e.isModeEnabled(false) {
 		return
 	}
 	e.stopIdleTimer()
@@ -350,7 +346,7 @@ func (e *Engine) startTextChangeTimer() {
 	if e.config.TextChangeDebounce < 0 {
 		return
 	}
-	if !e.isModeEnabled() {
+	if !e.isModeEnabled(false) {
 		return
 	}
 	e.stopTextChangeTimer()
@@ -379,9 +375,9 @@ func (e *Engine) stopTextChangeTimer() {
 }
 
 // isModeEnabled returns true if completions are enabled for the current mode
-// or if the completion was manually triggered.
-func (e *Engine) isModeEnabled() bool {
-	if e.manuallyTriggered {
+// or if the current request was manually triggered.
+func (e *Engine) isModeEnabled(manual bool) bool {
+	if manual {
 		return true
 	}
 	if e.inInsertMode {
@@ -493,7 +489,7 @@ func totalChars(lines []string) int {
 
 // recordMetricsShown records that a completion was shown. Pass nil for info
 // when no provider metrics ID is available (e.g. streaming completions).
-func (e *Engine) recordMetricsShown(info *types.MetricsInfo) {
+func (e *Engine) recordMetricsShown(info *types.MetricsInfo, manual bool) {
 	now := e.clock.Now()
 	e.currentMetrics = metrics.CompletionInfo{ShownAt: now}
 
@@ -517,7 +513,7 @@ func (e *Engine) recordMetricsShown(info *types.MetricsInfo) {
 		}
 	}
 
-	e.currentSnapshot = e.captureSnapshot()
+	e.currentSnapshot = e.captureSnapshot(manual)
 	e.sendMetric(metrics.EventShown)
 }
 
@@ -575,7 +571,7 @@ func classifyScope(signature string) string {
 	}
 }
 
-func (e *Engine) captureSnapshot() *metrics.Snapshot {
+func (e *Engine) captureSnapshot(manual bool) *metrics.Snapshot {
 	current := e.buildCurrentSnapshot(completionInputOptions{})
 	fileContext := e.buildFileContextSnapshot(ctx.Materials{ctx.EditHistory{}, ctx.UserActions{}})
 	lines := current.File.Lines
@@ -667,7 +663,7 @@ func (e *Engine) captureSnapshot() *metrics.Snapshot {
 		CompletionAdditions:    e.currentMetrics.Additions,
 		CompletionDeletions:    e.currentMetrics.Deletions,
 		CompletionSource:       source,
-		ManuallyTriggered:      e.manuallyTriggered,
+		ManuallyTriggered:      manual,
 		Provider:               e.config.ProviderName,
 		StageIndex:             stageIndex,
 		CursorTargetDistance:   cursorTargetDistance,

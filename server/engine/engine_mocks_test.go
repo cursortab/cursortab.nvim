@@ -280,7 +280,7 @@ func (b *mockBatch) Execute() error {
 type mockProvider struct {
 	mu              sync.Mutex
 	completion      CompletionKind
-	inputAuthority  CompletionInputAuthority
+	authority       CompletionInputAuthority
 	completionResp  *types.CompletionResponse
 	completionErr   error
 	completionCalls int
@@ -289,14 +289,14 @@ type mockProvider struct {
 
 func newMockProvider() *mockProvider {
 	return &mockProvider{
-		completion:     CompletionEdit,
-		inputAuthority: InputSuppliedCurrent,
+		completion: CompletionEdit,
+		authority:  InputSuppliedCurrent,
 		completionResp: &types.CompletionResponse{
-			Completions: []*types.Completion{{
+			Completion: &types.Completion{
 				StartLine:  1,
 				EndLineInc: 1,
 				Lines:      []string{"completed line 1"},
-			}},
+			},
 		},
 	}
 }
@@ -307,10 +307,18 @@ func newMockProviderWithKind(kind CompletionKind) *mockProvider {
 	return p
 }
 
-func newMockProviderWithAuthority(authority CompletionInputAuthority) *mockProvider {
+func newMockProviderWithLiveEditorState() *mockProvider {
 	p := newMockProvider()
-	p.inputAuthority = authority
+	p.authority = InputLiveEditorState
 	return p
+}
+
+func completionResponse(completion *types.Completion) *types.CompletionResponse {
+	return &types.CompletionResponse{Completion: completion}
+}
+
+func cachedPrefetch(resp *types.CompletionResponse) *prefetchedCompletion {
+	return &prefetchedCompletion{CompletionResponse: resp}
 }
 
 func (p *mockProvider) CompletionKind() CompletionKind {
@@ -318,7 +326,7 @@ func (p *mockProvider) CompletionKind() CompletionKind {
 }
 
 func (p *mockProvider) CompletionInputAuthority() CompletionInputAuthority {
-	return p.inputAuthority
+	return p.authority
 }
 
 func (p *mockProvider) RequiredMaterials() ctx.Materials {

@@ -1,45 +1,4 @@
-// Package sweep implements the Sweep Next-Edit model provider.
-//
-// Prompt format (sent as a single text prompt to /v1/completions):
-//
-//	<|file_sep|>{file_path}               (broad file context ~300 lines)
-//	{initial_file_contents}
-//
-//	<|file_sep|>context/retrieval         (other open files for context)
-//	<|file_sep|>utils.py
-//	def helper(): ...
-//
-//	<|file_sep|>context/treesitter        (omitted if no treesitter context)
-//	Enclosing scope: func handleRequest(...) {
-//	Sibling: func otherFunc() {
-//	Import: import "net/http"
-//
-//	<|file_sep|>context/diagnostics       (omitted if no LSP diagnostics)
-//	Line 10: [gopls] undefined: foo
-//	Line 15: [gopls] unused variable: bar
-//
-//	<|file_sep|>{file_path}.diff          (diff history, if any)
-//	original:
-//	{old_code}
-//	updated:
-//	{new_code}
-//
-//	<|file_sep|>context/staged_diff       (omitted if not COMMIT_EDITMSG)
-//	+func newHelper(ctx context.Context) error {
-//	-func oldHelper() error {
-//
-//	<|file_sep|>original/file.go:10:30    (current window, no cursor marker)
-//	...current lines...
-//
-//	<|file_sep|>current/file.go:10:30     (current window with cursor marker)
-//	...lines before cursor...
-//	<|cursor|>line at cursor...
-//	...lines after cursor...
-//
-//	<|file_sep|>updated/file.go:10:30     (prefilled, model completes from here)
-//	{prefilled_content}...
-//
-// Stop tokens: <|file_sep|>, <|endoftext|>
+// Package sweep implements the Sweep next-edit provider.
 package sweep
 
 import (
@@ -62,22 +21,25 @@ const (
 var stopTokens = []string{"<|file_sep|>", "<|endoftext|>"}
 
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	p := &provider.Provider{
-		Name:       "sweep",
-		Config:     config,
-		Client:     openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Completion: engine.CompletionEdit,
-		Materials: sourcectx.Materials{
+	return provider.NewProvider(
+		"sweep",
+		config,
+		openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		engine.CompletionEdit,
+		sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{}, sourcectx.UserActions{},
 		},
-		BuildRequest: buildRequest,
-		ParseResult:  parseResult,
-	}
-	return p.UseLineStream(stopTokens, provider.FirstLineAnchorValidator(0.25), "", nil)
+		buildRequest,
+		parseResult,
+		provider.WithLineStream(
+			provider.LineStreamPrefill(prefillForState),
+			provider.LineStreamValidator(provider.FirstLineAnchorChecker(0.25)),
+		),
+	)
 }
 
-func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
 	input := ctx.Input
 	current := input.Current
 	lines := current.File.Lines
@@ -94,16 +56,16 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n")
 
-		return provider.PreparedRequest{Completion: &openai.CompletionRequest{
-			Model:       p.Config.ProviderModel,
+		return &openai.CompletionRequest{
+			Model:       p.Config().ProviderModel,
 			Prompt:      promptBuilder.String(),
-			Temperature: p.Config.ProviderTemperature,
-			MaxTokens:   p.Config.ProviderMaxTokens,
-			TopK:        p.Config.ProviderTopK,
+			Temperature: p.Config().ProviderTemperature,
+			MaxTokens:   p.Config().ProviderMaxTokens,
+			TopK:        p.Config().ProviderTopK,
 			Stop:        stopTokens,
 			N:           1,
 			Echo:        false,
-		}}
+		}
 	}
 
 	// Broad file context (initial_file) - ~300 lines around cursor
@@ -186,45 +148,39 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 	promptBuilder.WriteString(fmt.Sprintf("%d:%d", startLine, endLine))
 	promptBuilder.WriteString("\n")
 
-	// Compute and add prefill
-	var actions []*types.UserAction
-	if userActions, ok := sourcectx.Find[sourcectx.UserActions](input.Materials); ok {
-		actions = userActions.Actions
-	}
-	changesAboveCursor := hasRecentInsertionAboveCursor(actions, cursorLineInWindow, ctx.WindowStart)
-	prefill := computePrefill(codeBlock, relativeCursor, changesAboveCursor)
+	prefill := computePrefillForContext(ctx, codeBlock, relativeCursor)
 	promptBuilder.WriteString(prefill)
 
-	return provider.PreparedRequest{
-		Completion: &openai.CompletionRequest{
-			Model:       p.Config.ProviderModel,
-			Prompt:      promptBuilder.String(),
-			Temperature: p.Config.ProviderTemperature,
-			MaxTokens:   p.Config.ProviderMaxTokens,
-			TopK:        p.Config.ProviderTopK,
-			Stop:        stopTokens,
-			N:           1,
-			Echo:        false,
-		},
-		Prefill: prefill,
+	return &openai.CompletionRequest{
+		Model:       p.Config().ProviderModel,
+		Prompt:      promptBuilder.String(),
+		Temperature: p.Config().ProviderTemperature,
+		MaxTokens:   p.Config().ProviderMaxTokens,
+		TopK:        p.Config().ProviderTopK,
+		Stop:        stopTokens,
+		N:           1,
+		Echo:        false,
 	}
 }
 
 func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	if resp, done := provider.RejectEmptyResult(p, result); done {
+	text := prefillForState(ctx) + result.Text
+	if resp, done := provider.RejectEmptyText(p, text); done {
 		return resp
 	}
-	if resp, done := provider.StripRepetitionResult(p, result); done {
+	if stripped, resp, done := provider.StripRepetitionText(p, text); done {
+		return resp
+	} else {
+		text = stripped
+	}
+	if resp, done := provider.ValidateAnchorPositionText(p, ctx, text, 0.25); done {
 		return resp
 	}
-	if resp, done := provider.ValidateAnchorPositionResult(p, ctx, result, 0.25); done {
-		return resp
-	}
-	endLineInc, resp, done := provider.AnchorTruncationResult(p, ctx, result, 0.75)
+	text, endLineInc, resp, done := provider.AnchorTruncationText(p, ctx, text, result.FinishReason, result.StoppedEarly, 0.75)
 	if done {
 		return resp
 	}
-	return parseCompletion(p, ctx, result, endLineInc)
+	return parseCompletion(p, ctx, text, endLineInc)
 }
 
 func computeRelativeCursor(lines []string, cursorLine, cursorCol int) int {
@@ -233,6 +189,27 @@ func computeRelativeCursor(lines []string, cursorLine, cursorCol int) int {
 		offset += len(lines[i]) + 1 // +1 for newline
 	}
 	return offset + cursorCol
+}
+
+func prefillForState(ctx *provider.RequestState) string {
+	if len(ctx.TrimmedLines) == 0 {
+		return ""
+	}
+	codeBlock := strings.Join(ctx.TrimmedLines, "\n")
+	relativeCursor := computeRelativeCursor(ctx.TrimmedLines, ctx.CursorLine, ctx.Input.Current.Cursor.Col)
+	if relativeCursor > len(codeBlock) {
+		relativeCursor = len(codeBlock)
+	}
+	return computePrefillForContext(ctx, codeBlock, relativeCursor)
+}
+
+func computePrefillForContext(ctx *provider.RequestState, codeBlock string, relativeCursor int) string {
+	var actions []*types.UserAction
+	if userActions, ok := sourcectx.Find[sourcectx.UserActions](ctx.Input.Materials); ok {
+		actions = userActions.Actions
+	}
+	changesAboveCursor := hasRecentInsertionAboveCursor(actions, ctx.CursorLine, ctx.WindowStart)
+	return computePrefill(codeBlock, relativeCursor, changesAboveCursor)
 }
 
 // computePrefill returns the prefix of the updated section that we feed to
@@ -414,8 +391,7 @@ func formatGitDiffSection(gd *types.GitDiffContext) string {
 	return "<|file_sep|>context/staged_diff\n" + gd.Diff
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult, endLineInc int) *types.CompletionResponse {
-	completionText := result.Text
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, completionText string, endLineInc int) *types.CompletionResponse {
 	lines := ctx.Input.Current.File.Lines
 
 	completionText = strings.TrimSuffix(completionText, "<|file_sep|>")

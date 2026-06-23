@@ -81,7 +81,9 @@ type LSPBuffer interface {
 	RegisterCopilotHandler(handler func(reqID int64, editsJSON string, errMsg string)) error
 }
 
-// Provider implements engine.Provider for Copilot NES
+// Provider implements engine.Provider for Copilot NES. It talks to a live
+// Neovim Copilot LSP client, so it cannot reuse the OpenAI-compatible provider
+// base.
 type Provider struct {
 	buffer LSPBuffer
 
@@ -98,6 +100,8 @@ type Provider struct {
 	handlerRegistered bool
 	lastClientID      int // Track client ID to detect reconnection
 }
+
+var _ engine.Provider = (*Provider)(nil)
 
 // NewProvider creates a new Copilot provider
 func NewProvider(buf LSPBuffer) *Provider {
@@ -219,7 +223,7 @@ func (p *Provider) HandleNESResponse(reqID int64, editsJSON string, errMsg strin
 	}
 
 	// Non-blocking send to avoid deadlock if no one is waiting
-	// Safe to send while holding mutex since GetCompletion releases lock before receiving
+	// Safe to send while holding mutex since StartCompletion releases lock before receiving
 	select {
 	case p.pendingResult <- result:
 	default:
@@ -260,14 +264,12 @@ func (p *Provider) logResponse(edits []CopilotEdit) {
 	logger.Debug("copilot response: %d edits\n%s", len(edits), sb.String())
 }
 
-// convertEdits transforms Copilot LSP edits to cursortab's CompletionResponse format.
-// Processes all edits and returns multiple completions for staging to handle.
 func (p *Provider) convertEdits(edits []CopilotEdit, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
 	if len(edits) == 0 {
 		return p.emptyResponse(), nil
 	}
 
-	var completions []*types.Completion
+	var editsToApply []*types.Completion
 
 	for i, edit := range edits {
 		// Store command for telemetry
@@ -277,30 +279,89 @@ func (p *Provider) convertEdits(edits []CopilotEdit, current ctx.CurrentSnapshot
 
 		completion := p.convertSingleEdit(edit, current, i)
 		if completion != nil {
-			completions = append(completions, completion)
+			editsToApply = append(editsToApply, completion)
 		}
 	}
 
-	if len(completions) == 0 {
+	completion := mergeCompletionEdits(current.File.Lines, editsToApply)
+	if completion == nil {
 		return p.emptyResponse(), nil
 	}
 
-	logger.Debug("copilot: converted %d edits to %d completions", len(edits), len(completions))
+	logger.Debug("copilot: converted %d edits to one completion", len(edits))
 
 	return &types.CompletionResponse{
-		Completions: completions,
+		Completion: completion,
 	}, nil
 }
 
-// convertSingleEdit converts a single Copilot edit to a Completion
+func mergeCompletionEdits(original []string, edits []*types.Completion) *types.Completion {
+	if len(edits) == 0 {
+		return nil
+	}
+
+	ordered := slices.Clone(edits)
+	slices.SortFunc(ordered, func(a, b *types.Completion) int {
+		return b.StartLine - a.StartLine
+	})
+
+	updated := slices.Clone(original)
+	nextStart := len(original) + 2
+	for _, edit := range ordered {
+		if edit == nil || edit.StartLine < 1 || edit.EndLineInc < edit.StartLine || edit.EndLineInc >= nextStart {
+			continue
+		}
+		start := edit.StartLine - 1
+		end := edit.EndLineInc
+		if start > len(updated) {
+			continue
+		}
+		if end > len(updated) {
+			end = len(updated)
+		}
+		merged := make([]string, 0, len(updated)-end+start+len(edit.Lines))
+		merged = append(merged, updated[:start]...)
+		merged = append(merged, edit.Lines...)
+		merged = append(merged, updated[end:]...)
+		updated = merged
+		nextStart = edit.StartLine
+	}
+
+	start := 0
+	for start < len(original) && start < len(updated) && original[start] == updated[start] {
+		start++
+	}
+	if start == len(original) && start == len(updated) {
+		return nil
+	}
+
+	oldEnd := len(original) - 1
+	newEnd := len(updated) - 1
+	for oldEnd >= start && newEnd >= start && original[oldEnd] == updated[newEnd] {
+		oldEnd--
+		newEnd--
+	}
+
+	startLine := start + 1
+	endLineInc := oldEnd + 1
+	if endLineInc < startLine {
+		endLineInc = startLine
+	}
+
+	newLines := slices.Clone(updated[start : newEnd+1])
+	return &types.Completion{
+		StartLine:  startLine,
+		EndLineInc: endLineInc,
+		Lines:      newLines,
+	}
+}
+
 func (p *Provider) convertSingleEdit(edit CopilotEdit, current ctx.CurrentSnapshot, editIdx int) *types.Completion {
 	lines := current.File.Lines
 
-	// Convert 0-indexed LSP range to 1-indexed buffer lines
 	startLine := edit.Range.Start.Line + 1
 	endLine := edit.Range.End.Line + 1
 
-	// Bounds check
 	if startLine < 1 || startLine > len(lines)+1 {
 		logger.Debug("copilot: edit %d start line %d out of bounds", editIdx, startLine)
 		return nil
@@ -403,10 +464,4 @@ func utf16OffsetToBytes(s string, utf16Offset int) int {
 	return byteOffset
 }
 
-// emptyResponse returns an empty completion response
-func (p *Provider) emptyResponse() *types.CompletionResponse {
-	return &types.CompletionResponse{
-		Completions:  []*types.Completion{},
-		CursorTarget: nil,
-	}
-}
+func (p *Provider) emptyResponse() *types.CompletionResponse { return &types.CompletionResponse{} }

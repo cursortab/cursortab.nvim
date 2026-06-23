@@ -231,7 +231,7 @@ func TestConvertEdits_EmptyEdits(t *testing.T) {
 	resp, err := p.convertEdits([]CopilotEdit{}, current)
 
 	assert.NoError(t, err, "no error")
-	assert.Nil(t, resp.Completions, "no completions for empty edits")
+	assert.Nil(t, resp.Completion, "no completions for empty edits")
 }
 
 func TestConvertEdits_SingleLineEdit(t *testing.T) {
@@ -251,11 +251,11 @@ func TestConvertEdits_SingleLineEdit(t *testing.T) {
 	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
-	assert.Len(t, 1, resp.Completions, "one completion")
-	assert.Equal(t, 1, resp.Completions[0].StartLine, "start line")
-	assert.Equal(t, 1, resp.Completions[0].EndLineInc, "end line")
-	assert.Len(t, 1, resp.Completions[0].Lines, "one line")
-	assert.Equal(t, "hello world", resp.Completions[0].Lines[0], "content")
+	assert.NotNil(t, resp.Completion, "one completion")
+	assert.Equal(t, 1, resp.Completion.StartLine, "start line")
+	assert.Equal(t, 1, resp.Completion.EndLineInc, "end line")
+	assert.Len(t, 1, resp.Completion.Lines, "one line")
+	assert.Equal(t, "hello world", resp.Completion.Lines[0], "content")
 }
 
 func TestConvertEdits_MultiLineEdit(t *testing.T) {
@@ -275,8 +275,8 @@ func TestConvertEdits_MultiLineEdit(t *testing.T) {
 	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
-	assert.Len(t, 1, resp.Completions, "one completion")
-	assert.Equal(t, 3, len(resp.Completions[0].Lines), "three lines")
+	assert.NotNil(t, resp.Completion, "one completion")
+	assert.Equal(t, 3, len(resp.Completion.Lines), "three lines")
 }
 
 func TestConvertEdits_NoOpEdit(t *testing.T) {
@@ -296,7 +296,7 @@ func TestConvertEdits_NoOpEdit(t *testing.T) {
 	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
-	assert.Nil(t, resp.Completions, "no completions for no-op")
+	assert.Nil(t, resp.Completion, "no completions for no-op")
 }
 
 func TestConvertEdits_StartLineOutOfBounds(t *testing.T) {
@@ -316,7 +316,7 @@ func TestConvertEdits_StartLineOutOfBounds(t *testing.T) {
 	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
-	assert.Nil(t, resp.Completions, "no completions for out of bounds")
+	assert.Nil(t, resp.Completion, "no completions for out of bounds")
 }
 
 func TestConvertEdits_MultipleEdits(t *testing.T) {
@@ -346,9 +346,62 @@ func TestConvertEdits_MultipleEdits(t *testing.T) {
 	resp, err := p.convertEdits(edits, current)
 
 	assert.NoError(t, err, "no error")
-	assert.Len(t, 2, resp.Completions, "two completions")
-	assert.Equal(t, 1, resp.Completions[0].StartLine, "first edit start line")
-	assert.Equal(t, 3, resp.Completions[1].StartLine, "second edit start line")
+	assert.NotNil(t, resp.Completion, "one candidate")
+	assert.Equal(t, 1, resp.Completion.StartLine, "start line")
+	assert.Equal(t, 3, resp.Completion.EndLineInc, "end line")
+	assert.Equal(t, []string{"modified 1", "line 2", "modified 3"}, resp.Completion.Lines, "merged lines")
+}
+
+func TestConvertEdits_InsertsAtBufferEnd(t *testing.T) {
+	tests := []struct {
+		name       string
+		lines      []string
+		editText   string
+		rangeLine  int
+		startLine  int
+		endLineInc int
+		wantLines  []string
+	}{
+		{
+			name:       "after existing content",
+			lines:      []string{"line 1"},
+			editText:   "line 2",
+			rangeLine:  1,
+			startLine:  2,
+			endLineInc: 2,
+			wantLines:  []string{"line 2"},
+		},
+		{
+			name:       "empty file",
+			editText:   "package main",
+			startLine:  1,
+			endLineInc: 1,
+			wantLines:  []string{"package main"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Provider{pendingResult: make(chan *CopilotResult, 1)}
+			current := makeCurrent(tt.lines)
+			edits := []CopilotEdit{{
+				Text: tt.editText,
+				Range: CopilotRange{
+					Start: CopilotPos{Line: tt.rangeLine, Character: 0},
+					End:   CopilotPos{Line: tt.rangeLine, Character: 0},
+				},
+				TextDoc: CopilotDoc{Version: 1},
+			}}
+
+			resp, err := p.convertEdits(edits, current)
+
+			assert.NoError(t, err, "no error")
+			assert.NotNil(t, resp.Completion, "one candidate")
+			assert.Equal(t, tt.startLine, resp.Completion.StartLine, "start line")
+			assert.Equal(t, tt.endLineInc, resp.Completion.EndLineInc, "end line")
+			assert.Equal(t, tt.wantLines, resp.Completion.Lines, "inserted lines")
+		})
+	}
 }
 
 func TestHandleNESResponse_ValidResponse(t *testing.T) {
@@ -428,6 +481,6 @@ func TestEmptyResponse(t *testing.T) {
 	resp := p.emptyResponse()
 
 	assert.NotNil(t, resp, "response not nil")
-	assert.Nil(t, resp.Completions, "no completions")
+	assert.Nil(t, resp.Completion, "no completions")
 	assert.Nil(t, resp.CursorTarget, "no cursor target")
 }

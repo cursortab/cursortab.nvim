@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"cursortab/client/openai"
 	"cursortab/logger"
 	"cursortab/text"
 	"cursortab/types"
@@ -89,16 +88,16 @@ func DiffEntryToUnifiedDiff(entry *types.DiffEntry) string {
 	return strings.TrimSuffix(diffBuilder.String(), "\n")
 }
 
-func RejectEmptyResult(p *Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if strings.TrimSpace(result.Text) == "" {
-		logger.Debug("%s: rejected, empty or whitespace-only", p.Name)
+func RejectEmptyText(p *Provider, text string) (*types.CompletionResponse, bool) {
+	if strings.TrimSpace(text) == "" {
+		logger.Debug("%s: rejected, empty or whitespace-only", p.name)
 		return p.EmptyResponse(), true
 	}
 	return nil, false
 }
 
-func StripRepetitionResult(p *Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	lines := strings.Split(result.Text, "\n")
+func StripRepetitionText(p *Provider, text string) (string, *types.CompletionResponse, bool) {
+	lines := strings.Split(text, "\n")
 	cutIdx := -1
 	for i := 2; i < len(lines); i++ {
 		if lines[i] == lines[i-1] && lines[i] == lines[i-2] && strings.TrimSpace(lines[i]) != "" {
@@ -107,26 +106,24 @@ func StripRepetitionResult(p *Provider, result *openai.StreamResult) (*types.Com
 		}
 	}
 	if cutIdx < 0 {
-		return nil, false
+		return text, nil, false
 	}
 	if cutIdx == 0 {
-		return p.EmptyResponse(), true
+		return text, p.EmptyResponse(), true
 	}
-	result.Text = strings.Join(lines[:cutIdx], "\n")
-	return nil, false
+	return strings.Join(lines[:cutIdx], "\n"), nil, false
 }
 
-func AnchorTruncationResult(p *Provider, ctx *RequestState, result *openai.StreamResult, threshold float64) (int, *types.CompletionResponse, bool) {
-	if result.FinishReason != "length" && !result.StoppedEarly {
-		return 0, nil, false
+func AnchorTruncationText(p *Provider, ctx *RequestState, text, finishReason string, stoppedEarly bool, threshold float64) (string, int, *types.CompletionResponse, bool) {
+	if finishReason != "length" && !stoppedEarly {
+		return text, 0, nil, false
 	}
 
-	finishReason := result.FinishReason
-	if result.StoppedEarly {
+	if stoppedEarly {
 		finishReason = "length"
 	}
 
-	newLines := strings.Split(result.Text, "\n")
+	newLines := strings.Split(text, "\n")
 	originalLineCount := len(newLines)
 	windowEnd := ctx.WindowStart + len(ctx.TrimmedLines)
 	oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:windowEnd]
@@ -135,24 +132,22 @@ func AnchorTruncationResult(p *Provider, ctx *RequestState, result *openai.Strea
 		newLines, oldLines, finishReason, ctx.WindowStart, windowEnd,
 	)
 	if shouldReject {
-		logger.Debug("%s: rejected, truncation handling failed", p.Name)
-		return 0, p.EmptyResponse(), true
+		logger.Debug("%s: rejected, truncation handling failed", p.name)
+		return text, 0, p.EmptyResponse(), true
 	}
 
 	if len(oldLines) > minLinesForAnchorValidation {
 		minAllowedLines := int(float64(len(oldLines)) * threshold)
 		if len(processedLines) < minAllowedLines {
 			logger.Debug("%s: rejected, too few lines (%d < %d min)",
-				p.Name, len(processedLines), minAllowedLines)
-			return 0, p.EmptyResponse(), true
+				p.name, len(processedLines), minAllowedLines)
+			return text, 0, p.EmptyResponse(), true
 		}
 	}
 
-	result.Text = strings.Join(processedLines, "\n")
-
 	logger.Info("%s: truncated, replacing lines %d-%d (%d -> %d lines)",
-		p.Name, ctx.WindowStart+1, endLineInc, originalLineCount, len(processedLines))
-	return endLineInc, nil, false
+		p.name, ctx.WindowStart+1, endLineInc, originalLineCount, len(processedLines))
+	return strings.Join(processedLines, "\n"), endLineInc, nil, false
 }
 
 // checkAnchorPosition validates that a first line anchors within acceptable range.
@@ -166,8 +161,8 @@ func checkAnchorPosition(firstLine string, oldLines []string, maxRatio float64) 
 	return anchorIdx, maxAllowed, anchorIdx > maxAllowed
 }
 
-func ValidateAnchorPositionResult(p *Provider, ctx *RequestState, result *openai.StreamResult, maxAnchorRatio float64) (*types.CompletionResponse, bool) {
-	newLines := strings.Split(result.Text, "\n")
+func ValidateAnchorPositionText(p *Provider, ctx *RequestState, text string, maxAnchorRatio float64) (*types.CompletionResponse, bool) {
+	newLines := strings.Split(text, "\n")
 	if len(newLines) == 0 {
 		return nil, false
 	}
@@ -175,16 +170,14 @@ func ValidateAnchorPositionResult(p *Provider, ctx *RequestState, result *openai
 	anchorIdx, maxAllowed, reject := checkAnchorPosition(newLines[0], oldLines, maxAnchorRatio)
 	if reject {
 		logger.Debug("%s: rejected, first line anchors at %d (max allowed %d)",
-			p.Name, anchorIdx, maxAllowed)
+			p.name, anchorIdx, maxAllowed)
 		return p.EmptyResponse(), true
 	}
 	return nil, false
 }
 
-// FirstLineAnchorValidator returns a validator that checks the first streamed line anchors correctly.
-// This is the streaming equivalent of ValidateAnchorPosition.
-func FirstLineAnchorValidator(maxAnchorRatio float64) firstLineValidator {
-	return func(p *Provider, ctx *StreamState, firstLine string) error {
+func FirstLineAnchorChecker(maxAnchorRatio float64) func(*Provider, *RequestState, string) error {
+	return func(p *Provider, ctx *RequestState, firstLine string) error {
 		oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart : ctx.WindowStart+len(ctx.TrimmedLines)]
 		_, _, reject := checkAnchorPosition(firstLine, oldLines, maxAnchorRatio)
 		if reject {

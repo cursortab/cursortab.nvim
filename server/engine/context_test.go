@@ -78,11 +78,6 @@ func TestTrimFileStateStore(t *testing.T) {
 	assert.True(t, existsE, "should keep e.go (most recent)")
 }
 
-// TestHandleFileSwitch_DropsInFlightWork verifies that switching files cancels
-// in-flight prefetch/streaming/current requests and clears completion UI
-// state. Without this, late-arriving responses for the OLD file would be
-// applied to the NEW buffer using the old file's row indices, producing
-// either a wrong-file completion or a garbage diff.
 func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
@@ -96,12 +91,12 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 
 	eng.prefetchCancel = prefetchCancel
 	eng.prefetchState = prefetchInFlight
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine: 5, EndLineInc: 5, Lines: []string{"old file completion"},
-	}}
+	}})
 	eng.currentCancel = currentCancel
 	eng.completionStream = newMockCompletionStream(streamCancel)
-	eng.streamingState = &StreamingState{}
+	eng.streamingState = &streamingState{}
 	eng.state = stateStreamingCompletion
 	eng.completions = []*types.Completion{{
 		StartLine: 1, EndLineInc: 1, Lines: []string{"old"},
@@ -112,7 +107,7 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	eng.handleFileSwitch("a.go", "b.go", []string{"new content"})
 
 	assert.Equal(t, prefetchNone, eng.prefetchState, "prefetch state reset")
-	assert.Nil(t, eng.prefetchedCompletions, "prefetched completions cleared")
+	assert.Nil(t, eng.prefetchedResponse, "prefetched completions cleared")
 	assert.Nil(t, eng.prefetchCancel, "prefetch cancel func cleared")
 	assert.Nil(t, eng.currentCancel, "current request cancel cleared")
 	assert.Nil(t, eng.completionStream, "completion stream cleared")

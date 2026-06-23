@@ -24,7 +24,7 @@ func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.Com
 }
 
 func buildPromptForTest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
-	return buildRequest(p, ctx).Completion
+	return buildRequest(p, ctx)
 }
 
 func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
@@ -129,8 +129,8 @@ func TestParseCompletion(t *testing.T) {
 
 	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: " fmt.Println()"})
 	assert.NotNil(t, resp, "response should not be nil")
-	assert.Equal(t, 1, len(resp.Completions), "should have 1 completion")
-	assert.Equal(t, "func main() { fmt.Println()", resp.Completions[0].Lines[0], "completion merged with line")
+	assert.NotNil(t, resp.Completion, "should have 1 completion")
+	assert.Equal(t, "func main() { fmt.Println()", resp.Completion.Lines[0], "completion merged with line")
 }
 
 func TestParseCompletion_CursorClamped(t *testing.T) {
@@ -144,7 +144,7 @@ func TestParseCompletion_CursorClamped(t *testing.T) {
 	}
 
 	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "def"})
-	assert.Equal(t, "abcdef", resp.Completions[0].Lines[0], "cursor clamped to line end")
+	assert.Equal(t, "abcdef", resp.Completion.Lines[0], "cursor clamped to line end")
 }
 
 func TestParseCompletion_RejectsTruncatedResult(t *testing.T) {
@@ -157,7 +157,7 @@ func TestParseCompletion_RejectsTruncatedResult(t *testing.T) {
 		Text:         "def",
 		FinishReason: "length",
 	})
-	assert.Len(t, 0, resp.Completions, "truncated result should not produce completion")
+	assert.Nil(t, resp.Completion, "truncated result should not produce completion")
 }
 
 // TestBuildPrompt_StripsCursorLineTrailingWhitespace tests that when the cursor is at the
@@ -211,7 +211,7 @@ func TestParseCompletion_WhitespaceOnlyCursorLine(t *testing.T) {
 		Text: "    n = len(arr)", // Model includes indentation since prompt had it stripped
 	})
 	assert.NotNil(t, resp, "response should not be nil")
-	assert.Equal(t, 1, len(resp.Completions), "should have 1 completion")
+	assert.NotNil(t, resp.Completion, "should have 1 completion")
 	// Should be "    n = len(arr)" — not "        n = len(arr)" (double-indented)
-	assert.Equal(t, "    n = len(arr)", resp.Completions[0].Lines[0], "should not double-indent")
+	assert.Equal(t, "    n = len(arr)", resp.Completion.Lines[0], "should not double-indent")
 }

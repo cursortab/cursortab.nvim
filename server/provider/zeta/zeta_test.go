@@ -148,7 +148,7 @@ func TestParseCompletion_WithEditableRegion(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
 	})
 	assert.NotNil(t, resp, "should have response")
@@ -166,7 +166,7 @@ func TestParseCompletion_NoEditableMarker(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: " completion",
 	})
 	assert.NotNil(t, resp, "should have response")
@@ -184,12 +184,12 @@ func TestParseCompletion_StripsMarkers(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
 	})
 	// The cursor marker should be stripped
-	if len(resp.Completions) > 0 {
-		assert.False(t, strings.Contains(resp.Completions[0].Lines[0], "<|user_cursor_is_here|>"), "cursor marker stripped")
+	if resp.Completion != nil {
+		assert.False(t, strings.Contains(resp.Completion.Lines[0], "<|user_cursor_is_here|>"), "cursor marker stripped")
 	}
 }
 
@@ -205,10 +205,10 @@ func TestParseCompletion_IdenticalContent(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
 	})
-	assert.Nil(t, resp.Completions, "no completions for identical content")
+	assert.Nil(t, resp.Completion, "no completions for identical content")
 }
 
 func TestParseSimpleCompletion(t *testing.T) {
@@ -221,10 +221,10 @@ func TestParseSimpleCompletion(t *testing.T) {
 		Input: completionInput([]string{"hello"}, 1, 5),
 	}
 
-	resp := parseSimpleCompletion(p, ctx, &openai.StreamResult{Text: " world"}, 0)
+	resp := parseSimpleCompletion(p, ctx, " world", 0)
 	assert.NotNil(t, resp, "should have response")
-	assert.True(t, len(resp.Completions) > 0, "should have completions")
-	assert.Equal(t, "hello world", resp.Completions[0].Lines[0], "completion merged")
+	assert.True(t, resp.Completion != nil, "should have completions")
+	assert.Equal(t, "hello world", resp.Completion.Lines[0], "completion merged")
 }
 
 func TestParseSimpleCompletion_MultiLine(t *testing.T) {
@@ -237,7 +237,7 @@ func TestParseSimpleCompletion_MultiLine(t *testing.T) {
 		Input: completionInput([]string{"start"}, 1, 5),
 	}
 
-	resp := parseSimpleCompletion(p, ctx, &openai.StreamResult{Text: " middle\nend"}, 0)
-	assert.Len(t, 1, resp.Completions, "completions count")
-	assert.Equal(t, 2, len(resp.Completions[0].Lines), "should have 2 lines")
+	resp := parseSimpleCompletion(p, ctx, " middle\nend", 0)
+	assert.NotNil(t, resp.Completion, "completions count")
+	assert.Equal(t, 2, len(resp.Completion.Lines), "should have 2 lines")
 }

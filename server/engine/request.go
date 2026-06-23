@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"sync"
 
 	"cursortab/ctx"
 	"cursortab/logger"
@@ -13,18 +12,17 @@ import (
 	"cursortab/utils"
 )
 
-func emptyCompletionResponse() *types.CompletionResponse {
-	return &types.CompletionResponse{Completions: []*types.Completion{}}
-}
-
 func completionInputCompatible(kind CompletionKind, current ctx.CurrentSnapshot) bool {
 	if kind != CompletionInline {
 		return true
 	}
 	if current.Cursor.Row < 1 || current.Cursor.Row > len(current.File.Lines) {
-		return true
+		return false
 	}
 	line := current.File.Lines[current.Cursor.Row-1]
+	if current.Cursor.Col < 0 {
+		return false
+	}
 	if current.Cursor.Col >= len(line) {
 		return true
 	}
@@ -41,8 +39,39 @@ func (e *Engine) collectCompletionInput(parent context.Context, sourceInput ctx.
 	return input, nil
 }
 
-// requestCompletion initiates a completion request.
-func (e *Engine) requestCompletion(source types.CompletionSource) {
+func (e *Engine) suppressCompletionRequest(source types.CompletionSource, manual bool) string {
+	if manual {
+		return ""
+	}
+	if e.suppressForNoEdits() {
+		return "no-edits"
+	}
+	if e.suppressForDisabledScope() != "" {
+		return "disabled-scope"
+	}
+	if e.suppressForMidLine() {
+		return "mid-line"
+	}
+	if source == types.CompletionSourceTyping && e.suppressForSingleDeletion() {
+		return "single-deletion"
+	}
+	return ""
+}
+
+func logCompletionSuppression(reason string) {
+	switch reason {
+	case "no-edits":
+		logger.Debug("suppressed: no recent edits")
+	case "disabled-scope":
+		logger.Debug("suppressed: disabled treesitter scope")
+	case "mid-line":
+		logger.Debug("suppressed: mid-line cursor position")
+	case "single-deletion":
+		logger.Debug("suppressed: single deletion")
+	}
+}
+
+func (e *Engine) requestCompletion(source types.CompletionSource, manual bool) {
 	if e.stopped {
 		return
 	}
@@ -55,27 +84,8 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	e.syncBuffer()
 
-	// No-edit suppression: don't show completions until the file has been edited
-	if !e.manuallyTriggered && e.suppressForNoEdits() {
-		logger.Debug("suppressed: no recent edits")
-		return
-	}
-
-	// Scope suppression: don't complete inside disabled treesitter scopes
-	if scope := e.suppressForDisabledScope(); !e.manuallyTriggered && scope != "" {
-		logger.Debug("suppressed: disabled treesitter scope %q", scope)
-		return
-	}
-
-	// Mid-line suppression applies to all sources for insertion-only providers
-	if !e.manuallyTriggered && e.suppressForMidLine() {
-		logger.Debug("suppressed: mid-line cursor position")
-		return
-	}
-
-	// Deletion suppression only applies to typing (idle completions after deleting are fine)
-	if source == types.CompletionSourceTyping && !e.manuallyTriggered && e.suppressForSingleDeletion() {
-		logger.Debug("suppressed: single deletion")
+	if reason := e.suppressCompletionRequest(source, manual); reason != "" {
+		logCompletionSuppression(reason)
 		return
 	}
 
@@ -83,10 +93,12 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 
 	requirements := e.provider.RequiredMaterials()
 	sourceInput := e.buildContextSourceInput(completionInputOptions{}, requirements)
+	e.completionRequestID++
+	requestID := e.completionRequestID
 	if !completionInputCompatible(e.provider.CompletionKind(), sourceInput.Current) {
 		e.state = statePendingCompletion
 		select {
-		case e.eventChan <- Event{Type: EventCompletionReady, Response: emptyCompletionResponse()}:
+		case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: &types.CompletionResponse{}}:
 		case <-e.mainCtx.Done():
 		}
 		return
@@ -95,7 +107,7 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 	input, err := e.collectCompletionInput(e.mainCtx, sourceInput, requirements)
 	if err != nil {
 		select {
-		case e.eventChan <- Event{Type: EventCompletionError, Err: err}:
+		case e.eventChan <- Event{Type: EventCompletionError, RequestID: requestID, Err: err}:
 		case <-e.mainCtx.Done():
 		}
 		return
@@ -109,14 +121,14 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		if err != nil {
 			cancel()
 			select {
-			case e.eventChan <- Event{Type: EventCompletionError, Err: err}:
+			case e.eventChan <- Event{Type: EventCompletionError, RequestID: requestID, Err: err}:
 			case <-e.mainCtx.Done():
 			}
 			return
 		}
 		if stream != nil {
 			select {
-			case e.eventChan <- Event{Type: EventCompletionReady, Stream: bindStreamCancel(stream, cancel)}:
+			case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Stream: stream}:
 			case <-e.mainCtx.Done():
 				cancel()
 			}
@@ -124,7 +136,7 @@ func (e *Engine) requestCompletion(source types.CompletionSource) {
 		}
 		cancel()
 		select {
-		case e.eventChan <- Event{Type: EventCompletionReady, Response: result}:
+		case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: result}:
 		case <-e.mainCtx.Done():
 		}
 	}()
@@ -146,13 +158,10 @@ func (e *Engine) getViewportHeightConstraint() int {
 	return 0
 }
 
-// prefetchOpts configures a prefetch request. Zero value uses buffer defaults.
 type prefetchOpts struct {
 	Lines []string // Override buffer lines (nil = use current buffer)
 }
 
-// requestPrefetch requests a completion for a specific cursor position without changing the engine state.
-// Used to speculatively request completions ahead of user actions.
 func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts) {
 	if e.stopped {
 		return
@@ -165,11 +174,8 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 
 	e.cancelPrefetch()
 
-	// Sync buffer to ensure latest context
 	e.syncBuffer()
 
-	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
-	e.prefetchCancel = cancel
 	e.prefetchState = prefetchInFlight
 
 	// Build the frozen request input before the goroutine starts so it cannot
@@ -183,7 +189,7 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 	}, requirements)
 	if !completionInputCompatible(e.provider.CompletionKind(), sourceInput.Current) {
 		select {
-		case e.eventChan <- Event{Type: EventPrefetchReady, Response: emptyCompletionResponse()}:
+		case e.eventChan <- Event{Type: EventPrefetchReady, Response: &types.CompletionResponse{}}:
 		case <-e.mainCtx.Done():
 		}
 		return
@@ -197,16 +203,22 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 		return
 	}
 
+	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+	e.prefetchCancel = cancel
 	go func() {
 		defer cancel()
 		result, stream, err := e.provider.StartCompletion(reqCtx, input, false)
-		if err == nil && stream != nil {
-			stream.Cancel()
-			err = errors.New("provider returned stream for prefetch")
-		}
 		if err != nil {
 			select {
 			case e.eventChan <- Event{Type: EventPrefetchError, Err: err}:
+			case <-e.mainCtx.Done():
+			}
+			return
+		}
+		if stream != nil {
+			stream.Cancel()
+			select {
+			case e.eventChan <- Event{Type: EventPrefetchError, Err: errors.New("provider returned stream for prefetch")}:
 			case <-e.mainCtx.Done():
 			}
 			return
@@ -218,44 +230,17 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 	}()
 }
 
-type completionStreamWithCancel struct {
-	CompletionStream
-	cancel context.CancelFunc
-	once   sync.Once
-}
-
-func bindStreamCancel(stream CompletionStream, cancel context.CancelFunc) CompletionStream {
-	return &completionStreamWithCancel{CompletionStream: stream, cancel: cancel}
-}
-
-func (s *completionStreamWithCancel) Cancel() {
-	s.CompletionStream.Cancel()
-	s.once.Do(s.cancel)
-}
-
-func (s *completionStreamWithCancel) Finish() (*types.CompletionResponse, error) {
-	resp, err := s.CompletionStream.Finish()
-	s.once.Do(s.cancel)
-	return resp, err
-}
-
-// handlePrefetchReady processes a successful prefetch response
 func (e *Engine) handlePrefetchReady(resp *types.CompletionResponse) {
-	e.prefetchedCompletions = resp.Completions
-	e.prefetchedCursorTarget = resp.CursorTarget
+	e.prefetchedResponse = &prefetchedCompletion{CompletionResponse: resp}
 	previousPrefetchState := e.prefetchState
 	e.prefetchState = prefetchReady
 
-	// If we were waiting for prefetch due to tab press, continue with cursor target logic
 	if previousPrefetchState == prefetchWaitingForTab {
 		e.handleDeferredCursorTarget()
 		return
 	}
 
-	// If we were waiting for prefetch to show cursor prediction,
-	// but only if we're not currently showing a completion to the user
 	if previousPrefetchState == prefetchWaitingForCursorPrediction {
-		// Don't interrupt an active completion - let user accept/reject it first
 		if e.state == stateHasCompletion || e.state == stateStreamingCompletion {
 			return
 		}
@@ -269,57 +254,51 @@ func (e *Engine) handlePrefetchReady(resp *types.CompletionResponse) {
 	}
 }
 
-// handlePrefetchCursorPrediction checks if prefetch should be shown immediately or as cursor target.
-// If the first changed line is close to the cursor, shows completion directly.
-// Otherwise, shows a cursor prediction indicator pointing to the target line.
 func (e *Engine) handlePrefetchCursorPrediction() {
-	if len(e.prefetchedCompletions) == 0 {
+	if e.prefetchedResponse == nil || e.prefetchedResponse.Completion == nil {
 		return
 	}
 
-	comp := e.prefetchedCompletions[0]
+	comp := e.prefetchedResponse.Completion
 
-	// Extract old lines for diff analysis
 	bufferLines := e.buffer.Lines()
 	var oldLines []string
 	for i := comp.StartLine; i <= comp.EndLineInc && i-1 < len(bufferLines); i++ {
 		oldLines = append(oldLines, bufferLines[i-1])
 	}
 
-	// Find first changed line
 	targetLine := text.FindFirstChangedLine(oldLines, comp.Lines, comp.StartLine-1)
 	if targetLine <= 0 {
 		return
 	}
 
-	// Check distance to determine if show completion or cursor prediction
 	distance := utils.Abs(targetLine - e.buffer.Row())
 	if distance <= e.config.CursorPrediction.ProximityThreshold {
 		e.tryShowPrefetchedCompletion()
 	} else {
-		// Show cursor prediction to the target line
 		e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
-			RelativePath:    e.buffer.Path(),
 			LineNumber:      int32(targetLine),
 			ShouldRetrigger: false,
 		}, e.rejectedCompletionFor(comp))
 	}
 }
 
-// tryShowPrefetchedCompletion attempts to show prefetched completion immediately.
 func (e *Engine) tryShowPrefetchedCompletion() bool {
-	if len(e.prefetchedCompletions) == 0 {
+	return e.tryShowPrefetchedCompletionWithManual(false)
+}
+
+func (e *Engine) tryShowPrefetchedCompletionWithManual(manual bool) bool {
+	if e.prefetchedResponse == nil || e.prefetchedResponse.Completion == nil {
 		return false
 	}
 
 	e.syncBuffer()
 
-	comp := e.prefetchedCompletions[0]
+	resp := e.prefetchedResponse
 	e.clearPrefetchResult()
-	return e.processCompletion(comp) == completionShown
+	return e.processCompletionWithManual(resp.CompletionResponse, resp.Manual || manual) == completionShown
 }
 
-// handlePrefetchError processes a prefetch error
 func (e *Engine) handlePrefetchError(err error) {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("prefetch error: %v", err)
@@ -333,33 +312,27 @@ func (e *Engine) handlePrefetchError(err error) {
 	}
 }
 
-// handleDeferredCursorTarget handles cursor target logic that was deferred due to prefetch in progress.
-// Called when prefetch completes and user had pressed Tab while waiting.
 func (e *Engine) handleDeferredCursorTarget() {
 	if e.cursorTarget == nil {
 		return
 	}
 
-	// Check if we now have prefetched completions
-	if len(e.prefetchedCompletions) > 0 {
-		// Sync buffer to get updated cursor position
+	if e.prefetchedResponse != nil && e.prefetchedResponse.Completion != nil {
 		e.syncBuffer()
 
-		comp := e.prefetchedCompletions[0]
+		resp := e.prefetchedResponse
 		e.clearPrefetchResult()
 
-		if e.processCompletion(comp) == completionShown {
+		if e.processCompletionWithManual(resp.CompletionResponse, resp.Manual) == completionShown {
 			return
 		}
 
-		// No changes in prefetched completion
 		e.handleCursorTarget()
 		return
 	}
 
-	// Fall back to original behavior - trigger new completion if needed
 	if e.cursorTarget.ShouldRetrigger {
-		e.requestCompletion(types.CompletionSourceTyping)
+		e.requestCompletion(types.CompletionSourceTyping, false)
 		e.state = stateIdle
 		e.cursorTarget = nil
 		return
@@ -369,11 +342,8 @@ func (e *Engine) handleDeferredCursorTarget() {
 	e.cursorTarget = nil
 }
 
-// prefetchAtNMinusOne triggers prefetch when showing the last stage.
-// Applies the last stage's edit to the buffer snapshot so the model sees the
-// post-accept state, and centers the request on the cursor target position.
 func (e *Engine) prefetchAtNMinusOne() {
-	if !e.canPrefetchAfterCursorTarget() {
+	if !e.canPrefetchWithSyntheticCurrent() {
 		return
 	}
 	if e.stagedCompletion == nil {
@@ -389,28 +359,22 @@ func (e *Engine) prefetchAtNMinusOne() {
 		return
 	}
 
-	// Build a synthetic buffer with the last stage's edit applied.
-	// This is what the buffer will look like after the user accepts.
 	lines := applyStageToLines(slices.Clone(e.buffer.Lines()), stage)
 
-	// The cursor target accounts for line count changes from the stage.
 	overrideRow := max(1, int(stage.CursorTarget.LineNumber))
 
 	e.requestPrefetch(overrideRow, 0, prefetchOpts{Lines: lines})
 	e.prefetchState = prefetchWaitingForCursorPrediction
 }
 
-// prefetchAtCursorTarget triggers prefetch after accepting to cursor target position.
-// This speculatively requests the next completion at the target location.
 func (e *Engine) prefetchAtCursorTarget() {
-	if !e.canPrefetchAfterCursorTarget() {
+	if !e.canPrefetchWithSyntheticCurrent() {
 		return
 	}
 	if e.cursorTarget == nil || !e.cursorTarget.ShouldRetrigger {
 		return
 	}
 
-	// Skip if prefetch already in flight
 	if e.prefetchState != prefetchNone {
 		return
 	}
@@ -420,7 +384,7 @@ func (e *Engine) prefetchAtCursorTarget() {
 	e.prefetchState = prefetchWaitingForCursorPrediction
 }
 
-func (e *Engine) canPrefetchAfterCursorTarget() bool {
+func (e *Engine) canPrefetchWithSyntheticCurrent() bool {
 	return e.provider.CompletionKind() == CompletionEdit &&
 		e.provider.CompletionInputAuthority() == InputSuppliedCurrent
 }

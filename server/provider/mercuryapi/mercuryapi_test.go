@@ -329,10 +329,10 @@ func TestProviderStartCompletion(t *testing.T) {
 	})
 
 	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
-	assert.Equal(t, 1, len(resp.Completions), "completions count")
-	assert.Equal(t, 1, resp.Completions[0].StartLine, "start line")
-	assert.Equal(t, 1, resp.Completions[0].EndLineInc, "end line")
-	assert.Equal(t, []string{"func updated() {}"}, resp.Completions[0].Lines, "lines")
+	assert.NotNil(t, resp.Completion, "completions count")
+	assert.Equal(t, 1, resp.Completion.StartLine, "start line")
+	assert.Equal(t, 1, resp.Completion.EndLineInc, "end line")
+	assert.Equal(t, []string{"func updated() {}"}, resp.Completion.Lines, "lines")
 }
 
 func TestProviderStartCompletionUsesConfiguredModel(t *testing.T) {
@@ -375,7 +375,7 @@ func TestProviderStartCompletionEmpty(t *testing.T) {
 	})
 
 	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"code"}, 1, 0))
-	assert.Equal(t, 0, len(resp.Completions), "should be empty")
+	assert.Nil(t, resp.Completion, "should be empty")
 }
 
 func TestProviderStartCompletionNoOp(t *testing.T) {
@@ -395,14 +395,14 @@ func TestProviderStartCompletionNoOp(t *testing.T) {
 	})
 
 	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"unchanged"}, 1, 0))
-	assert.Equal(t, 0, len(resp.Completions), "should be empty for no-op")
+	assert.Nil(t, resp.Completion, "should be empty for no-op")
 }
 
 func TestProviderEmptyLines(t *testing.T) {
 	provider := NewProvider(&types.ProviderConfig{})
 
 	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{}, 1, 0))
-	assert.Equal(t, 0, len(resp.Completions), "should be empty")
+	assert.Nil(t, resp.Completion, "should be empty")
 }
 
 func TestExpandRegion(t *testing.T) {
@@ -527,9 +527,9 @@ func TestMultilineCompletion(t *testing.T) {
 	})
 
 	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"original"}, 1, 0))
-	assert.Equal(t, 1, len(resp.Completions), "completions count")
-	assert.Equal(t, 3, len(resp.Completions[0].Lines), "should have 3 lines")
-	assert.Equal(t, "line1", resp.Completions[0].Lines[0], "first line")
-	assert.Equal(t, "line2", resp.Completions[0].Lines[1], "second line")
-	assert.Equal(t, "line3", resp.Completions[0].Lines[2], "third line")
+	assert.NotNil(t, resp.Completion, "completions count")
+	assert.Equal(t, 3, len(resp.Completion.Lines), "should have 3 lines")
+	assert.Equal(t, "line1", resp.Completion.Lines[0], "first line")
+	assert.Equal(t, "line2", resp.Completion.Lines[1], "second line")
+	assert.Equal(t, "line3", resp.Completion.Lines[2], "third line")
 }

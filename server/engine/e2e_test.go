@@ -214,7 +214,7 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
 			}
-			result := eng.processCompletion(comp) == completionShown
+			result := eng.processCompletion(completionResponse(comp)) == completionShown
 			if step.Expect != nil && step.Expect.Shown != nil {
 				assert.Equal(t, *step.Expect.Shown, result, label+" shown")
 			}
@@ -224,11 +224,11 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 			if step.Completion == nil {
 				t.Fatalf("%s: missing completion field", label)
 			}
-			eng.prefetchedCompletions = []*types.Completion{{
+			eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 				StartLine:  step.Completion.StartLine,
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
-			}}
+			}})
 			eng.prefetchState = prefetchReady
 			result := eng.tryShowPrefetchedCompletion()
 			if step.Expect != nil && step.Expect.Shown != nil {
@@ -240,11 +240,11 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 			if step.Completion == nil {
 				t.Fatalf("%s: missing completion field", label)
 			}
-			eng.prefetchedCompletions = []*types.Completion{{
+			eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 				StartLine:  step.Completion.StartLine,
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
-			}}
+			}})
 			eng.prefetchState = prefetchReady
 			verifyExpectations(t, eng, buf, step.Expect, label)
 

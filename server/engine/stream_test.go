@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLineStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
+func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"hello world"} // User typed the full completion
 	prov := newMockProvider()
@@ -15,7 +15,7 @@ func TestLineStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) 
 	eng := createTestEngine(buf, prov, clock)
 
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &StreamingState{}
+	eng.streamingState = &streamingState{}
 	eng.completions = []*types.Completion{{
 		StartLine:  1,
 		EndLineInc: 1,
@@ -39,21 +39,71 @@ func TestLineStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) 
 	assert.Nil(t, eng.rejectedCompletions[buf.Path()], "fully typed streamed completion should not populate rejection cache")
 }
 
-func TestLineStreamingReject_NoKeepPartial(t *testing.T) {
+func TestStreamingReject_NoKeepPartial(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &StreamingState{}
+	eng.streamingState = &streamingState{}
 	eng.streamLinesChan = make(chan string)
 
-	// Trigger text change during streaming
 	eng.doRejectStreamingAndDebounce()
 
-	// Should transition to Idle (line streaming doesn't keep partial)
 	assert.Equal(t, stateIdle, eng.state, "state after rejecting line streaming")
+}
+
+func TestStreamCompleteAfterAccept_UsesCursorTargetOnlyResponse(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"line 1", "line 2"}
+	buf.row = 1
+	buf.col = 0
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.handleStreamCompleteAfterAccept(&types.CompletionResponse{
+		CursorTarget: &types.CursorPredictionTarget{
+			LineNumber:      10,
+			ShouldRetrigger: true,
+		},
+	}, false)
+
+	assert.Equal(t, stateHasCursorTarget, eng.state, "cursor target should survive accepted stream finish")
+	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line")
+}
+
+func TestStreamCompleteAfterAccept_PreservesManualFlagThroughCachedPrefetch(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{
+		"line 1", "line 2", "line 3", "line 4", "line 5",
+		"line 6", "line 7", "line 8", "line 9", "old line 10",
+	}
+	buf.row = 1
+	buf.col = 0
+	buf.viewportTop = 1
+	buf.viewportBottom = 20
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+	eng.config.CursorPrediction.ProximityThreshold = 3
+
+	eng.handleStreamCompleteAfterAccept(&types.CompletionResponse{
+		Completion: &types.Completion{
+			StartLine:  10,
+			EndLineInc: 10,
+			Lines:      []string{"new line 10"},
+		},
+	}, true)
+
+	assert.Equal(t, stateHasCursorTarget, eng.state, "far stream finish should first show cursor target")
+	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line")
+
+	eng.acceptCursorTarget()
+
+	assert.NotNil(t, eng.currentSnapshot, "metrics snapshot")
+	assert.True(t, eng.currentSnapshot.ManuallyTriggered, "manual flag follows cached stream completion")
 }
 
 func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
@@ -77,7 +127,7 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 	eng.rememberRejectedCompletion()
 
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &StreamingState{}
+	eng.streamingState = &streamingState{}
 	eng.streamLinesChan = make(chan string)
 
 	stage := &text.Stage{
@@ -106,16 +156,6 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 	assert.Nil(t, eng.streamLinesChan, "stream channel after suppression")
 }
 
-// TestStreamingAccept_FinalizedStageMismatch tests that when a stage rendered during
-// streaming differs from the finalized stage[0] (which Finalize() recomputes from scratch),
-// accepting the rendered stage and advancing to the next stage uses correct line offsets.
-//
-// Reproduces the bug from cursortab.1.log where:
-//  1. Streaming rendered a 4-line stage (modification + 3 additions)
-//  2. Finalize() produced a 12-line stage[0] (modification + 11 additions)
-//  3. After accepting the 4-line rendered stage, advanceStagedCompletion used
-//     the 12-line finalized stage for offset calculation, producing wrong offsets
-//  4. The next stage's BufferStart was not adjusted, showing duplicate content
 func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{
@@ -132,9 +172,9 @@ func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
 	eng, cancel := createTestEngineWithContext(buf, prov, clock)
 	defer cancel()
 
-	// Simulate the state after handleStreamCompleteSimple with firstStageRendered=true.
-	// The rendered stage (from incremental builder) had 4 lines.
-	// But Finalize() produced a stage[0] with 8 lines (different boundary).
+	// The stream UI already rendered a 4-line stage. Finalize can later produce
+	// a wider first stage from the full stream, but accept must advance offsets
+	// from the stage that actually reached the buffer.
 	eng.state = stateHasCompletion
 	eng.completions = []*types.Completion{{
 		StartLine:  3,
@@ -173,8 +213,6 @@ func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
 	}
 	eng.applyBatch = &mockBatch{}
 
-	// The stagedCompletion from Finalize() has stage[0] with MORE lines than rendered.
-	// This is the mismatch that causes the bug.
 	eng.stagedCompletion = &text.StagedCompletion{
 		CurrentIdx: 0,
 		Stages: []*text.Stage{
@@ -222,24 +260,12 @@ func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
 
 	eng.cursorTarget = eng.stagedCompletion.Stages[0].CursorTarget
 
-	// Simulate accepting the rendered 4-line stage
 	eng.acceptCompletion()
-
-	// After accepting the 4-line rendered stage (replacing 1 line with 4),
-	// CumulativeOffset should be 4 - 1 = 3.
-	// The next stage's BufferStart should be adjusted by +3 (from 4 to 7).
-	//
-	// BUG: advanceStagedCompletion uses the finalized stage[0]'s Lines (8 lines)
-	// to compute offset = 8 - 1 = 7, giving wrong BufferStart = 4 + 7 = 11.
-	// With the fix, it should use the rendered stage's actual line count (4).
 
 	if eng.stagedCompletion != nil && eng.stagedCompletion.CurrentIdx < len(eng.stagedCompletion.Stages) {
 		nextStage := eng.stagedCompletion.Stages[eng.stagedCompletion.CurrentIdx]
-		// After accepting 4 lines replacing 1, offset = 3, so BufferStart should be 4 + 3 = 7
 		assert.Equal(t, 7, nextStage.BufferStart, "next stage BufferStart should be adjusted by actual rendered line count offset (4-1=3)")
 	} else {
-		// Even if stages are exhausted, the cursor target should not point to line 4
-		// (which now has content from the first accept)
 		if eng.cursorTarget != nil {
 			assert.True(t, int(eng.cursorTarget.LineNumber) > 6,
 				"cursor target should be beyond the applied content (line 6)")

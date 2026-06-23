@@ -25,7 +25,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 		TrimmedLines: []string{},
 	}
 
-	req := p.BuildRequest(p, ctx).Completion
+	req := buildRequest(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "<|file_sep|>original/main.go"), "should have original marker")
 	assert.True(t, strings.Contains(req.Prompt, "<|file_sep|>current/main.go"), "should have current marker")
@@ -48,7 +48,7 @@ func TestBuildPrompt_WithContent(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	req := p.BuildRequest(p, ctx).Completion
+	req := buildRequest(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "line 1\nline 2"), "should contain file content")
 }
@@ -79,7 +79,7 @@ func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	req := p.BuildRequest(p, ctx).Completion
+	req := buildRequest(p, ctx)
 
 	assert.True(t, strings.Contains(req.Prompt, "other.go.diff"), "should have diff section")
 	assert.True(t, strings.Contains(req.Prompt, "original:\nold code"), "should have original in diff")
@@ -102,10 +102,10 @@ func TestParseCompletion_NoChange(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: "line 1\nline 2",
 	})
-	assert.Nil(t, resp.Completions, "no completions when text is same")
+	assert.Nil(t, resp.Completion, "no completions when text is same")
 }
 
 func TestParseCompletion_WithChange(t *testing.T) {
@@ -124,11 +124,11 @@ func TestParseCompletion_WithChange(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: "line 1\nmodified line 2",
 	})
 	assert.NotNil(t, resp, "should have response")
-	assert.True(t, len(resp.Completions) > 0, "should have completions")
+	assert.True(t, resp.Completion != nil, "should have completions")
 }
 
 func TestParseCompletion_StripsStopMarkers(t *testing.T) {
@@ -147,7 +147,7 @@ func TestParseCompletion_StripsStopMarkers(t *testing.T) {
 		WindowStart:  0,
 	}
 
-	resp := p.ParseResult(p, ctx, &openai.StreamResult{
+	resp := parseResult(p, ctx, &openai.StreamResult{
 		Text: "modified line 1<|file_sep|>",
 	})
 	assert.NotNil(t, resp, "should have response")
@@ -168,8 +168,6 @@ func TestParseCompletion_InvalidWindow(t *testing.T) {
 		WindowStart: 5, // Invalid
 	}
 
-	resp := parseCompletion(p, ctx, &openai.StreamResult{
-		Text: "modified",
-	}, 0)
-	assert.Nil(t, resp.Completions, "should have no completions for invalid window")
+	resp := parseCompletion(p, ctx, "modified", 0)
+	assert.Nil(t, resp.Completion, "should have no completions for invalid window")
 }

@@ -25,7 +25,7 @@ func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.Com
 }
 
 func buildPromptForTest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
-	return buildRequest(p, ctx).Completion
+	return buildRequest(p, ctx)
 }
 
 func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
@@ -150,9 +150,9 @@ func TestParseCompletion_SingleLine(t *testing.T) {
 
 	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: " there"})
 	assert.NotNil(t, resp, "response should not be nil")
-	assert.Len(t, 1, resp.Completions, "completions count")
+	assert.NotNil(t, resp.Completion, "completions count")
 	// "hello" + " there" + " world"
-	assert.Equal(t, "hello there world", resp.Completions[0].Lines[0], "completion inserted at cursor")
+	assert.Equal(t, "hello there world", resp.Completion.Lines[0], "completion inserted at cursor")
 }
 
 func TestParseCompletion_MultiLineCompletion(t *testing.T) {
@@ -166,10 +166,10 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 	}
 
 	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "\n  fmt.Println()\n"})
-	assert.Len(t, 1, resp.Completions, "completions count")
-	assert.Equal(t, 3, len(resp.Completions[0].Lines), "should have 3 lines")
-	assert.Equal(t, "func main() {", resp.Completions[0].Lines[0], "first line")
-	assert.Equal(t, "  fmt.Println()", resp.Completions[0].Lines[1], "middle line")
+	assert.NotNil(t, resp.Completion, "completions count")
+	assert.Equal(t, 3, len(resp.Completion.Lines), "should have 3 lines")
+	assert.Equal(t, "func main() {", resp.Completion.Lines[0], "first line")
+	assert.Equal(t, "  fmt.Println()", resp.Completion.Lines[1], "middle line")
 }
 
 func TestParseCompletion_DropsTruncatedLastLine(t *testing.T) {
@@ -183,8 +183,8 @@ func TestParseCompletion_DropsTruncatedLastLine(t *testing.T) {
 		FinishReason: "length",
 	})
 	assert.NotNil(t, resp, "response should not be nil")
-	assert.Len(t, 1, resp.Completions, "completions count")
-	assert.Equal(t, []string{"hello there world"}, resp.Completions[0].Lines, "completion lines")
+	assert.NotNil(t, resp.Completion, "completions count")
+	assert.Equal(t, []string{"hello there world"}, resp.Completion.Lines, "completion lines")
 }
 
 func TestBuildPrompt_RepoContext(t *testing.T) {
@@ -413,5 +413,5 @@ func TestParseCompletion_SingleLineWithAfterCursor(t *testing.T) {
 	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "tion"})
 	assert.NotNil(t, resp, "response should not be nil")
 	// "func" + "tion" + "()"
-	assert.Equal(t, "function()", resp.Completions[0].Lines[0], "completion inserted at cursor with suffix")
+	assert.Equal(t, "function()", resp.Completion.Lines[0], "completion inserted at cursor with suffix")
 }

@@ -33,10 +33,12 @@ const (
 )
 
 type Event struct {
-	Type     EventType
-	Response *types.CompletionResponse
-	Stream   CompletionStream
-	Err      error
+	Type      EventType
+	RequestID uint64
+	Manual    bool
+	Response  *types.CompletionResponse
+	Stream    CompletionStream
+	Err       error
 }
 
 func init() {
@@ -286,7 +288,7 @@ func (e *Engine) handleEvent(event Event) {
 
 	// Cancel completions when entering a disabled mode
 	// (handles transitions not in the table, e.g. InsertEnter from PendingCompletion)
-	if !e.isModeEnabled() && e.state != stateIdle {
+	if !e.isModeEnabled(false) && e.state != stateIdle {
 		e.cancelStreaming()
 		e.reject()
 	}
@@ -296,23 +298,33 @@ func (e *Engine) handleEvent(event Event) {
 func (e *Engine) handleBackgroundEvent(event Event) bool {
 	switch event.Type {
 	case EventCompletionReady:
+		if event.RequestID == 0 || event.RequestID != e.completionRequestID {
+			return true
+		}
 		if e.state != statePendingCompletion {
 			return true
 		}
-		if !e.isModeEnabled() {
+		if !e.isModeEnabled(event.Manual) {
 			e.reject()
 			return true
 		}
 		if event.Stream != nil {
-			e.startStreamingCompletion(event.Stream)
+			e.startCompletionStream(event.Stream, event.Manual)
 			return true
 		}
-		e.handleCompletionReadyImpl(event.Response)
+		e.handleCompletionReadyImpl(event.Response, event.Manual)
 		return true
 
 	case EventCompletionError:
+		if event.RequestID == 0 || event.RequestID != e.completionRequestID {
+			return true
+		}
 		if !errors.Is(event.Err, context.Canceled) {
 			logger.Error("completion error: %v", event.Err)
+		}
+		if e.state == statePendingCompletion {
+			e.state = stateIdle
+			e.cancelCurrentRequest()
 		}
 		return true
 
@@ -340,17 +352,16 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 // Action functions for state transitions
 
 func (e *Engine) doRequestCompletion() {
-	e.requestCompletion(types.CompletionSourceTyping)
+	e.requestCompletion(types.CompletionSourceTyping, false)
 }
 
 func (e *Engine) doManualTrigger() {
-	e.manuallyTriggered = true
-	e.requestCompletion(types.CompletionSourceTyping)
+	e.requestCompletion(types.CompletionSourceTyping, true)
 }
 
 func (e *Engine) doRequestIdleCompletion() {
 	if e.state == stateIdle {
-		e.requestCompletion(types.CompletionSourceIdle)
+		e.requestCompletion(types.CompletionSourceIdle, false)
 	}
 }
 
@@ -388,7 +399,7 @@ func (e *Engine) doRejectAndStartIdleTimer() {
 
 func (e *Engine) doPartialAcceptStreaming() {
 	if e.streamingState != nil && e.streamingState.FirstStageRendered {
-		e.cancelLineStreamingKeepPartial()
+		e.cancelStreamingKeepPartial()
 		e.partialAcceptCompletion()
 	}
 }
@@ -401,30 +412,26 @@ func (e *Engine) doRejectStreaming() {
 	e.stopIdleTimer()
 }
 
-// cancelStreamAndCheckTyping cancels the given streaming mode, preserving partial state,
-// then checks if user typing matches the prediction.
-// Returns true if the event was handled (match or mismatch), false if no partial results.
-func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) bool {
+func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) {
 	cancelFn()
 	e.syncBuffer()
 	matches, hasRemaining := e.checkTypingMatchesPrediction()
 	if matches && hasRemaining {
 		e.state = stateHasCompletion
-		return true
+		return
 	}
 	if matches {
 		e.reject()
 		e.startTextChangeTimer()
-		return true
+		return
 	}
 	e.rejectAndRemember()
 	e.startTextChangeTimer()
-	return true
 }
 
 func (e *Engine) doRejectStreamingAndDebounce() {
 	if e.streamingState != nil && len(e.completions) > 0 {
-		e.cancelStreamAndCheckTyping(e.cancelLineStreamingKeepPartial)
+		e.cancelStreamAndCheckTyping(e.cancelStreamingKeepPartial)
 		return
 	}
 
@@ -440,18 +447,18 @@ func (e *Engine) doRejectStreamingAndStartIdleTimer() {
 }
 
 func (e *Engine) doAcceptStreamingCompletion() {
-	hasLineStreaming := e.streamingState != nil
+	hasStreaming := e.streamingState != nil
 
 	if len(e.completions) > 0 {
 		// Mark that we accepted during streaming so handleStreamCompleteSimple
 		// knows to compute cursor prediction from accumulated text
-		if hasLineStreaming {
+		if hasStreaming {
 			e.acceptedDuringStreaming = true
 		}
 		e.state = stateHasCompletion
 		e.acceptCompletion()
 	} else {
-		if hasLineStreaming {
+		if hasStreaming {
 			// Keep streaming, will show result when complete
 			e.acceptedDuringStreaming = true
 		} else {

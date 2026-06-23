@@ -43,8 +43,17 @@ type Buffer interface {
 	InsertLine(line int, content string, keepUI bool) error   // Insert a new line at position (1-indexed)
 }
 
-// Provider exposes the facts engine needs before a request, then runs the
-// provider with collected public context.
+// Provider is the engine boundary for completion providers.
+//
+// The engine reads [Provider.CompletionKind] and
+// [Provider.CompletionInputAuthority] before a request, collects
+// [Provider.RequiredMaterials] through ctx.Collect, then calls
+// [Provider.StartCompletion]. StartCompletion returns either a
+// [types.CompletionResponse] or a [CompletionStream].
+//
+// Concrete providers should implement this contract through their own methods
+// or a real shared implementation. Embedding this interface in a provider
+// struct hides missing methods when the contract changes.
 type Provider interface {
 	CompletionKind() CompletionKind
 	CompletionInputAuthority() CompletionInputAuthority
@@ -52,18 +61,28 @@ type Provider interface {
 	StartCompletion(ctx context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, CompletionStream, error)
 }
 
+// CompletionKind describes the editing shape a provider can produce.
+// Engine call-before policy uses it to decide whether the current cursor
+// position is a valid request input.
 type CompletionKind int
 
 const (
+	// CompletionInline inserts at the cursor and requires an inert right suffix.
 	CompletionInline CompletionKind = iota
+	// CompletionFIM fills between prefix and suffix supplied by the engine.
 	CompletionFIM
+	// CompletionEdit may rewrite a nearby region and can drive cursor targets.
 	CompletionEdit
 )
 
+// CompletionInputAuthority states whether a provider honors
+// [ctx.CompletionInput.Current] as the request's editor snapshot.
 type CompletionInputAuthority int
 
 const (
+	// InputSuppliedCurrent uses the snapshot supplied in [ctx.CompletionInput].
 	InputSuppliedCurrent CompletionInputAuthority = iota
+	// InputLiveEditorState reads from an external live editor/server state.
 	InputLiveEditorState
 )
 
@@ -76,6 +95,9 @@ const (
 	defaultMaxSiblings        = 50
 )
 
+// CompletionStream is the engine-visible runtime for line streaming.
+// Provider prompt details, stop rules, cursor markers, and final parsing stay
+// behind [CompletionStream.Finish]; engine owns only UI lifecycle.
 type CompletionStream interface {
 	Lines() <-chan string
 	Window() (windowStart int, oldLines []string)
@@ -83,8 +105,9 @@ type CompletionStream interface {
 	Finish() (*types.CompletionResponse, error)
 }
 
-type StreamingState struct {
+type streamingState struct {
 	StageBuilder *text.IncrementalStageBuilder
+	Manual       bool
 
 	PendingLine    string // Buffer for last line (drop if truncated)
 	HasPendingLine bool
@@ -128,6 +151,11 @@ const (
 	prefetchWaitingForCursorPrediction
 	prefetchReady
 )
+
+type prefetchedCompletion struct {
+	*types.CompletionResponse
+	Manual bool
+}
 
 // CursorPredictionConfig holds cursor prediction settings
 type CursorPredictionConfig struct {

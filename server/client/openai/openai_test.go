@@ -181,7 +181,7 @@ func TestDoLineStream_Basic(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -218,7 +218,7 @@ func TestDoLineStream_MaxLines(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 3, nil) // maxLines = 3
+	}, 3) // maxLines = 3
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -254,7 +254,8 @@ func TestDoLineStream_StopToken(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, []string{"<STOP>"})
+		Stop:   []string{"<STOP>"},
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -291,7 +292,7 @@ func TestDoLineStream_Cancel(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	// Wait for server to start sending data
 	<-started
@@ -317,7 +318,7 @@ func TestDoLineStream_HTTPError(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	for range stream.LinesChan() {
 		// Should be empty
@@ -328,13 +329,12 @@ func TestDoLineStream_HTTPError(t *testing.T) {
 	assert.Equal(t, "error", result.FinishReason, "FinishReason")
 }
 
-func TestDoLineStream_SkipsInvalidJSON(t *testing.T) {
+func TestDoLineStream_ReturnsInvalidJSONError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 
-		// Send invalid JSON followed by valid
 		w.Write([]byte("data: not json\n\n"))
 		flusher.Flush()
 		w.Write([]byte("data: {\"id\":\"1\",\"choices\":[{\"text\":\"valid\\n\",\"index\":0}]}\n\n"))
@@ -350,16 +350,17 @@ func TestDoLineStream_SkipsInvalidJSON(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
 		lines = append(lines, line)
 	}
 
-	<-stream.DoneChan()
+	result := <-stream.DoneChan()
 
-	assert.Equal(t, 1, len(lines), "lines length (invalid JSON skip)")
+	assert.Equal(t, 0, len(lines), "lines length")
+	assert.Error(t, result.Err, "invalid JSON error")
 }
 
 func TestDoLineStream_SkipsComments(t *testing.T) {
@@ -383,7 +384,7 @@ func TestDoLineStream_SkipsComments(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -416,7 +417,7 @@ func TestDoLineStream_WithAPIKey(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	for range stream.LinesChan() {
 	}

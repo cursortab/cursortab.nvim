@@ -14,17 +14,15 @@ const (
 	CompletionSourceIdle
 )
 
-// CursorPredictionTarget represents the target for cursor jump with additional metadata
+// CursorPredictionTarget represents the target line for a cursor jump.
 type CursorPredictionTarget struct {
-	RelativePath    string
 	LineNumber      int32 // 1-indexed
-	ExpectedContent string
 	ShouldRetrigger bool
 }
 
-// CompletionResponse contains candidate completions and an optional cursor target.
+// CompletionResponse contains one completion and optional follow-up metadata.
 type CompletionResponse struct {
-	Completions  []*Completion           // Ordered candidates; engine currently renders the first one.
+	Completion   *Completion             // Optional; nil means no text edit.
 	CursorTarget *CursorPredictionTarget // Optional, from cursor_prediction_target
 	MetricsInfo  *MetricsInfo            // Optional, for providers that track metrics
 }

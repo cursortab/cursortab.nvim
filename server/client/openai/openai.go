@@ -64,16 +64,8 @@ type StreamResult struct {
 	Text         string
 	FinishReason string
 	StoppedEarly bool
+	Err          error
 }
-
-// GetText returns the accumulated text (implements engine.StreamResult)
-func (r *StreamResult) GetText() string { return r.Text }
-
-// GetFinishReason returns the finish reason (implements engine.StreamResult)
-func (r *StreamResult) GetFinishReason() string { return r.FinishReason }
-
-// IsStoppedEarly returns whether the stream was stopped early (implements engine.StreamResult)
-func (r *StreamResult) IsStoppedEarly() bool { return r.StoppedEarly }
 
 // LineStream provides incremental line-by-line streaming
 type LineStream struct {
@@ -82,13 +74,13 @@ type LineStream struct {
 	cancel func()              // Cancel the stream early
 }
 
-// LinesChan returns the channel for receiving lines (implements engine.LineStream)
+// LinesChan returns the channel for receiving complete lines.
 func (s *LineStream) LinesChan() <-chan string { return s.lines }
 
-// DoneChan returns the channel for completion signal (implements engine.LineStream)
+// DoneChan returns the final stream result.
 func (s *LineStream) DoneChan() <-chan StreamResult { return s.done }
 
-// Cancel cancels the stream early (implements engine.LineStream)
+// Cancel cancels the stream early.
 func (s *LineStream) Cancel() {
 	if s.cancel != nil {
 		s.cancel()
@@ -146,7 +138,7 @@ func (c *Client) DoCompletion(ctx context.Context, req *CompletionRequest) (*Com
 // DoLineStream sends a streaming completion request and returns lines as they complete.
 // Lines are emitted when a newline is encountered. Stop tokens trigger stream completion.
 // maxLines: stop after receiving this many lines (0 = no limit)
-func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLines int, stopTokens []string) *LineStream {
+func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLines int) *LineStream {
 	linesChan := make(chan string, 100)
 	doneChan := make(chan StreamResult, 1)
 
@@ -162,7 +154,7 @@ func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLi
 		defer close(linesChan)
 		defer close(doneChan)
 
-		result := c.runLineStream(ctx, req, linesChan, maxLines, stopTokens)
+		result := c.runLineStream(ctx, req, linesChan, maxLines)
 		doneChan <- result
 	}()
 
@@ -170,7 +162,7 @@ func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLi
 }
 
 // runLineStream executes the streaming request and sends lines to the channel
-func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, lines chan<- string, maxLines int, stopTokens []string) StreamResult {
+func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, lines chan<- string, maxLines int) StreamResult {
 	defer logger.Trace("openai.runLineStream")()
 	req.Stream = true
 
@@ -213,7 +205,7 @@ func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, line
 		return StreamResult{FinishReason: "error"}
 	}
 
-	return c.processLineStream(ctx, resp.Body, lines, maxLines, stopTokens)
+	return c.processLineStream(ctx, resp.Body, lines, maxLines, req.Stop)
 }
 
 // processLineStream reads SSE events and emits complete lines
@@ -263,8 +255,12 @@ func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines ch
 		jsonData := strings.TrimPrefix(line, "data: ")
 		var chunk StreamChunk
 		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
-			logger.Debug("line stream: failed to parse chunk: %v", err)
-			continue
+			return StreamResult{
+				Text:         textBuilder.String(),
+				FinishReason: "error",
+				StoppedEarly: true,
+				Err:          fmt.Errorf("parse stream chunk: %w", err),
+			}
 		}
 
 		// Extract text from chunk
@@ -335,7 +331,19 @@ func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines ch
 	}
 
 	if err := scanner.Err(); err != nil {
-		logger.Debug("line stream: scanner error: %v", err)
+		if ctx.Err() != nil {
+			return StreamResult{
+				Text:         textBuilder.String(),
+				FinishReason: "cancelled",
+				StoppedEarly: true,
+			}
+		}
+		return StreamResult{
+			Text:         textBuilder.String(),
+			FinishReason: "error",
+			StoppedEarly: true,
+			Err:          fmt.Errorf("read stream: %w", err),
+		}
 	}
 
 	// Emit any remaining content as final line (handles truncation)

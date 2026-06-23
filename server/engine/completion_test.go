@@ -19,6 +19,60 @@ func TestCheckTypingMatchesPrediction_NoCompletions(t *testing.T) {
 	assert.False(t, hasRemaining, "hasRemaining when no completions")
 }
 
+func TestShowCurrentStage_UsesStagedManualFlagForMetrics(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.stagedCompletion = &text.StagedCompletion{
+		Manual: true,
+		Stages: []*text.Stage{{
+			BufferStart: 1,
+			BufferEnd:   1,
+			Lines:       []string{"hello world"},
+			Groups: []*text.Group{{
+				Type:       "modification",
+				BufferLine: 1,
+				Lines:      []string{"hello world"},
+				OldLines:   []string{"hello"},
+			}},
+		}},
+	}
+
+	eng.showCurrentStage()
+
+	assert.NotNil(t, eng.currentSnapshot, "metrics snapshot")
+	assert.True(t, eng.currentSnapshot.ManuallyTriggered, "manual flag follows staged completion")
+}
+
+func TestTextChangeRerender_PreservesManualFlagForMetrics(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	resp := completionResponse(&types.Completion{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"hello world"},
+	})
+	assert.Equal(t, completionShown, eng.processCompletionWithManual(resp, true), "initial manual completion")
+
+	buf.lines = []string{"hello w"}
+	buf.col = 7
+	eng.handleTextChangeImpl()
+
+	assert.NotNil(t, eng.currentSnapshot, "metrics snapshot")
+	assert.True(t, eng.currentSnapshot.ManuallyTriggered, "manual flag survives rerender")
+}
+
 func TestCheckTypingMatchesPrediction_MatchesPrefix(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"hello wo"}
@@ -247,7 +301,7 @@ func TestProcessCompletion_TailTrimModelOverrun(t *testing.T) {
 		},
 	}
 
-	eng.processCompletion(comp)
+	eng.processCompletion(completionResponse(comp))
 
 	// After tail-trim, lines 7-10 should be trimmed (they match buffer[7:10]).
 	// The completion should only produce changes within/near the editable range,
@@ -309,7 +363,7 @@ func TestProcessCompletion_NoSpuriousAdditions(t *testing.T) {
 		},
 	}
 
-	result := eng.processCompletion(comp) == completionShown
+	result := eng.processCompletion(completionResponse(comp)) == completionShown
 	assert.True(t, result, "processCompletion should show remaining changes")
 
 	if eng.stagedCompletion != nil && len(eng.stagedCompletion.Stages) > 0 {

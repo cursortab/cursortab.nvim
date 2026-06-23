@@ -147,7 +147,7 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
 				}
-				sr.Shown = eng.processCompletion(comp) == completionShown
+				sr.Shown = eng.processCompletion(completionResponse(comp)) == completionShown
 			}
 
 		case "prefetch":
@@ -156,11 +156,11 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 				sr.OldStart = step.Completion.StartLine
 				sr.NewLines = step.Completion.Lines
 
-				eng.prefetchedCompletions = []*types.Completion{{
+				eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 					StartLine:  step.Completion.StartLine,
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
-				}}
+				}})
 				eng.prefetchState = prefetchReady
 				sr.Shown = eng.tryShowPrefetchedCompletion()
 			}
@@ -171,11 +171,11 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 				sr.OldStart = step.Completion.StartLine
 				sr.NewLines = step.Completion.Lines
 
-				eng.prefetchedCompletions = []*types.Completion{{
+				eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 					StartLine:  step.Completion.StartLine,
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
-				}}
+				}})
 				eng.prefetchState = prefetchReady
 			}
 

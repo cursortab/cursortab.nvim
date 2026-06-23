@@ -17,8 +17,8 @@ type EvalRequestResult struct {
 	// Suppressed is true when a gating layer rejected the request before
 	// it reached the provider.
 	Suppressed bool
-	// SuppressReason identifies which layer fired: "no-edits", "mid-line",
-	// "single-deletion", "unknown".
+	// SuppressReason identifies which layer fired: "no-edits",
+	// "disabled-scope", "mid-line", "single-deletion", "unknown".
 	SuppressReason string
 	// ProviderLatency is the wall-clock duration of the provider call.
 	// Under replay this reflects the recorded duration (when a latency-aware
@@ -39,8 +39,8 @@ type EvalRequestResult struct {
 // production Engine.requestCompletion spawns a goroutine and routes through
 // the event loop, which is not friendly to deterministic evaluation.
 //
-// The manualTrigger parameter bypasses gating (matching production manual
-// trigger semantics). When false all 5 suppression layers run normally.
+// The manualTrigger parameter bypasses call-before suppression, matching
+// production manual trigger semantics.
 func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) (*EvalRequestResult, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -50,25 +50,12 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 	}
 
 	result := &EvalRequestResult{}
-	e.manuallyTriggered = manualTrigger
 	e.syncBuffer()
 
-	if !manualTrigger {
-		if e.suppressForNoEdits() {
-			result.Suppressed = true
-			result.SuppressReason = "no-edits"
-			return result, nil
-		}
-		if e.suppressForMidLine() {
-			result.Suppressed = true
-			result.SuppressReason = "mid-line"
-			return result, nil
-		}
-		if e.suppressForSingleDeletion() {
-			result.Suppressed = true
-			result.SuppressReason = "single-deletion"
-			return result, nil
-		}
+	if reason := e.suppressCompletionRequest(types.CompletionSourceTyping, manualTrigger); reason != "" {
+		result.Suppressed = true
+		result.SuppressReason = reason
+		return result, nil
 	}
 	e.lastCompletionSource = types.CompletionSourceTyping
 
@@ -78,11 +65,11 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 		return result, nil
 	}
 
-	start := time.Now()
 	input, err := e.collectCompletionInput(ctx, sourceInput, requirements)
 	if err != nil {
 		return result, fmt.Errorf("context: %w", err)
 	}
+	start := time.Now()
 	resp, stream, err := e.provider.StartCompletion(ctx, input, false)
 	result.ProviderLatency = time.Since(start)
 	if err != nil {
@@ -90,10 +77,10 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 	}
 	if stream != nil {
 		stream.Cancel()
-		return result, fmt.Errorf("provider: returned stream for eval request")
+		return result, fmt.Errorf("provider: returned stream for eval")
 	}
 
-	if resp == nil || len(resp.Completions) == 0 {
+	if resp == nil || resp.Completion == nil {
 		if resp != nil && resp.CursorTarget != nil {
 			e.cursorTarget = resp.CursorTarget
 			result.CursorTargetLine = int(resp.CursorTarget.LineNumber)
@@ -101,9 +88,7 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 		return result, nil
 	}
 
-	completion := resp.Completions[0]
-	e.pendingMetricsInfo = resp.MetricsInfo
-	shown := e.processCompletion(completion) == completionShown
+	shown := e.processCompletionWithManual(resp, manualTrigger) == completionShown
 	result.Shown = shown
 	if !shown {
 		e.pendingMetricsInfo = nil

@@ -1,13 +1,4 @@
-// Package inline implements a simple end-of-line completion provider.
-//
-// Prompt format (sent as a single text prompt to /v1/completions):
-//
-//	...all lines before cursor line...
-//	...text before cursor on current line...
-//
-// The model completes from the cursor position to end of line.
-// Stop token: \n (single-line completions only).
-// Lines are trimmed to a window around the cursor before the prompt is rendered.
+// Package inline implements end-of-line completion.
 package inline
 
 import (
@@ -15,6 +6,7 @@ import (
 
 	"cursortab/client/openai"
 	sourcectx "cursortab/ctx"
+	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/provider"
 	"cursortab/types"
@@ -22,30 +14,31 @@ import (
 
 // NewProvider creates a new inline completion provider
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	return &provider.Provider{
-		Name:         "inline",
-		Config:       config,
-		Client:       openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Materials:    sourcectx.Materials{sourcectx.Treesitter{}},
-		BuildRequest: buildRequest,
-		ParseResult:  parseResult,
-	}
+	return provider.NewProvider(
+		"inline",
+		config,
+		openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		engine.CompletionInline,
+		sourcectx.Materials{sourcectx.Treesitter{}},
+		buildRequest,
+		parseResult,
+	)
 }
 
-func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
 	var promptBuilder strings.Builder
 
 	if len(ctx.TrimmedLines) == 0 {
-		return provider.PreparedRequest{Completion: &openai.CompletionRequest{
-			Model:       p.Config.ProviderModel,
+		return &openai.CompletionRequest{
+			Model:       p.Config().ProviderModel,
 			Prompt:      "",
-			Temperature: p.Config.ProviderTemperature,
-			MaxTokens:   p.Config.ProviderMaxTokens,
-			TopK:        p.Config.ProviderTopK,
+			Temperature: p.Config().ProviderTemperature,
+			MaxTokens:   p.Config().ProviderMaxTokens,
+			TopK:        p.Config().ProviderTopK,
 			Stop:        []string{"\n"},
 			N:           1,
 			Echo:        false,
-		}}
+		}
 	}
 
 	for i := range ctx.CursorLine {
@@ -65,42 +58,44 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 		promptBuilder.WriteString(strings.TrimRight(prefix, " \t"))
 	}
 
-	return provider.PreparedRequest{Completion: &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
+	return &openai.CompletionRequest{
+		Model:       p.Config().ProviderModel,
 		Prompt:      promptBuilder.String(),
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
+		Temperature: p.Config().ProviderTemperature,
+		MaxTokens:   p.Config().ProviderMaxTokens,
+		TopK:        p.Config().ProviderTopK,
 		Stop:        []string{"\n"},
 		N:           1,
 		Echo:        false,
-	}}
+	}
 }
 
 func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	if resp, done := provider.RejectEmptyResult(p, result); done {
+	text := result.Text
+	if resp, done := provider.RejectEmptyText(p, text); done {
 		return resp
 	}
-	if resp, done := provider.StripRepetitionResult(p, result); done {
+	if stripped, resp, done := provider.StripRepetitionText(p, text); done {
 		return resp
+	} else {
+		text = stripped
 	}
-	if resp, done := rejectTruncatedResult(p, result); done {
+	if resp, done := rejectTruncatedResult(p, result.FinishReason); done {
 		return resp
 	}
 
 	current := ctx.Input.Current
-	completionText := result.Text
 	currentLine := current.File.Lines[current.Cursor.Row-1]
 	cursorCol := min(current.Cursor.Col, len(currentLine))
 	beforeCursor := strings.TrimRight(currentLine[:cursorCol], " \t")
 
-	newLine := beforeCursor + completionText
+	newLine := beforeCursor + text
 	return p.BuildCompletion(ctx, current.Cursor.Row, current.Cursor.Row, []string{newLine})
 }
 
-func rejectTruncatedResult(p *provider.Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if result.FinishReason == "length" {
-		logger.Info("%s: rejected, truncated (finish_reason=length)", p.Name)
+func rejectTruncatedResult(p *provider.Provider, finishReason string) (*types.CompletionResponse, bool) {
+	if finishReason == "length" {
+		logger.Info("inline: rejected, truncated (finish_reason=length)")
 		return p.EmptyResponse(), true
 	}
 	return nil, false

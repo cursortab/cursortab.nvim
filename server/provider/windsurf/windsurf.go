@@ -281,11 +281,16 @@ type windsurfAcceptRequest struct {
 	CompletionID string           `json:"completion_id"`
 }
 
+// Provider implements engine.Provider through the local Windsurf/Codeium
+// language server bridge. The bridge has its own request shape and auth lookup,
+// so this provider implements the engine contract directly.
 type Provider struct {
 	buffer     InfoProvider
 	httpClient *http.Client
 	reqCounter int64
 }
+
+var _ engine.Provider = (*Provider)(nil)
 
 func NewProvider(buf InfoProvider) *Provider {
 	return &Provider{
@@ -463,29 +468,23 @@ func (p *Provider) convertResponse(wsResp *windsurfResponse, current ctx.Current
 		return p.emptyResponse(), nil
 	}
 
-	var completions []*types.Completion
-	var metricsInfo *types.MetricsInfo
-
 	for i, item := range wsResp.CompletionItems {
 		completion := p.convertSingleItem(item, current, i)
 		if completion != nil {
-			completions = append(completions, completion)
-			if metricsInfo == nil && item.Completion.CompletionID != "" {
+			var metricsInfo *types.MetricsInfo
+			if item.Completion.CompletionID != "" {
 				metricsInfo = &types.MetricsInfo{
 					ID: item.Completion.CompletionID,
 				}
 			}
+			return &types.CompletionResponse{
+				Completion:  completion,
+				MetricsInfo: metricsInfo,
+			}, nil
 		}
 	}
 
-	if len(completions) == 0 {
-		return p.emptyResponse(), nil
-	}
-
-	return &types.CompletionResponse{
-		Completions: completions,
-		MetricsInfo: metricsInfo,
-	}, nil
+	return p.emptyResponse(), nil
 }
 
 func (p *Provider) convertSingleItem(item windsurfCompletionItem, current ctx.CurrentSnapshot, idx int) *types.Completion {
@@ -683,9 +682,4 @@ func resolveLanguage(filePath string) string {
 	return lang
 }
 
-func (p *Provider) emptyResponse() *types.CompletionResponse {
-	return &types.CompletionResponse{
-		Completions:  []*types.Completion{},
-		CursorTarget: nil,
-	}
-}
+func (p *Provider) emptyResponse() *types.CompletionResponse { return &types.CompletionResponse{} }

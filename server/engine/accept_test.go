@@ -40,7 +40,7 @@ func TestReject_DropsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
 	defer cancel()
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
-	eng.streamingState = &StreamingState{}
+	eng.streamingState = &streamingState{}
 	eng.completionStream = newMockCompletionStream(streamCancel)
 	eng.acceptedDuringStreaming = true
 	eng.state = stateHasCompletion
@@ -520,7 +520,6 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 
 		expectedCursorTarget := int32(8)
 		eng.cursorTarget = &types.CursorPredictionTarget{
-			RelativePath:    "test.go",
 			LineNumber:      expectedCursorTarget,
 			ShouldRetrigger: true,
 		}
@@ -557,7 +556,6 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 
 		expectedCursorTarget := int32(8)
 		eng.cursorTarget = &types.CursorPredictionTarget{
-			RelativePath:    "test.go",
 			LineNumber:      expectedCursorTarget,
 			ShouldRetrigger: true,
 		}
@@ -605,7 +603,6 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 			{Type: "modification", BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"W"}, OldLines: []string{"w"}},
 		}
 		eng.cursorTarget = &types.CursorPredictionTarget{
-			RelativePath:    "test.go",
 			LineNumber:      cursorTarget,
 			ShouldRetrigger: false,
 		}
@@ -703,7 +700,7 @@ func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testi
 			{Type: "addition", StartLine: 1, EndLine: 2, BufferLine: 6},
 			{Type: "addition", StartLine: 5, EndLine: 5, BufferLine: 8},
 		},
-		CursorTarget: &types.CursorPredictionTarget{LineNumber: 13, RelativePath: "test.py"},
+		CursorTarget: &types.CursorPredictionTarget{LineNumber: 13},
 	}
 	// Stage 2: further down, should be offset by stage 1's line count change
 	stage2 := &text.Stage{
@@ -713,7 +710,7 @@ func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testi
 		Groups: []*text.Group{
 			{Type: "addition", StartLine: 1, EndLine: 2, BufferLine: 10},
 		},
-		CursorTarget: &types.CursorPredictionTarget{LineNumber: 15, RelativePath: "test.py"},
+		CursorTarget: &types.CursorPredictionTarget{LineNumber: 15},
 	}
 
 	eng.stagedCompletion = &text.StagedCompletion{

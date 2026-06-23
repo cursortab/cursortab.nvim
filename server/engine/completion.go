@@ -8,23 +8,19 @@ import (
 	"cursortab/utils"
 )
 
-// handleCompletionReadyImpl processes a successful completion response.
-func (e *Engine) handleCompletionReadyImpl(response *types.CompletionResponse) {
+func (e *Engine) handleCompletionReadyImpl(response *types.CompletionResponse, manual bool) {
 	e.syncBuffer()
 
-	if len(response.Completions) == 0 {
+	if response == nil {
+		response = &types.CompletionResponse{}
+	}
+	if response.Completion == nil {
+		e.cursorTarget = response.CursorTarget
 		e.handleCursorTarget()
 		return
 	}
 
-	// CompletionResponse may contain multiple ordered candidates. The current
-	// engine UI renders the first candidate; candidate switching is not wired yet.
-	completion := response.Completions[0]
-
-	// Store metrics info for showCurrentStage to use
-	e.pendingMetricsInfo = response.MetricsInfo
-
-	switch e.processCompletion(completion) {
+	switch e.processCompletionWithManual(response, manual) {
 	case completionShown:
 		return
 	case completionSuppressed:
@@ -33,12 +29,14 @@ func (e *Engine) handleCompletionReadyImpl(response *types.CompletionResponse) {
 	}
 
 	e.pendingMetricsInfo = nil
-	e.handleCompletionNoChanges(completion)
+	e.handleCompletionNoChanges(response)
 }
 
-// handleCompletionNoChanges handles the case where completion has no changes.
-func (e *Engine) handleCompletionNoChanges(completion *types.Completion) {
-	if e.config.CursorPrediction.AutoAdvance && e.config.CursorPrediction.Enabled {
+func (e *Engine) handleCompletionNoChanges(response *types.CompletionResponse) {
+	if response != nil && response.CursorTarget != nil {
+		e.cursorTarget = response.CursorTarget
+	} else if response != nil && response.Completion != nil && e.config.CursorPrediction.AutoAdvance && e.config.CursorPrediction.Enabled {
+		completion := response.Completion
 		e.cursorTarget = &types.CursorPredictionTarget{
 			LineNumber:      int32(completion.EndLineInc),
 			ShouldRetrigger: true,
@@ -47,8 +45,6 @@ func (e *Engine) handleCompletionNoChanges(completion *types.Completion) {
 	e.handleCursorTarget()
 }
 
-// handleTextChangeImpl handles text change when we have an active completion.
-// It checks if the user typed content that matches the prediction.
 func (e *Engine) handleTextChangeImpl() {
 	if len(e.completions) == 0 {
 		e.reject()
@@ -61,16 +57,14 @@ func (e *Engine) handleTextChangeImpl() {
 	matches, hasRemaining := e.checkTypingMatchesPrediction()
 	if matches {
 		if hasRemaining {
-			e.processCompletion(e.completions[0])
+			e.rerenderActiveCompletion()
 			return
 		}
-		// User typed everything - completion fully typed
 		e.reject()
 		e.startTextChangeTimer()
 		return
 	}
 
-	// Typing does not match prediction
 	e.rejectAndRemember()
 	e.startTextChangeTimer()
 }
@@ -154,7 +148,37 @@ func (e *Engine) checkTypingMatchesPrediction() (bool, bool) {
 	return true, hasRemaining
 }
 
-// handleCursorTarget handles cursor target state transitions.
+func (e *Engine) rerenderActiveCompletion() completionOutcome {
+	if len(e.completions) == 0 {
+		return completionNoChanges
+	}
+
+	var tail []*text.Stage
+	manual := false
+	if e.stagedCompletion != nil {
+		manual = e.stagedCompletion.Manual
+		next := e.stagedCompletion.CurrentIdx + 1
+		if next >= 0 && next < len(e.stagedCompletion.Stages) {
+			tail = append(tail, e.stagedCompletion.Stages[next:]...)
+		}
+	}
+
+	var metricsInfo *types.MetricsInfo
+	if e.currentMetrics.ID != "" || e.currentMetrics.Additions != 0 || e.currentMetrics.Deletions != 0 {
+		metricsInfo = &types.MetricsInfo{
+			ID:        e.currentMetrics.ID,
+			Additions: e.currentMetrics.Additions,
+			Deletions: e.currentMetrics.Deletions,
+		}
+	}
+
+	outcome := e.processCompletionCandidate(e.completions[0], e.cursorTarget, metricsInfo, manual)
+	if outcome == completionShown && e.stagedCompletion != nil && len(tail) > 0 {
+		e.stagedCompletion.Stages = append(e.stagedCompletion.Stages, tail...)
+	}
+	return outcome
+}
+
 func (e *Engine) handleCursorTarget() {
 	if !e.config.CursorPrediction.Enabled {
 		e.clearCompletionUIOnly()
@@ -168,9 +192,6 @@ func (e *Engine) handleCursorTarget() {
 
 	distance := utils.Abs(int(e.cursorTarget.LineNumber) - e.buffer.Row())
 	if distance <= e.config.CursorPrediction.ProximityThreshold {
-		// Close enough - don't show cursor prediction
-
-		// If we have remaining staged completions, check if next stage is visible and close
 		if e.stagedCompletion != nil && e.stagedCompletion.CurrentIdx < len(e.stagedCompletion.Stages) {
 			nextStage := e.getStage(e.stagedCompletion.CurrentIdx)
 			if nextStage == nil {
@@ -198,12 +219,10 @@ func (e *Engine) handleCursorTarget() {
 		return
 	}
 
-	// Far away - show cursor prediction to the target line
 	e.state = stateHasCursorTarget
 	e.buffer.ShowCursorTarget(int(e.cursorTarget.LineNumber))
 }
 
-// clearCompletionUIOnly clears completion state but preserves prefetch.
 func (e *Engine) clearCompletionUIOnly() {
 	if len(e.completions) > 0 {
 		e.sendMetric(metrics.EventIgnored)
@@ -230,17 +249,16 @@ func (e *Engine) showStageCursorTarget(stage *text.Stage) {
 		return
 	}
 	e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
-		RelativePath:    e.buffer.Path(),
 		LineNumber:      int32(stage.BufferStart),
 		ShouldRetrigger: false,
 	}, e.rejectedCompletionForStage(stage))
 }
 
-// showCurrentStage displays the current stage of a multi-stage completion
 func (e *Engine) showCurrentStage() {
 	if e.stagedCompletion == nil || e.stagedCompletion.CurrentIdx >= len(e.stagedCompletion.Stages) {
 		return
 	}
+	manual := e.stagedCompletion.Manual
 
 	stage := e.getStage(e.stagedCompletion.CurrentIdx)
 	if stage == nil {
@@ -274,11 +292,10 @@ func (e *Engine) showCurrentStage() {
 	e.currentGroups = text.CopyGroups(stage.Groups)
 
 	e.currentRejectedCompletion = e.currentRejectedCompletionCandidate()
-	e.recordMetricsShown(e.pendingMetricsInfo) // nil for streaming
+	e.recordMetricsShown(e.pendingMetricsInfo, manual) // nil for streaming
 	e.pendingMetricsInfo = nil
 }
 
-// getStage returns the stage at the given index, or nil if out of bounds
 func (e *Engine) getStage(idx int) *text.Stage {
 	if e.stagedCompletion == nil || idx < 0 || idx >= len(e.stagedCompletion.Stages) {
 		return nil
@@ -293,7 +310,7 @@ type completionOutcome int
 const (
 	// completionNoChanges means the completion matched the current buffer or
 	// staging produced no visible stage. Caller should handle cursor target
-	// fallback (e.g. handleCompletionNoChanges).
+	// continuation (e.g. handleCompletionNoChanges).
 	completionNoChanges completionOutcome = iota
 	// completionShown means the completion was rendered (or a cursor target
 	// was shown) and the engine transitioned to a non-idle state.
@@ -304,12 +321,26 @@ const (
 	completionSuppressed
 )
 
-// processCompletion is the SINGLE ENTRY POINT for processing all completions.
-func (e *Engine) processCompletion(completion *types.Completion) completionOutcome {
+func (e *Engine) processCompletion(response *types.CompletionResponse) completionOutcome {
+	return e.processCompletionWithManual(response, false)
+}
+
+func (e *Engine) processCompletionWithManual(response *types.CompletionResponse, manual bool) completionOutcome {
 	defer logger.Trace("engine.processCompletion")()
+	if response == nil || response.Completion == nil {
+		return completionNoChanges
+	}
+
+	completion := response.Completion
+	return e.processCompletionCandidate(completion, response.CursorTarget, response.MetricsInfo, manual)
+}
+
+func (e *Engine) processCompletionCandidate(completion *types.Completion, cursorTarget *types.CursorPredictionTarget, metricsInfo *types.MetricsInfo, manual bool) completionOutcome {
 	if completion == nil {
 		return completionNoChanges
 	}
+
+	e.pendingMetricsInfo = metricsInfo
 
 	if !e.buffer.HasChanges(completion.StartLine, completion.EndLineInc, completion.Lines) {
 		return completionNoChanges
@@ -377,11 +408,14 @@ func (e *Engine) processCompletion(completion *types.Completion) completionOutco
 
 	if stagingResult != nil && len(stagingResult.Stages) > 0 {
 		firstStage := stagingResult.Stages[0]
+		if cursorTarget != nil {
+			stagingResult.Stages[len(stagingResult.Stages)-1].CursorTarget = cursorTarget
+		}
 
 		// Suppression compares against what the user actually sees: the first
 		// stage. Doing this post-staging means cached single-stage entries can
 		// match the visible portion of an incoming multi-stage completion.
-		if e.suppressRejectedCompletionForStage(firstStage) {
+		if e.suppressRejectedCompletionForStage(firstStage, manual) {
 			e.pendingMetricsInfo = nil
 			e.stagedCompletion = nil
 			e.state = stateIdle
@@ -391,6 +425,7 @@ func (e *Engine) processCompletion(completion *types.Completion) completionOutco
 		e.stagedCompletion = &text.StagedCompletion{
 			Stages:     stagingResult.Stages,
 			CurrentIdx: 0,
+			Manual:     manual,
 		}
 
 		if stagingResult.FirstNeedsNavigation {

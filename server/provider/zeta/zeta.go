@@ -1,54 +1,4 @@
-// Package zeta implements the Zeta provider (Zed's native model).
-//
-// Prompt format (sent as a single text prompt to /v1/completions):
-//
-//	### Instruction:
-//	You are a code completion assistant and your task is to analyze user edits
-//	and then rewrite an excerpt that the user provides, suggesting the appropriate
-//	edits within the excerpt, taking into account the cursor location.
-//
-//	### User Edits:
-//	User edited "file.go":
-//	```diff
-//	-old line
-//	+new line
-//	```
-//
-//	### Diagnostics:                       (omitted if no diagnostics)
-//	Diagnostics in "file.go":
-//	```diagnostics
-//	line 10: [ERROR] undefined: foo (source: gopls)
-//	```
-//
-//	### Code Context:                        (omitted if no treesitter context)
-//	Enclosing scope: func handleRequest(w http.ResponseWriter, r *http.Request) {
-//	Sibling symbols:
-//	  line 5: func otherFunc() {
-//	Imports:
-//	  import "net/http"
-//
-//	### Staged Changes:                    (omitted if not COMMIT_EDITMSG)
-//	(full unified diff if ≤4KB, or extracted symbols in git diff format:)
-//	+func newHelper(ctx context.Context) error {
-//	-func oldHelper() error {
-//
-//	### Recent Files:                      (omitted if no recent snapshots)
-//	```other.go
-//	... first N lines of a recently viewed file ...
-//	```
-//
-//	### User Excerpt:
-//	```file.go
-//	<|start_of_file|>
-//	... context lines ...
-//	<|editable_region_start|>
-//	... before cursor ...<|user_cursor_is_here|>... after cursor ...
-//	... more lines ...
-//	<|editable_region_end|>
-//	... context lines ...
-//	```
-//
-//	### Response:
+// Package zeta implements Zed-style edit prediction prompts.
 package zeta
 
 import (
@@ -64,24 +14,26 @@ import (
 
 var stopTokens = []string{"\n<|editable_region_end|>"}
 
-// NewProvider creates a new Zeta provider (Zed's native model)
+// NewProvider creates a new Zeta provider (Zed's native model).
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	p := &provider.Provider{
-		Name:       "zeta",
-		Config:     config,
-		Client:     openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Completion: engine.CompletionEdit,
-		Materials: sourcectx.Materials{
+	return provider.NewProvider(
+		"zeta",
+		config,
+		openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		engine.CompletionEdit,
+		sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
 		},
-		BuildRequest: buildRequest,
-		ParseResult:  parseResult,
-	}
-	return p.UseLineStream(stopTokens, provider.FirstLineAnchorValidator(0.25), "", nil)
+		buildRequest,
+		parseResult,
+		provider.WithLineStream(
+			provider.LineStreamValidator(provider.FirstLineAnchorChecker(0.25)),
+		),
+	)
 }
 
-func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
 	input := ctx.Input
 
 	userExcerpt := buildUserExcerpt(input.Current, ctx)
@@ -112,16 +64,16 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 	}
 	prompt := buildInstructionPrompt(userEdits, diagnosticsText, treesitterText, gitDiffText, recentFilesText, userExcerpt)
 
-	return provider.PreparedRequest{Completion: &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
+	return &openai.CompletionRequest{
+		Model:       p.Config().ProviderModel,
 		Prompt:      prompt,
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
+		Temperature: p.Config().ProviderTemperature,
+		MaxTokens:   p.Config().ProviderMaxTokens,
+		TopK:        p.Config().ProviderTopK,
 		Stop:        stopTokens,
 		N:           1,
 		Echo:        false,
-	}}
+	}
 }
 
 func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.RequestState) string {
@@ -318,24 +270,26 @@ func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, r
 }
 
 func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	if resp, done := provider.RejectEmptyResult(p, result); done {
+	text := result.Text
+	if resp, done := provider.RejectEmptyText(p, text); done {
 		return resp
 	}
-	if resp, done := provider.StripRepetitionResult(p, result); done {
+	if stripped, resp, done := provider.StripRepetitionText(p, text); done {
+		return resp
+	} else {
+		text = stripped
+	}
+	if resp, done := provider.ValidateAnchorPositionText(p, ctx, text, 0.25); done {
 		return resp
 	}
-	if resp, done := provider.ValidateAnchorPositionResult(p, ctx, result, 0.25); done {
-		return resp
-	}
-	endLineInc, resp, done := provider.AnchorTruncationResult(p, ctx, result, 0.75)
+	text, endLineInc, resp, done := provider.AnchorTruncationText(p, ctx, text, result.FinishReason, result.StoppedEarly, 0.75)
 	if done {
 		return resp
 	}
-	return parseCompletion(p, ctx, result, endLineInc)
+	return parseCompletion(p, ctx, text, endLineInc)
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult, endLineInc int) *types.CompletionResponse {
-	completionText := result.Text
+func parseCompletion(p *provider.Provider, ctx *provider.RequestState, completionText string, endLineInc int) *types.CompletionResponse {
 	lines := ctx.Input.Current.File.Lines
 
 	content := strings.ReplaceAll(completionText, "<|user_cursor_is_here|>", "")
@@ -345,7 +299,7 @@ func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *o
 
 	startIdx := strings.Index(content, startMarker)
 	if startIdx == -1 {
-		return parseSimpleCompletion(p, ctx, result, endLineInc)
+		return parseSimpleCompletion(p, ctx, completionText, endLineInc)
 	}
 
 	content = content[startIdx:]
@@ -382,8 +336,7 @@ func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *o
 	return p.BuildCompletion(ctx, editableStart+1, endLineInc, newLines)
 }
 
-func parseSimpleCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult, endLineInc int) *types.CompletionResponse {
-	completionText := result.Text
+func parseSimpleCompletion(p *provider.Provider, ctx *provider.RequestState, completionText string, endLineInc int) *types.CompletionResponse {
 	current := ctx.Input.Current
 
 	completionLines := strings.Split(completionText, "\n")

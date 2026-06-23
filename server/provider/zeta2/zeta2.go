@@ -1,47 +1,5 @@
-// Package zeta2 implements the Zeta2 provider: Zed's SeedCoder-8B based edit
-// prediction model, released April 2026. Zeta2 is an open-weight model
-// distributed on Hugging Face under zed-industries/zeta2.
-//
-// Unlike Zeta1 (Qwen2.5-Coder-7B with instruction-header prompts), Zeta2 is
-// a FIM (Fill-In-Middle) model trained on the SeedCoder SPM layout. The prompt
-// is assembled as:
-//
-//	<[fim-suffix]>{code after editable region}\n
-//	<[fim-prefix]>{optional context pseudo-files}{optional edit history}
-//	<filename>{cursor file path}\n
-//	{code before editable region}
-//	<<<<<<< CURRENT
-//	{editable region with <|user_cursor|> marker inline}
-//	=======
-//	<[fim-middle]>
-//
-// The model generates the replacement editable region, terminated by
-// ">>>>>>> UPDATED\n". A literal "NO_EDITS" output means no change.
-//
-// Context pseudo-files are rendered in the slot Zed's V0211SeedCoder reserves
-// for LSP-driven related files. Since we don't have LSP resolution, we slot
-// in whatever context we do have, each as a pseudo-file block:
-//
-//	<filename>{path}              # recent buffer snapshots (one per file)
-//	{file content}
-//
-//	<filename>diagnostics         # LSP diagnostics in the current buffer
-//	line 10: [error] undefined: foo (source: gopls)
-//
-//	<filename>context/treesitter  # enclosing scope + siblings + imports
-//	Enclosing scope: func handleRequest(...)
-//	...
-//
-//	<filename>context/staged_diff # staged git diff (COMMIT_EDITMSG only)
-//	...
-//
-//	<filename>edit_history        # recent edits as unified diffs
-//	--- a/path/to/file.go
-//	+++ b/path/to/file.go
-//	-old
-//	+new
-//
-// Reference: Zed's crates/zeta_prompt/src/zeta_prompt.rs V0211SeedCoder format.
+// Package zeta2 implements Zed SeedCoder edit prediction with provider-owned
+// cursor-marker parsing and editable-region stream windowing.
 package zeta2
 
 import (
@@ -85,41 +43,41 @@ var stopTokens = []string{endMarker, strings.TrimSuffix(endMarker, "\n")}
 
 // NewProvider creates a new Zeta2 provider (Zed's SeedCoder-8B model).
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	p := &provider.Provider{
-		Name:       "zeta-2",
-		Config:     config,
-		Client:     openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Completion: engine.CompletionEdit,
-		Materials: sourcectx.Materials{
+	return provider.NewProvider(
+		"zeta-2",
+		config,
+		openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		engine.CompletionEdit,
+		sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
 		},
-		BuildRequest: buildRequest,
-		ParseResult:  parseResult,
-	}
-	return p.UseLineStream(stopTokens, nil, cursorMarker, parseStreamResult)
+		buildRequest,
+		parseResult,
+		provider.WithLineStream(
+			provider.LineStreamWindow(streamWindow),
+			provider.LineStreamLineTransform(visibleStreamLine),
+			provider.LineStreamParser(parseStreamResult),
+		),
+	)
 }
 
-func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
-	prompt, streamOldLines, streamBaseOffset := assemblePrompt(p, ctx)
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
+	prompt := assemblePrompt(p, ctx)
 
-	return provider.PreparedRequest{
-		Completion: &openai.CompletionRequest{
-			Model:       p.Config.ProviderModel,
-			Prompt:      prompt,
-			Temperature: p.Config.ProviderTemperature,
-			MaxTokens:   p.Config.ProviderMaxTokens,
-			TopK:        p.Config.ProviderTopK,
-			Stop:        stopTokens,
-			N:           1,
-			Echo:        false,
-		},
-		StreamOldLines:    streamOldLines,
-		StreamWindowStart: streamBaseOffset,
+	return &openai.CompletionRequest{
+		Model:       p.Config().ProviderModel,
+		Prompt:      prompt,
+		Temperature: p.Config().ProviderTemperature,
+		MaxTokens:   p.Config().ProviderMaxTokens,
+		TopK:        p.Config().ProviderTopK,
+		Stop:        stopTokens,
+		N:           1,
+		Echo:        false,
 	}
 }
 
-func assemblePrompt(p *provider.Provider, ctx *provider.RequestState) (string, []string, int) {
+func assemblePrompt(p *provider.Provider, ctx *provider.RequestState) string {
 	trimmed := ctx.TrimmedLines
 	input := ctx.Input
 	current := input.Current
@@ -136,7 +94,7 @@ func assemblePrompt(p *provider.Provider, ctx *provider.RequestState) (string, [
 		b.WriteString("\n")
 		b.WriteString(separator)
 		b.WriteString(fimMiddle)
-		return b.String(), nil, 0
+		return b.String()
 	}
 
 	editableStart, editableEnd := computeEditableRange(trimmed, ctx.CursorLine, ctx.WindowStart, treesitterRanges(input.Materials))
@@ -144,12 +102,6 @@ func assemblePrompt(p *provider.Provider, ctx *provider.RequestState) (string, [
 	beforeLines := trimmed[:editableStart]
 	editLines := trimmed[editableStart:editableEnd]
 	suffixLines := trimmed[editableEnd:]
-
-	streamOld := editLines
-	for len(streamOld) > 0 && strings.TrimSpace(streamOld[len(streamOld)-1]) == "" {
-		streamOld = streamOld[:len(streamOld)-1]
-	}
-	streamBaseOffset := ctx.WindowStart + editableStart
 
 	var b strings.Builder
 
@@ -205,7 +157,19 @@ func assemblePrompt(p *provider.Provider, ctx *provider.RequestState) (string, [
 	b.WriteString(separator)
 	b.WriteString(fimMiddle)
 
-	return b.String(), streamOld, streamBaseOffset
+	return b.String()
+}
+
+func streamWindow(ctx *provider.RequestState) (int, []string) {
+	if len(ctx.TrimmedLines) == 0 {
+		return 0, nil
+	}
+	editableStart, editableEnd := computeEditableRange(ctx.TrimmedLines, ctx.CursorLine, ctx.WindowStart, treesitterRanges(ctx.Input.Materials))
+	oldLines := ctx.TrimmedLines[editableStart:editableEnd]
+	for len(oldLines) > 0 && strings.TrimSpace(oldLines[len(oldLines)-1]) == "" {
+		oldLines = oldLines[:len(oldLines)-1]
+	}
+	return ctx.WindowStart + editableStart, oldLines
 }
 
 // computeEditableRange returns [start, end) line indices within trimmed lines
@@ -461,13 +425,16 @@ func buildEditHistory(history []*types.FileDiffHistory) string {
 }
 
 func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	if resp, done := provider.RejectEmptyResult(p, result); done {
+	text := result.Text
+	if resp, done := provider.RejectEmptyText(p, text); done {
 		return resp
 	}
-	if resp, done := provider.StripRepetitionResult(p, result); done {
+	if stripped, resp, done := provider.StripRepetitionText(p, text); done {
 		return resp
+	} else {
+		text = stripped
 	}
-	return parseCompletion(p, ctx, result)
+	return parseResultText(p, ctx, text)
 }
 
 // stripCursorMarker removes the cursor marker from the response text. Lines
@@ -492,17 +459,6 @@ func stripCursorMarker(text, marker string) string {
 	return strings.Join(out, "\n")
 }
 
-// buildCursorTarget translates the streamed-line marker position captured by
-// provider.StreamState.TransformLine into a CursorPredictionTarget pointing at
-// the post-edit buffer row/col. ShouldRetrigger is set so the engine
-// automatically fires a prefetch at that location once the current completion
-// is accepted.
-//
-// The streamed response is the replacement for the editable region, so the
-// marker's streamed-line index equals its row index within the new editable
-// region in the post-edit buffer. The absolute buffer row (1-indexed) is:
-//
-//	WindowStart + editableStart + markerLine + 1
 func buildCursorTarget(ctx *provider.RequestState, editableStart, markerLine int, newLines []string) *types.CursorPredictionTarget {
 	lineIdx := markerLine
 	if lineIdx < 0 {
@@ -517,37 +473,29 @@ func buildCursorTarget(ctx *provider.RequestState, editableStart, markerLine int
 
 	bufferRow := ctx.WindowStart + editableStart + lineIdx + 1
 
-	expected := ""
-	if lineIdx < len(newLines) {
-		expected = newLines[lineIdx]
-	}
-	relativePath := ctx.Input.Current.File.Path
-
 	return &types.CursorPredictionTarget{
-		RelativePath:    relativePath,
 		LineNumber:      int32(bufferRow),
-		ExpectedContent: expected,
 		ShouldRetrigger: true,
 	}
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	return parseCompletionWithCursorMarker(p, ctx, result, false, 0)
+func parseStreamResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
+	return parseResult(p, ctx, result)
 }
 
-func parseStreamResult(p *provider.Provider, ctx *provider.StreamState, result *openai.StreamResult) *types.CompletionResponse {
-	cursorMarkerLine, cursorMarkerSeen := ctx.CursorMarkerPosition()
-	return parseCompletionWithCursorMarker(p, ctx.RequestState, result, cursorMarkerSeen, cursorMarkerLine)
+func parseResultText(p *provider.Provider, ctx *provider.RequestState, text string) *types.CompletionResponse {
+	cursorMarkerLine, cursorMarkerSeen := cursorMarkerPosition(text)
+	return parseCompletionWithCursorMarker(p, ctx, text, cursorMarkerSeen, cursorMarkerLine)
 }
 
 func parseCompletionWithCursorMarker(
 	p *provider.Provider,
 	ctx *provider.RequestState,
-	result *openai.StreamResult,
+	rawText string,
 	cursorMarkerSeen bool,
 	cursorMarkerLine int,
 ) *types.CompletionResponse {
-	raw := result.Text
+	raw := rawText
 
 	raw = strings.TrimSuffix(raw, endMarker)
 	raw = strings.TrimSuffix(raw, strings.TrimSuffix(endMarker, "\n"))
@@ -572,8 +520,25 @@ func parseCompletionWithCursorMarker(
 	endLineInc := ctx.WindowStart + editableEnd
 
 	resp := p.BuildCompletion(ctx, startLine, endLineInc, newLines)
-	if resp != nil && len(resp.Completions) > 0 && cursorMarkerSeen {
+	if resp != nil && resp.Completion != nil && cursorMarkerSeen {
 		resp.CursorTarget = buildCursorTarget(ctx, editableStart, cursorMarkerLine, newLines)
 	}
 	return resp
+}
+
+func visibleStreamLine(line string) (string, bool) {
+	if !strings.Contains(line, cursorMarker) {
+		return line, true
+	}
+	stripped := strings.ReplaceAll(line, cursorMarker, "")
+	return stripped, strings.TrimSpace(stripped) != ""
+}
+
+func cursorMarkerPosition(raw string) (int, bool) {
+	for i, line := range strings.Split(raw, "\n") {
+		if strings.Contains(line, cursorMarker) {
+			return i, true
+		}
+	}
+	return 0, false
 }

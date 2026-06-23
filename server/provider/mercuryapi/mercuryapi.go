@@ -1,53 +1,4 @@
-// Package mercuryapi implements the Mercury API provider (Inception Labs hosted).
-//
-// Prompt format (sent as a single user message to /v1/edit/completions):
-//
-//	<|recently_viewed_code_snippets|>
-//	<|recently_viewed_code_snippet|>
-//	code_snippet_file_path: helper.go
-//	func helper() string { ... }
-//	<|/recently_viewed_code_snippet|>
-//
-//	<|recently_viewed_code_snippet|>           (omitted if no diagnostics)
-//	code_snippet_file_path: diagnostics
-//	line 12: [error] undefined: foo (source: gopls)
-//	<|/recently_viewed_code_snippet|>
-//
-//	<|recently_viewed_code_snippet|>           (omitted if no treesitter context)
-//	code_snippet_file_path: treesitter_context
-//	Enclosing scope: func process(items []string) []string {
-//	Sibling: line 15: func main() {
-//	Import: import "fmt"
-//	<|/recently_viewed_code_snippet|>
-//
-//	<|recently_viewed_code_snippet|>           (omitted if no staged changes)
-//	code_snippet_file_path: staged_git_diff
-//	+func newHelper() {}
-//	-func oldHelper() {}
-//	<|/recently_viewed_code_snippet|>
-//	<|/recently_viewed_code_snippets|>
-//
-//	<|current_file_content|>
-//	current_file_path: main.go
-//	...context lines above editable region...
-//	<|code_to_edit|>
-//	...before cursor...<|cursor|>...after cursor...
-//	...more editable lines...
-//	<|/code_to_edit|>
-//	...context lines below editable region...
-//	<|/current_file_content|>
-//
-//	<|edit_diff_history|>
-//	--- main.go
-//	+++ main.go
-//	@@ -6,1 +6,1 @@
-//	-old line
-//	+new line
-//	<|/edit_diff_history|>
-//
-// The editable region is expanded to syntax boundaries (AST nodes) when
-// treesitter data is available. Context defaults to the entire file, trimmed
-// only for files exceeding 150KB.
+// Package mercuryapi implements CursorTab-hosted edit prediction.
 package mercuryapi
 
 import (
@@ -90,11 +41,15 @@ const (
 	CurrentFilePathPrefix       = "current_file_path: "
 )
 
-// Provider implements the Mercury API provider
+// Provider implements engine.Provider for the hosted Mercury API. Mercury has
+// its own request and feedback schema, so it implements the engine contract
+// directly instead of using the OpenAI-compatible provider base.
 type Provider struct {
 	config *types.ProviderConfig
 	client *mercuryapi.Client
 }
+
+var _ engine.Provider = (*Provider)(nil)
 
 // NewProvider creates a new Mercury API provider
 func NewProvider(config *types.ProviderConfig) *Provider {
@@ -247,11 +202,11 @@ func (p *Provider) StartCompletion(ctx context.Context, input sourcectx.Completi
 	additions, deletions := countChanges(editableEnd-editableStart+1, len(newLines))
 
 	return &types.CompletionResponse{
-		Completions: []*types.Completion{{
+		Completion: &types.Completion{
 			StartLine:  editableStart,
 			EndLineInc: editableEnd,
 			Lines:      newLines,
-		}},
+		},
 		MetricsInfo: &types.MetricsInfo{
 			ID:        apiResp.ID,
 			Additions: additions,
@@ -537,7 +492,6 @@ func buildPrompt(
 	return sb.String()
 }
 
-// formatDiffHistories formats diff histories in unified diff format.
 func formatDiffHistories(histories []*types.FileDiffHistory) string {
 	if len(histories) == 0 {
 		return ""
@@ -545,53 +499,21 @@ func formatDiffHistories(histories []*types.FileDiffHistory) string {
 
 	var sb strings.Builder
 	for _, h := range histories {
-		if len(h.DiffHistory) == 0 {
-			continue
-		}
-
 		for _, entry := range h.DiffHistory {
-			// Write in unified diff format
+			diff := provider.DiffEntryToUnifiedDiff(entry)
+			if diff == "" {
+				continue
+			}
 			sb.WriteString("--- ")
 			sb.WriteString(h.FileName)
 			sb.WriteString("\n")
 			sb.WriteString("+++ ")
 			sb.WriteString(h.FileName)
 			sb.WriteString("\n")
-
-			oldLines := countNonEmptyLines(entry.Original)
-			newLines := countNonEmptyLines(entry.Updated)
-			fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n", 1, oldLines, 1, newLines)
-
-			// Write old lines with - prefix
-			for line := range strings.SplitSeq(entry.Original, "\n") {
-				if line != "" {
-					sb.WriteString("-")
-					sb.WriteString(line)
-					sb.WriteString("\n")
-				}
-			}
-
-			// Write new lines with + prefix
-			for line := range strings.SplitSeq(entry.Updated, "\n") {
-				if line != "" {
-					sb.WriteString("+")
-					sb.WriteString(line)
-					sb.WriteString("\n")
-				}
-			}
+			sb.WriteString(diff)
+			sb.WriteString("\n")
 			sb.WriteString("\n")
 		}
 	}
 	return sb.String()
-}
-
-// countNonEmptyLines counts the non-empty lines in a string.
-func countNonEmptyLines(s string) int {
-	n := 0
-	for line := range strings.SplitSeq(s, "\n") {
-		if line != "" {
-			n++
-		}
-	}
-	return n
 }

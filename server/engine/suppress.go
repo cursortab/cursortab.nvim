@@ -133,8 +133,8 @@ func (e *Engine) suppressForDisabledScope() string {
 // always done at stage granularity because that's also how cache entries are
 // stored — the user only sees one stage at a time. It emits exactly one
 // debug log per call describing the outcome.
-func (e *Engine) suppressRejectedCompletionForStage(stage *text.Stage) bool {
-	if e.manuallyTriggered || stage == nil {
+func (e *Engine) suppressRejectedCompletionForStage(stage *text.Stage, manual bool) bool {
+	if manual || stage == nil {
 		return false
 	}
 	entry := e.rejectedCompletionForStage(stage)

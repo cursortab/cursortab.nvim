@@ -1,34 +1,4 @@
-// Package fim implements a fill-in-the-middle completion provider.
-//
-// Two modes are supported:
-//
-// 1. Tokenized FIM (FIMTokens is non-nil). The provider concatenates content
-// and delimiter tokens into a single `prompt` string:
-//
-//	<|fim_prefix|>...lines before cursor...
-//	...text before cursor on current line...<|fim_suffix|>...text after cursor on current line...
-//	...lines after cursor...<|fim_middle|>
-//
-// When repo-level tokens (repo_name, file_sep) are configured, cross-file
-// context is prepended before the FIM tokens:
-//
-//	<|repo_name|>workspace
-//	<|file_sep|>path/to/other.go
-//	...recent file contents...
-//	<|file_sep|>context/diagnostics
-//	...LSP diagnostics...
-//	<|file_sep|>context/treesitter
-//	...scope context...
-//	<|file_sep|>context/staged_diff
-//	...git diff...
-//	<|file_sep|>path/to/current.go
-//	<|fim_prefix|>...prefix...<|fim_suffix|>...suffix...<|fim_middle|>
-//
-// 2. Prompt+suffix (FIMTokens is nil). The provider sends the text before the
-// cursor as `prompt` and the text after as `suffix` on the OpenAI completions
-// API (e.g. DeepSeek). No cross-file context is added in this mode.
-//
-// Lines are trimmed to a window around the cursor before the prompt is rendered.
+// Package fim implements fill-in-the-middle completion.
 package fim
 
 import (
@@ -46,27 +16,26 @@ import (
 
 // NewProvider creates a new fill-in-the-middle completion provider
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	p := &provider.Provider{
-		Name:         "fim",
-		Config:       config,
-		Client:       openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Completion:   engine.CompletionFIM,
-		Materials:    sourcectx.Materials{sourcectx.Treesitter{}},
-		BuildRequest: buildRequest,
-		ParseResult:  parseResult,
-	}
-
+	materials := sourcectx.Materials{sourcectx.Treesitter{}}
 	if config.FIMTokens != nil && config.FIMTokens.FileSep != "" {
-		p.Materials = append(p.Materials,
+		materials = append(materials,
 			sourcectx.Diagnostics{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
 		)
 	}
 
-	return p
+	return provider.NewProvider(
+		"fim",
+		config,
+		openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		engine.CompletionFIM,
+		materials,
+		buildRequest,
+		parseResult,
+	)
 }
 
-func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
+func buildRequest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
 	// Build prefix and suffix content (common to both modes)
 	var prefixContent strings.Builder
 	var suffixContent strings.Builder
@@ -90,20 +59,20 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 		}
 	}
 
-	tokens := p.Config.FIMTokens
+	tokens := p.Config().FIMTokens
 
 	// Prompt+suffix mode (OpenAI completions API style): fim_tokens not configured
 	if tokens == nil {
-		return provider.PreparedRequest{Completion: &openai.CompletionRequest{
-			Model:       p.Config.ProviderModel,
+		return &openai.CompletionRequest{
+			Model:       p.Config().ProviderModel,
 			Prompt:      prefixContent.String(),
 			Suffix:      suffixContent.String(),
-			Temperature: p.Config.ProviderTemperature,
-			MaxTokens:   p.Config.ProviderMaxTokens,
-			TopK:        p.Config.ProviderTopK,
+			Temperature: p.Config().ProviderTemperature,
+			MaxTokens:   p.Config().ProviderMaxTokens,
+			TopK:        p.Config().ProviderTopK,
 			N:           1,
 			Echo:        false,
-		}}
+		}
 	}
 
 	// Tokenized FIM mode: concatenate tokens into a single prompt
@@ -125,24 +94,24 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 		stop = append(stop, tokens.FileSep)
 	}
 
-	return provider.PreparedRequest{Completion: &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
+	return &openai.CompletionRequest{
+		Model:       p.Config().ProviderModel,
 		Prompt:      prompt.String(),
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
+		Temperature: p.Config().ProviderTemperature,
+		MaxTokens:   p.Config().ProviderMaxTokens,
+		TopK:        p.Config().ProviderTopK,
 		Stop:        stop,
 		N:           1,
 		Echo:        false,
-	}}
+	}
 }
 
 // buildRepoContext prepends cross-file context using repo-level FIM tokens.
 func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.RequestState) {
 	input := ctx.Input
 	current := input.Current
-	fileSep := p.Config.FIMTokens.FileSep
-	repoName := p.Config.FIMTokens.RepoName
+	fileSep := p.Config().FIMTokens.FileSep
+	repoName := p.Config().FIMTokens.RepoName
 
 	// Repo name header
 	workspace := filepath.Base(current.WorkspacePath)
@@ -216,20 +185,25 @@ func buildRepoContext(b *strings.Builder, p *provider.Provider, ctx *provider.Re
 }
 
 func parseResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	if resp, done := provider.RejectEmptyResult(p, result); done {
+	text := result.Text
+	if resp, done := provider.RejectEmptyText(p, text); done {
 		return resp
 	}
-	if resp, done := provider.StripRepetitionResult(p, result); done {
+	if stripped, resp, done := provider.StripRepetitionText(p, text); done {
 		return resp
+	} else {
+		text = stripped
 	}
-	if resp, done := dropLastLineIfTruncatedResult(p, result); done {
+	if trimmed, resp, done := dropLastLineIfTruncatedText(p, text, result.FinishReason, result.StoppedEarly); done {
 		return resp
+	} else {
+		text = trimmed
 	}
-	if resp, done := rejectLeadingNewlineWithSuffixResult(p, ctx, result); done {
+	if resp, done := rejectLeadingNewlineWithSuffixText(p, ctx, text); done {
 		return resp
 	}
 
-	completionText := result.Text
+	completionText := text
 	current := ctx.Input.Current
 
 	currentLine := ""
@@ -279,31 +253,31 @@ func parseResult(p *provider.Provider, ctx *provider.RequestState, result *opena
 	return p.BuildCompletion(ctx, current.Cursor.Row, current.Cursor.Row, resultLines)
 }
 
-func dropLastLineIfTruncatedResult(p *provider.Provider, result *openai.StreamResult) (*types.CompletionResponse, bool) {
-	if result.FinishReason != "length" && !result.StoppedEarly {
-		return nil, false
+func dropLastLineIfTruncatedText(p *provider.Provider, text, finishReason string, stoppedEarly bool) (string, *types.CompletionResponse, bool) {
+	if finishReason != "length" && !stoppedEarly {
+		return text, nil, false
 	}
 
-	lines := strings.Split(result.Text, "\n")
+	lines := strings.Split(text, "\n")
 	originalLineCount := len(lines)
 	if len(lines) <= 1 {
-		logger.Info("%s: rejected, truncated single line", p.Name)
-		return p.EmptyResponse(), true
+		logger.Info("fim: rejected, truncated single line")
+		return text, p.EmptyResponse(), true
 	}
 
 	lines = lines[:len(lines)-1]
-	result.Text = strings.Join(lines, "\n")
-	if strings.TrimSpace(result.Text) == "" {
-		logger.Info("%s: rejected, empty after dropping truncated line", p.Name)
-		return p.EmptyResponse(), true
+	text = strings.Join(lines, "\n")
+	if strings.TrimSpace(text) == "" {
+		logger.Info("fim: rejected, empty after dropping truncated line")
+		return text, p.EmptyResponse(), true
 	}
 
 	logger.Info("%s: truncated, dropped last line (%d -> %d lines)",
-		p.Name, originalLineCount, len(lines))
-	return nil, false
+		"fim", originalLineCount, len(lines))
+	return text, nil, false
 }
 
-func rejectLeadingNewlineWithSuffixResult(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) (*types.CompletionResponse, bool) {
+func rejectLeadingNewlineWithSuffixText(p *provider.Provider, ctx *provider.RequestState, text string) (*types.CompletionResponse, bool) {
 	current := ctx.Input.Current
 	if current.Cursor.Row < 1 || current.Cursor.Row > len(current.File.Lines) {
 		return nil, false
@@ -312,7 +286,7 @@ func rejectLeadingNewlineWithSuffixResult(p *provider.Provider, ctx *provider.Re
 	currentLine := current.File.Lines[current.Cursor.Row-1]
 	cursorCol := min(current.Cursor.Col, len(currentLine))
 	atEOL := cursorCol >= len(strings.TrimRight(currentLine, " \t"))
-	if !atEOL || !strings.HasPrefix(result.Text, "\n") {
+	if !atEOL || !strings.HasPrefix(text, "\n") {
 		return nil, false
 	}
 

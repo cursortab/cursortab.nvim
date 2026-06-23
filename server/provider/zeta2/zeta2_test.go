@@ -555,15 +555,7 @@ func TestWriteGitDiffPseudoFile_Format(t *testing.T) {
 	assert.True(t, strings.Contains(out, "+new"), "diff body included")
 }
 
-// --- Integration: all materials together ---
-
 // --- Cursor-marker streaming strip & CursorTarget capture ---
-
-func TestAssemblePrompt_SetsCursorMarker(t *testing.T) {
-	p := newTestProvider()
-
-	assert.Equal(t, cursorMarker, p.StreamCursorMarker, "provider configures stream marker")
-}
 
 func TestBuildCursorTarget_BasicOffsetTranslation(t *testing.T) {
 	ctx := &provider.RequestState{

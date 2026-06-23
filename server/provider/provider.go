@@ -33,6 +33,13 @@ type requestBuilder func(p *Provider, ctx *RequestState) PreparedRequest
 type resultParser func(p *Provider, ctx *RequestState, result *openai.StreamResult) *types.CompletionResponse
 type streamResultParser func(p *Provider, ctx *StreamState, result *openai.StreamResult) *types.CompletionResponse
 
+type lineStreamMode struct {
+	stopTokens         []string
+	firstLineValidator firstLineValidator
+	cursorMarker       string
+	parseStreamResult  streamResultParser
+}
+
 // PreparedRequest is the provider request plus response/stream handling facts
 // derived while rendering that request.
 type PreparedRequest struct {
@@ -80,19 +87,15 @@ func (c *StreamState) CursorMarkerPosition() (int, bool) {
 
 // Provider implements engine.Provider with provider-specific render and parse functions.
 type Provider struct {
-	Name               string
-	Config             *types.ProviderConfig
-	Client             client
-	Completion         engine.CompletionKind
-	InputAuthority     engine.CompletionInputAuthority
-	LineStreaming      bool
-	BuildRequest       requestBuilder
-	ParseResult        resultParser
-	ParseStreamResult  streamResultParser
-	StreamCursorMarker string
-	FirstLineValidator firstLineValidator
-	StopTokens         []string // Stop tokens for streaming (provider-specific)
-	Materials          ctx.Materials
+	Name           string
+	Config         *types.ProviderConfig
+	Client         client
+	Completion     engine.CompletionKind
+	InputAuthority engine.CompletionInputAuthority
+	BuildRequest   requestBuilder
+	ParseResult    resultParser
+	lineStream     *lineStreamMode
+	Materials      ctx.Materials
 }
 
 func (p *Provider) CompletionKind() engine.CompletionKind {
@@ -105,6 +108,16 @@ func (p *Provider) CompletionInputAuthority() engine.CompletionInputAuthority {
 
 func (p *Provider) RequiredMaterials() ctx.Materials {
 	return p.Materials
+}
+
+func (p *Provider) UseLineStream(stopTokens []string, validator firstLineValidator, cursorMarker string, parser streamResultParser) *Provider {
+	p.lineStream = &lineStreamMode{
+		stopTokens:         stopTokens,
+		firstLineValidator: validator,
+		cursorMarker:       cursorMarker,
+		parseStreamResult:  parser,
+	}
+	return p
 }
 
 // SetHTTPTransport forwards the transport override to the underlying client
@@ -232,10 +245,13 @@ func (p *Provider) logResponse(result *openai.StreamResult) {
 }
 
 func (p *Provider) StreamsLines() bool {
-	return p.LineStreaming
+	return p.lineStream != nil
 }
 
 func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.CompletionRequest, *StreamState, engine.LineStreamConfig, int, error) {
+	if p.lineStream == nil {
+		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: line streaming is not configured", p.Name)
+	}
 	if p.BuildRequest == nil {
 		return nil, nil, engine.LineStreamConfig{}, 0, fmt.Errorf("%s: request flow is not configured", p.Name)
 	}
@@ -248,7 +264,7 @@ func (p *Provider) prepareStreamInput(input ctx.CompletionInput) (*openai.Comple
 	prepared := p.BuildRequest(p, state)
 	pctx := &StreamState{
 		RequestState: state,
-		cursorMarker: p.StreamCursorMarker,
+		cursorMarker: p.lineStream.cursorMarker,
 	}
 	streamConfig := engine.LineStreamConfig{
 		WindowStart: state.WindowStart,
@@ -276,8 +292,8 @@ func (p *Provider) finishStream(providerState engine.ProviderStreamState, result
 		return p.EmptyResponse(), fmt.Errorf("%s: result parser is not configured", p.Name)
 	}
 
-	if p.ParseStreamResult != nil {
-		return p.ParseStreamResult(p, pctx, result), nil
+	if p.lineStream != nil && p.lineStream.parseStreamResult != nil {
+		return p.lineStream.parseStreamResult(p, pctx, result), nil
 	}
 
 	return p.ParseResult(p, pctx.RequestState, result), nil
@@ -290,7 +306,7 @@ func (p *Provider) PrepareLineStream(ctx context.Context, input ctx.CompletionIn
 		return nil, pctx, streamConfig, err
 	}
 	p.logRequest(completionReq, maxLines)
-	return p.Client.DoLineStream(ctx, completionReq, maxLines, p.StopTokens), pctx, streamConfig, nil
+	return p.Client.DoLineStream(ctx, completionReq, maxLines, p.lineStream.stopTokens), pctx, streamConfig, nil
 }
 
 func (p *Provider) ValidateFirstLine(providerState engine.ProviderStreamState, firstLine string) error {
@@ -299,8 +315,8 @@ func (p *Provider) ValidateFirstLine(providerState engine.ProviderStreamState, f
 		return fmt.Errorf("invalid provider context type")
 	}
 
-	if p.FirstLineValidator != nil {
-		if err := p.FirstLineValidator(p, pctx, firstLine); err != nil {
+	if p.lineStream != nil && p.lineStream.firstLineValidator != nil {
+		if err := p.lineStream.firstLineValidator(p, pctx, firstLine); err != nil {
 			logger.Debug("%s: first line validation failed: %v", p.Name, err)
 			return err
 		}

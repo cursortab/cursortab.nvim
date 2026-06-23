@@ -59,22 +59,22 @@ const (
 	broadContextLinesAfter  = 150
 )
 
+var stopTokens = []string{"<|file_sep|>", "<|endoftext|>"}
+
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	return &provider.Provider{
-		Name:          "sweep",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Completion:    engine.CompletionEdit,
-		LineStreaming: true,
+	p := &provider.Provider{
+		Name:       "sweep",
+		Config:     config,
+		Client:     openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		Completion: engine.CompletionEdit,
 		Materials: sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{}, sourcectx.UserActions{},
 		},
-		BuildRequest:       buildRequest,
-		ParseResult:        parseResult,
-		FirstLineValidator: provider.ValidateFirstLineAnchor(0.25),
-		StopTokens:         []string{"<|file_sep|>", "<|endoftext|>"},
+		BuildRequest: buildRequest,
+		ParseResult:  parseResult,
 	}
+	return p.UseLineStream(stopTokens, provider.ValidateFirstLineAnchor(0.25), "", nil)
 }
 
 func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
@@ -100,7 +100,7 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 			Temperature: p.Config.ProviderTemperature,
 			MaxTokens:   p.Config.ProviderMaxTokens,
 			TopK:        p.Config.ProviderTopK,
-			Stop:        p.StopTokens,
+			Stop:        stopTokens,
 			N:           1,
 			Echo:        false,
 		}}
@@ -202,7 +202,7 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 			Temperature: p.Config.ProviderTemperature,
 			MaxTokens:   p.Config.ProviderMaxTokens,
 			TopK:        p.Config.ProviderTopK,
-			Stop:        p.StopTokens,
+			Stop:        stopTokens,
 			N:           1,
 			Echo:        false,
 		},

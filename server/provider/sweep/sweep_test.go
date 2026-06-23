@@ -131,7 +131,7 @@ func TestParseCompletion_WithChange(t *testing.T) {
 	assert.True(t, len(resp.Completions) > 0, "should have completions")
 }
 
-func TestParseCompletion_StripsStopTokens(t *testing.T) {
+func TestParseCompletion_StripsStopMarkers(t *testing.T) {
 	config := &types.ProviderConfig{
 		ProviderModel: "test-model",
 	}

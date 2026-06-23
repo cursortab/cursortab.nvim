@@ -270,7 +270,7 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 	assert.Equal(t, "<PRE>hello<SUF> world<MID>", req.Prompt, "should be plain FIM prompt")
 }
 
-func TestBuildPrompt_RepoContextStopTokens(t *testing.T) {
+func TestBuildPrompt_RepoContextStops(t *testing.T) {
 	config := &types.ProviderConfig{
 		ProviderModel: "test-model",
 		FIMTokens: &types.FIMTokenConfig{

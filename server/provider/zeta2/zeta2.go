@@ -81,24 +81,23 @@ const (
 	maxEditHistoryEvents = 6
 )
 
+var stopTokens = []string{endMarker, strings.TrimSuffix(endMarker, "\n")}
+
 // NewProvider creates a new Zeta2 provider (Zed's SeedCoder-8B model).
 func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	return &provider.Provider{
-		Name:          "zeta-2",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		Completion:    engine.CompletionEdit,
-		LineStreaming: true,
+	p := &provider.Provider{
+		Name:       "zeta-2",
+		Config:     config,
+		Client:     openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		Completion: engine.CompletionEdit,
 		Materials: sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
 		},
-		BuildRequest:       buildRequest,
-		ParseResult:        parseResult,
-		ParseStreamResult:  parseStreamResult,
-		StopTokens:         []string{endMarker, strings.TrimSuffix(endMarker, "\n")},
-		StreamCursorMarker: cursorMarker,
+		BuildRequest: buildRequest,
+		ParseResult:  parseResult,
 	}
+	return p.UseLineStream(stopTokens, nil, cursorMarker, parseStreamResult)
 }
 
 func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.PreparedRequest {
@@ -111,7 +110,7 @@ func buildRequest(p *provider.Provider, ctx *provider.RequestState) provider.Pre
 			Temperature: p.Config.ProviderTemperature,
 			MaxTokens:   p.Config.ProviderMaxTokens,
 			TopK:        p.Config.ProviderTopK,
-			Stop:        p.StopTokens,
+			Stop:        stopTokens,
 			N:           1,
 			Echo:        false,
 		},

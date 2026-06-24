@@ -3,45 +3,29 @@ package ctx
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 )
 
-// CollectTimeout is the maximum time allowed for all context materials to complete.
-const CollectTimeout = 200 * time.Millisecond
+// cooperativeCollectTimeout is passed to material collectors that honor context
+// cancellation.
+const cooperativeCollectTimeout = 200 * time.Millisecond
 
-// Collect executes the requested materials with one shared timeout.
+// Collect executes the requested materials in order with one shared context.
 func Collect(parent context.Context, input ContextSourceInput, requirements Materials) (Materials, error) {
 	if len(requirements) == 0 {
 		return nil, nil
 	}
 
-	ctx, cancel := context.WithTimeout(parent, CollectTimeout)
+	ctx, cancel := context.WithTimeout(parent, cooperativeCollectTimeout)
 	defer cancel()
 
 	collected := make(Materials, len(requirements))
-	errs := make([]error, len(requirements))
-
-	var wg sync.WaitGroup
-	wg.Add(len(requirements))
 	for i, requirement := range requirements {
-		i, requirement := i, requirement
-		go func() {
-			defer wg.Done()
-			material, err := requirement.collect(ctx, input)
-			if err != nil {
-				errs[i] = fmt.Errorf("context material %T: %w", requirement, err)
-				return
-			}
-			collected[i] = material
-		}()
-	}
-	wg.Wait()
-
-	for _, err := range errs {
+		material, err := requirement.collect(ctx, input)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("context material %T: %w", requirement, err)
 		}
+		collected[i] = material
 	}
 	return collected, nil
 }

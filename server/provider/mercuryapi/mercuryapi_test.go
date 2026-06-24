@@ -29,11 +29,10 @@ func completionInputForTest(filePath string, lines []string, cursorRow int, curs
 	}
 }
 
-func startCompletionForTest(t *testing.T, provider *Provider, input sourcectx.CompletionInput) *types.CompletionResponse {
+func completeForTest(t *testing.T, provider *Provider, input sourcectx.CompletionInput) *types.CompletionResponse {
 	t.Helper()
-	resp, stream, err := provider.StartCompletion(context.Background(), input, false)
-	assert.NoError(t, err, "StartCompletion")
-	assert.Nil(t, stream, "stream")
+	resp, err := provider.Complete(context.Background(), input)
+	assert.NoError(t, err, "Complete")
 	return resp
 }
 
@@ -299,7 +298,7 @@ func TestFormatDiffHistories(t *testing.T) {
 	}
 }
 
-func TestProviderStartCompletion(t *testing.T) {
+func TestProviderComplete(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req mercuryapi.Request
@@ -328,14 +327,14 @@ func TestProviderStartCompletion(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
+	resp := completeForTest(t, provider, completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
 	assert.NotNil(t, resp.Completion, "completions count")
 	assert.Equal(t, 1, resp.Completion.StartLine, "start line")
 	assert.Equal(t, 1, resp.Completion.EndLineInc, "end line")
 	assert.Equal(t, []string{"func updated() {}"}, resp.Completion.Lines, "lines")
 }
 
-func TestProviderStartCompletionUsesConfiguredModel(t *testing.T) {
+func TestProviderCompleteUsesConfiguredModel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req mercuryapi.Request
@@ -356,10 +355,10 @@ func TestProviderStartCompletionUsesConfiguredModel(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
+	completeForTest(t, provider, completionInputForTest("test.go", []string{"func original() {}"}, 1, 5))
 }
 
-func TestProviderStartCompletionEmpty(t *testing.T) {
+func TestProviderCompleteEmpty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := mercuryapi.Response{
 			ID:      "resp-123",
@@ -374,11 +373,11 @@ func TestProviderStartCompletionEmpty(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"code"}, 1, 0))
+	resp := completeForTest(t, provider, completionInputForTest("test.go", []string{"code"}, 1, 0))
 	assert.Nil(t, resp.Completion, "should be empty")
 }
 
-func TestProviderStartCompletionNoOp(t *testing.T) {
+func TestProviderCompleteNoOp(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Return same content as input (no-op)
 		resp := mercuryapi.Response{
@@ -394,14 +393,14 @@ func TestProviderStartCompletionNoOp(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"unchanged"}, 1, 0))
+	resp := completeForTest(t, provider, completionInputForTest("test.go", []string{"unchanged"}, 1, 0))
 	assert.Nil(t, resp.Completion, "should be empty for no-op")
 }
 
 func TestProviderEmptyLines(t *testing.T) {
 	provider := NewProvider(&types.ProviderConfig{})
 
-	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{}, 1, 0))
+	resp := completeForTest(t, provider, completionInputForTest("test.go", []string{}, 1, 0))
 	assert.Nil(t, resp.Completion, "should be empty")
 }
 
@@ -526,7 +525,7 @@ func TestMultilineCompletion(t *testing.T) {
 		CompletionTimeout: 30000,
 	})
 
-	resp := startCompletionForTest(t, provider, completionInputForTest("test.go", []string{"original"}, 1, 0))
+	resp := completeForTest(t, provider, completionInputForTest("test.go", []string{"original"}, 1, 0))
 	assert.NotNil(t, resp.Completion, "completions count")
 	assert.Equal(t, 3, len(resp.Completion.Lines), "should have 3 lines")
 	assert.Equal(t, "line1", resp.Completion.Lines[0], "first line")

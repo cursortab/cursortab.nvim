@@ -154,9 +154,9 @@ func (e *Engine) handleStreamCompleteSimple() {
 
 	// If the first stage matches a recent rejection, drop everything.
 	// Important: if we already rendered a stage during streaming, ghost text
-	// and applyBatch are live; a plain state flip would leave them visible
+	// and display batch are live; a plain state flip would leave them visible
 	// with no (idle, accept) transition, so Tab would do nothing. Route
-	// through reject() so ClearUI and completion/applyBatch cleanup happen.
+	// through reject() so ClearUI and completion/display batch cleanup happen.
 	firstStage := stagingResult.Stages[0]
 	if e.suppressRejectedCompletionForStage(firstStage, ss.Manual) {
 		e.reject()
@@ -217,16 +217,14 @@ func (e *Engine) handleStreamCompleteAfterAccept(resp *types.CompletionResponse,
 	distance := utils.Abs(targetLine - e.buffer.Row())
 
 	if distance <= e.config.CursorPrediction.ProximityThreshold {
-		e.prefetchedResponse = &prefetchedCompletion{CompletionResponse: resp, Manual: manual}
-		e.prefetchState = prefetchReady
+		e.storeReadyPrefetch(resp, manual)
 		e.tryShowPrefetchedCompletionWithManual(manual)
 	} else {
 		e.showCursorTargetWithCandidate(&types.CursorPredictionTarget{
 			LineNumber:      int32(targetLine),
 			ShouldRetrigger: false,
 		}, e.rejectedCompletionFor(comp))
-		e.prefetchedResponse = &prefetchedCompletion{CompletionResponse: resp, Manual: manual}
-		e.prefetchState = prefetchReady
+		e.storeReadyPrefetch(resp, manual)
 	}
 }
 
@@ -244,28 +242,8 @@ func (e *Engine) renderStreamedStage(stage *text.Stage) bool {
 		return false
 	}
 
-	e.applyBatch = e.buffer.PrepareCompletion(
-		stage.BufferStart,
-		stage.BufferEnd,
-		stage.Lines,
-		stage.Groups,
-	)
-
-	bufferLines := e.buffer.Lines()
-	e.completionOriginalLines = nil
-	for i := stage.BufferStart; i <= stage.BufferEnd && i-1 < len(bufferLines); i++ {
-		e.completionOriginalLines = append(e.completionOriginalLines, bufferLines[i-1])
-	}
-
-	e.completions = []*types.Completion{{
-		StartLine:  stage.BufferStart,
-		EndLineInc: stage.BufferEnd,
-		Lines:      stage.Lines,
-	}}
 	e.cursorTarget = stage.CursorTarget
-	e.currentRejectedCompletion = e.currentRejectedCompletionCandidate()
-
-	e.currentGroups = stage.Groups
+	e.setDisplayedStage(stage, stage.Groups)
 
 	return true
 }

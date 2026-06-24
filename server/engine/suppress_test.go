@@ -537,11 +537,11 @@ func TestRejectedCompletionSuppression_LRUCapPerFile(t *testing.T) {
 
 	// Seed more than the cap directly through rememberRejectedCompletion.
 	for i := 0; i < rejectedCompletionMaxPerFile+5; i++ {
-		eng.currentRejectedCompletion = &rejectedCompletion{
+		eng.display.setRejectionCandidate(&rejectedCompletion{
 			filePath:  buf.Path(),
 			startLine: i + 1,
 			lines:     []string{"x"},
-		}
+		})
 		eng.rememberRejectedCompletion()
 	}
 
@@ -705,7 +705,7 @@ func TestRejectedCompletionSuppression_CursorTargetTypingCachesRejection(t *test
 
 	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial cursor target shown")
 	assert.Equal(t, stateHasCursorTarget, eng.state, "should be in cursor target state")
-	assert.NotNil(t, eng.currentRejectedCompletion, "candidate captured for cursor target")
+	assert.NotNil(t, eng.display.rejectionCandidate(), "candidate captured for cursor target")
 
 	// EventTextChanged from stateHasCursorTarget is dispatched as
 	// doRejectAndDebounce by the state machine.

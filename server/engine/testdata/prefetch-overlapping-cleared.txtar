@@ -16,7 +16,7 @@ stash-prefetch 2-2
   | "  return a + b;"
 
 accept
-expect state=idle prefetchState=waitingForCursorPrediction
+expect state=idle prefetchStatus=waitingForCursorPrediction
   buffer:
     | "function add(a, b) {"
     | "  return a + b;"

@@ -41,39 +41,23 @@ const (
 	CurrentFilePathPrefix       = "current_file_path: "
 )
 
-// Provider implements engine.Provider for the hosted Mercury API. Mercury has
-// its own request and feedback schema, so it implements the engine contract
-// directly instead of using the OpenAI-compatible provider base.
 type Provider struct {
+	provider.Base
 	config *types.ProviderConfig
 	client *mercuryapi.Client
 }
 
 var _ engine.Provider = (*Provider)(nil)
+var _ provider.CompletionFlow[*mercuryapi.Request, *mercuryapi.Response] = (*Provider)(nil)
 
-// NewProvider creates a new Mercury API provider
 func NewProvider(config *types.ProviderConfig) *Provider {
 	return &Provider{
+		Base: provider.NewBase(engine.CompletionEdit, sourcectx.Materials{
+			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
+		}),
 		config: config,
 		client: mercuryapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
-	}
-}
-
-func (p *Provider) CompletionKind() engine.CompletionKind {
-	return engine.CompletionEdit
-}
-
-func (p *Provider) CompletionInputAuthority() engine.CompletionInputAuthority {
-	return engine.InputSuppliedCurrent
-}
-
-func (p *Provider) RequiredMaterials() sourcectx.Materials {
-	return sourcectx.Materials{
-		sourcectx.Diagnostics{},
-		sourcectx.Treesitter{},
-		sourcectx.GitDiff{},
-		sourcectx.RecentFiles{},
-		sourcectx.EditHistory{},
 	}
 }
 
@@ -83,7 +67,6 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 	p.client.SetHTTPTransport(rt)
 }
 
-// SendMetric implements metrics.Sender
 func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	var action mercuryapi.FeedbackAction
 	switch event.Type {
@@ -111,44 +94,44 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	}
 }
 
-func (p *Provider) StartCompletion(ctx context.Context, input sourcectx.CompletionInput, allowStream bool) (*types.CompletionResponse, engine.CompletionStream, error) {
-	defer logger.Trace("mercuryapi.StartCompletion")()
-	current := input.Current
+func (p *Provider) Complete(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
+	if len(input.Current.File.Lines) == 0 {
+		return provider.EmptyResponse(), nil
+	}
+	return provider.StartBatch(ctx, input, nil, p)
+}
+
+func (p *Provider) Build(state *provider.RequestState) (*mercuryapi.Request, error) {
+	current := state.Input.Current
 	lines := current.File.Lines
 
 	if len(lines) == 0 {
-		return &types.CompletionResponse{}, nil, nil
+		return nil, fmt.Errorf("mercuryapi: empty current file")
 	}
 
-	// Calculate editable and context regions
-	var syntaxRanges []*types.LineRange
-	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok && treesitter.Data != nil {
-		syntaxRanges = treesitter.Data.SyntaxRanges
-	}
-	editableStart, editableEnd, contextStart, contextEnd := computeRegions(lines, current.Cursor.Row, syntaxRanges)
+	editableStart, editableEnd, contextStart, contextEnd := computeRegionsForState(state)
 
 	var diffHistories []*types.FileDiffHistory
-	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](state.Input.Materials); ok {
 		diffHistories = editHistory.Files
 	}
 	var recentSnapshots []*types.RecentBufferSnapshot
-	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](state.Input.Materials); ok {
 		recentSnapshots = recentFiles.Files
 	}
 	var diagnostics *types.Diagnostics
-	if diagnosticsMaterial, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
+	if diagnosticsMaterial, ok := sourcectx.Find[sourcectx.Diagnostics](state.Input.Materials); ok {
 		diagnostics = diagnosticsMaterial.Data
 	}
 	var treesitter *types.TreesitterContext
-	if treesitterMaterial, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok {
+	if treesitterMaterial, ok := sourcectx.Find[sourcectx.Treesitter](state.Input.Materials); ok {
 		treesitter = treesitterMaterial.Data
 	}
 	var gitDiff *types.GitDiffContext
-	if gitDiffMaterial, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok {
+	if gitDiffMaterial, ok := sourcectx.Find[sourcectx.GitDiff](state.Input.Materials); ok {
 		gitDiff = gitDiffMaterial.Data
 	}
 
-	// Build the prompt
 	prompt := buildPrompt(
 		current.File.Path,
 		lines,
@@ -162,7 +145,6 @@ func (p *Provider) StartCompletion(ctx context.Context, input sourcectx.Completi
 		gitDiff,
 	)
 
-	// Build API request
 	model := p.config.ProviderModel
 	if model == "" {
 		model = mercuryapi.Model
@@ -177,28 +159,41 @@ func (p *Provider) StartCompletion(ctx context.Context, input sourcectx.Completi
 	}
 
 	p.logRequest(apiReq, editableStart, editableEnd, contextStart, contextEnd)
+	return apiReq, nil
+}
 
-	apiResp, err := p.client.DoCompletion(ctx, apiReq)
-	if err != nil {
-		return nil, nil, err
+func (p *Provider) Call(ctx context.Context, req *mercuryapi.Request) (*mercuryapi.Response, error) {
+	if req == nil {
+		return nil, fmt.Errorf("mercuryapi: nil request")
 	}
+	apiResp, err := p.client.DoCompletion(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return apiResp, nil
+}
 
-	completionText := mercuryapi.ExtractCompletion(apiResp)
+func (p *Provider) Parse(state *provider.RequestState, response *mercuryapi.Response) (*types.CompletionResponse, error) {
+	if response == nil {
+		return nil, fmt.Errorf("mercuryapi: nil response")
+	}
+	completionText := mercuryapi.ExtractCompletion(response)
 
-	p.logResponse(apiResp, completionText)
+	p.logResponse(response, completionText)
 
 	if completionText == "" {
-		return &types.CompletionResponse{}, nil, nil
+		return &types.CompletionResponse{}, nil
 	}
 
 	newLines := strings.Split(completionText, "\n")
+	editableStart, editableEnd, _, _ := computeRegionsForState(state)
+	lines := state.Input.Current.File.Lines
 
 	originalEditable := lines[editableStart-1 : editableEnd]
 	if slices.Equal(newLines, originalEditable) {
-		return &types.CompletionResponse{}, nil, nil
+		return &types.CompletionResponse{}, nil
 	}
 
-	// Calculate metrics info for the engine
 	additions, deletions := countChanges(editableEnd-editableStart+1, len(newLines))
 
 	return &types.CompletionResponse{
@@ -208,11 +203,20 @@ func (p *Provider) StartCompletion(ctx context.Context, input sourcectx.Completi
 			Lines:      newLines,
 		},
 		MetricsInfo: &types.MetricsInfo{
-			ID:        apiResp.ID,
+			ID:        response.ID,
 			Additions: additions,
 			Deletions: deletions,
 		},
-	}, nil, nil
+	}, nil
+}
+
+func computeRegionsForState(state *provider.RequestState) (editableStart, editableEnd, contextStart, contextEnd int) {
+	var syntaxRanges []*types.LineRange
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](state.Input.Materials); ok && treesitter.Data != nil {
+		syntaxRanges = treesitter.Data.SyntaxRanges
+	}
+	current := state.Input.Current
+	return computeRegions(current.File.Lines, current.Cursor.Row, syntaxRanges)
 }
 
 func (p *Provider) logRequest(req *mercuryapi.Request, editableStart, editableEnd, contextStart, contextEnd int) {
@@ -241,7 +245,6 @@ func (p *Provider) logResponse(resp *mercuryapi.Response, completionText string)
 		completionText)
 }
 
-// countChanges calculates additions and deletions based on line counts.
 func countChanges(oldLineCount, newLineCount int) (additions, deletions int) {
 	return max(newLineCount, 1), max(oldLineCount, 1)
 }
@@ -265,7 +268,6 @@ func computeRegions(lines []string, cursorRow int, syntaxRanges []*types.LineRan
 
 	cursorIdx := cursorRow - 1 // 0-indexed
 
-	// Calculate editable region (expand around cursor within char budget)
 	editableStart, editableEnd := expandRegion(lines, cursorIdx, MaxRewriteChars)
 
 	// Snap editable region to syntax boundaries if available
@@ -341,7 +343,6 @@ func expandRegionAround(lines []string, regionStart, regionEnd int, maxChars int
 	start := regionStart
 	end := regionEnd
 
-	// Calculate chars in region
 	chars := 0
 	for i := start; i <= end && i < len(lines); i++ {
 		chars += len(lines[i]) + 1

@@ -90,6 +90,7 @@ import (
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
+	"cursortab/provider"
 	"cursortab/types"
 )
 
@@ -281,36 +282,35 @@ type windsurfAcceptRequest struct {
 	CompletionID string           `json:"completion_id"`
 }
 
-// Provider implements engine.Provider through the local Windsurf/Codeium
-// language server bridge. The bridge has its own request shape and auth lookup,
-// so this provider implements the engine contract directly.
 type Provider struct {
+	provider.Base
 	buffer     InfoProvider
 	httpClient *http.Client
 	reqCounter int64
 }
 
 var _ engine.Provider = (*Provider)(nil)
+var _ provider.CompletionFlow[*windsurfRequestPayload, *windsurfRawResult] = (*Provider)(nil)
+
+type windsurfRequestPayload struct {
+	ready bool
+	url   string
+	body  []byte
+}
+
+type windsurfRawResult struct {
+	ready    bool
+	response *windsurfResponse
+}
 
 func NewProvider(buf InfoProvider) *Provider {
 	return &Provider{
+		Base:   provider.NewBase(engine.CompletionEdit, nil),
 		buffer: buf,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
-}
-
-func (p *Provider) CompletionKind() engine.CompletionKind {
-	return engine.CompletionEdit
-}
-
-func (p *Provider) CompletionInputAuthority() engine.CompletionInputAuthority {
-	return engine.InputSuppliedCurrent
-}
-
-func (p *Provider) RequiredMaterials() ctx.Materials {
-	return nil
 }
 
 func (p *Provider) nextRequestID() int {
@@ -321,63 +321,94 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 	p.httpClient.Transport = rt
 }
 
-func (p *Provider) StartCompletion(reqCtx context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, engine.CompletionStream, error) {
-	defer logger.Trace("windsurf.StartCompletion")()
-	current := input.Current
+func (p *Provider) Complete(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+	return provider.StartBatch(reqCtx, input, nil, p)
+}
 
+func (p *Provider) Build(state *provider.RequestState) (*windsurfRequestPayload, error) {
+	info, ready, err := p.windsurfInfo()
+	if err != nil {
+		return nil, err
+	}
+	if !ready {
+		return &windsurfRequestPayload{}, nil
+	}
+	return p.build(state, info)
+}
+
+func (p *Provider) windsurfInfo() (*buffer.WindsurfInfo, bool, error) {
 	info, err := p.buffer.GetWindsurfInfo()
 	if err != nil {
-		logger.Error("failed to get windsurf info: %v", err)
-		return p.emptyResponse(), nil, nil
+		return nil, false, fmt.Errorf("windsurf info: %w", err)
 	}
 	if info == nil || !info.Healthy {
 		logger.Debug("windsurf: server not healthy")
-		return p.emptyResponse(), nil, nil
+		return nil, false, nil
 	}
+	return info, true, nil
+}
+
+func (p *Provider) build(state *provider.RequestState, info *buffer.WindsurfInfo) (*windsurfRequestPayload, error) {
+	current := state.Input.Current
 
 	wsReq := buildWindsurfRequest(info, current, p.nextRequestID())
 
 	body, err := json.Marshal(wsReq)
 	if err != nil {
-		logger.Error("windsurf: failed to marshal request: %v", err)
-		return p.emptyResponse(), nil, nil
+		return nil, fmt.Errorf("marshal windsurf request: %w", err)
 	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCompletions", info.Port)
+	return &windsurfRequestPayload{ready: true, url: url, body: body}, nil
+}
 
-	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(body))
+func (p *Provider) Call(reqCtx context.Context, payload *windsurfRequestPayload) (*windsurfRawResult, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("windsurf: nil request")
+	}
+	if !payload.ready {
+		return &windsurfRawResult{}, nil
+	}
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, payload.url, bytes.NewReader(payload.body))
 	if err != nil {
-		logger.Error("windsurf: failed to create request: %v", err)
-		return p.emptyResponse(), nil, nil
+		return nil, fmt.Errorf("create windsurf request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
-		logger.Debug("windsurf: request failed: %v", err)
-		return p.emptyResponse(), nil, nil
+		return nil, fmt.Errorf("windsurf request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		logger.Debug("windsurf: non-200 response %d: %s", resp.StatusCode, string(respBody))
-		return p.emptyResponse(), nil, nil
+		return nil, fmt.Errorf("windsurf response %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var wsResp windsurfResponse
 	if err := json.NewDecoder(resp.Body).Decode(&wsResp); err != nil {
-		logger.Error("windsurf: failed to decode response: %v", err)
-		return p.emptyResponse(), nil, nil
+		return nil, fmt.Errorf("decode windsurf response: %w", err)
+	}
+	return &windsurfRawResult{ready: true, response: &wsResp}, nil
+}
+
+func (p *Provider) Parse(state *provider.RequestState, result *windsurfRawResult) (*types.CompletionResponse, error) {
+	if result == nil {
+		return nil, fmt.Errorf("windsurf: nil response")
+	}
+	if !result.ready {
+		return p.emptyResponse(), nil
+	}
+	if result.response == nil {
+		return nil, fmt.Errorf("windsurf: nil response")
+	}
+	if result.response.State.State != "CODEIUM_STATE_SUCCESS" {
+		logger.Debug("windsurf: non-success state: %v", result.response.State)
+		return p.emptyResponse(), nil
 	}
 
-	if wsResp.State.State != "CODEIUM_STATE_SUCCESS" {
-		logger.Debug("windsurf: non-success state: %v", wsResp.State)
-		return p.emptyResponse(), nil, nil
-	}
-
-	completion, err := p.convertResponse(&wsResp, current)
-	return completion, nil, err
+	return p.convertResponse(result.response, state.Input.Current)
 }
 
 func buildWindsurfRequest(info *buffer.WindsurfInfo, current ctx.CurrentSnapshot, reqID int) windsurfRequest {

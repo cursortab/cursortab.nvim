@@ -80,12 +80,16 @@ func TestCheckTypingMatchesPrediction_MatchesPrefix(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
 
 	matches, hasRemaining := eng.checkTypingMatchesPrediction()
 	assert.True(t, matches, "match when buffer is prefix of target")
@@ -99,12 +103,16 @@ func TestCheckTypingMatchesPrediction_FullyTyped(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
 
 	matches, hasRemaining := eng.checkTypingMatchesPrediction()
 	assert.True(t, matches, "match when buffer matches target")
@@ -118,12 +126,16 @@ func TestCheckTypingMatchesPrediction_NoMatch(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
 
 	matches, _ := eng.checkTypingMatchesPrediction()
 	assert.False(t, matches, "match when buffer diverges from target")
@@ -136,12 +148,16 @@ func TestCheckTypingMatchesPrediction_MultiLine(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 2,
-		Lines:      []string{"line 1", "line 2 complete"},
-	}}
-	eng.completionOriginalLines = []string{"line 1", "line 2 "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 2,
+			Lines:      []string{"line 1", "line 2 complete"},
+		},
+		[]string{"line 1", "line 2 "},
+		nil,
+	)
 
 	matches, hasRemaining := eng.checkTypingMatchesPrediction()
 	assert.True(t, matches, "match for multi-line partial completion")
@@ -155,12 +171,16 @@ func TestCheckTypingMatchesPrediction_DeletionNotSupported(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 2,
-		Lines:      []string{"combined line"},
-	}}
-	eng.completionOriginalLines = []string{"line 1", "line 2"}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 2,
+			Lines:      []string{"combined line"},
+		},
+		[]string{"line 1", "line 2"},
+		nil,
+	)
 
 	matches, _ := eng.checkTypingMatchesPrediction()
 	assert.False(t, matches, "match when completion deletes lines")
@@ -252,7 +272,7 @@ func TestHandleCursorTarget_StageNeedsNavigationCapturesRejectedCompletionCandid
 
 	assert.Equal(t, stateHasCursorTarget, eng.state, "state when next stage still needs navigation")
 	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line for next stage")
-	assert.NotNil(t, eng.currentRejectedCompletion, "stage cursor target should capture rejection candidate")
+	assert.NotNil(t, eng.display.rejectionCandidate(), "stage cursor target should capture rejection candidate")
 }
 
 // TestProcessCompletion_TailTrimModelOverrun tests that when the model generates

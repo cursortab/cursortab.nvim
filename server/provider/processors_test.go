@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func stateForLines(lines []string, cursorRow int, cursorCol int) *RequestState {
+	input := sourcectx.CompletionInput{
+		Current: sourcectx.CurrentSnapshot{
+			File: sourcectx.FileSnapshot{
+				Lines: lines,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: cursorRow,
+				Col: cursorCol,
+			},
+		},
+	}
+	return prepareRequestState(input, nil)
+}
+
 // --- Diff History Processor Tests ---
 
 func TestDiffEntryToUnifiedDiff(t *testing.T) {
@@ -90,8 +105,6 @@ func TestFormatDiffHistory_NoPrefix(t *testing.T) {
 }
 
 func TestRejectEmpty(t *testing.T) {
-	prov := &Provider{name: "test"}
-
 	tests := []struct {
 		name     string
 		text     string
@@ -105,7 +118,7 @@ func TestRejectEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, done := RejectEmptyText(prov, tt.text)
+			_, done := RejectEmptyText("test", tt.text)
 
 			assert.Equal(t, tt.wantDone, done, "RejectEmpty done status")
 		})
@@ -190,8 +203,6 @@ func TestFindAnchorLineFullSearch(t *testing.T) {
 }
 
 func TestAnchorTruncation(t *testing.T) {
-	prov := &Provider{name: "test"}
-
 	// Create context with enough lines to trigger validation
 	oldLines := make([]string, 20)
 	for i := range oldLines {
@@ -225,16 +236,8 @@ func TestAnchorTruncation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := &RequestState{
-				TrimmedLines: oldLines,
-				WindowStart:  0,
-				Input: sourcectx.CompletionInput{
-					Current: sourcectx.CurrentSnapshot{
-						File: sourcectx.FileSnapshot{Lines: oldLines},
-					},
-				},
-			}
-			_, endLineInc, _, done := AnchorTruncationText(prov, state, tt.text, tt.finishReason, false, tt.threshold)
+			state := stateForLines(oldLines, 1, 0)
+			_, endLineInc, _, done := AnchorTruncationText("test", state, tt.text, tt.finishReason, false, tt.threshold)
 
 			assert.Equal(t, tt.wantDone, done, "AnchorTruncation done status")
 			assert.Equal(t, tt.wantEndLine, endLineInc, "AnchorTruncation end line")
@@ -243,8 +246,6 @@ func TestAnchorTruncation(t *testing.T) {
 }
 
 func TestValidateAnchorPosition(t *testing.T) {
-	prov := &Provider{name: "test"}
-
 	// Create 20 unique lines
 	oldLines := make([]string, 20)
 	for i := 0; i < len(oldLines); i++ {
@@ -273,16 +274,8 @@ func TestValidateAnchorPosition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := &RequestState{
-				TrimmedLines: oldLines,
-				WindowStart:  0,
-				Input: sourcectx.CompletionInput{
-					Current: sourcectx.CurrentSnapshot{
-						File: sourcectx.FileSnapshot{Lines: oldLines},
-					},
-				},
-			}
-			_, done := ValidateAnchorPositionText(prov, state, tt.firstLine+"\nmore content", tt.maxAnchorRatio)
+			state := stateForLines(oldLines, 1, 0)
+			_, done := ValidateAnchorPositionText("test", state, tt.firstLine+"\nmore content", tt.maxAnchorRatio)
 
 			assert.Equal(t, tt.wantDone, done, "ValidateAnchorPosition done status")
 		})
@@ -290,8 +283,6 @@ func TestValidateAnchorPosition(t *testing.T) {
 }
 
 func TestFirstLineAnchorChecker(t *testing.T) {
-	prov := &Provider{name: "test"}
-
 	// Create 20 unique lines
 	oldLines := make([]string, 20)
 	for i := 0; i < len(oldLines); i++ {
@@ -320,18 +311,10 @@ func TestFirstLineAnchorChecker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &RequestState{
-				TrimmedLines: oldLines,
-				WindowStart:  0,
-				Input: sourcectx.CompletionInput{
-					Current: sourcectx.CurrentSnapshot{
-						File: sourcectx.FileSnapshot{Lines: oldLines},
-					},
-				},
-			}
+			ctx := stateForLines(oldLines, 1, 0)
 
 			checker := FirstLineAnchorChecker(tt.maxAnchorRatio)
-			err := checker(prov, ctx, tt.firstLine)
+			err := checker(ctx, tt.firstLine)
 
 			gotErr := err != nil
 			assert.Equal(t, tt.wantErr, gotErr, "FirstLineAnchorChecker error status")
@@ -340,23 +323,13 @@ func TestFirstLineAnchorChecker(t *testing.T) {
 }
 
 func TestFirstLineAnchorChecker_SmallFile(t *testing.T) {
-	prov := &Provider{name: "test"}
-
 	// Small file (< 10 lines) should skip validation
 	oldLines := []string{"line 1", "line 2", "line 3"}
 
-	ctx := &RequestState{
-		TrimmedLines: oldLines,
-		WindowStart:  0,
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				File: sourcectx.FileSnapshot{Lines: oldLines},
-			},
-		},
-	}
+	ctx := stateForLines(oldLines, 1, 0)
 
 	checker := FirstLineAnchorChecker(0.25)
-	err := checker(prov, ctx, "completely different")
+	err := checker(ctx, "completely different")
 
 	// Should not error for small files
 	assert.NoError(t, err, "FirstLineAnchorChecker for small files")

@@ -24,12 +24,31 @@ func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.Com
 	}
 }
 
-func buildPromptForTest(p *provider.Provider, ctx *provider.RequestState) *openai.CompletionRequest {
-	return buildRequest(p, ctx)
+func stateForLines(lines []string, cursorRow int, cursorCol int, config *types.ProviderConfig) *provider.RequestState {
+	return stateForInput(completionInput(lines, cursorRow, cursorCol))
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.RequestState, result *openai.StreamResult) *types.CompletionResponse {
-	return parseResult(p, ctx, result)
+func stateForInput(input sourcectx.CompletionInput) *provider.RequestState {
+	return &provider.RequestState{
+		Input:  input,
+		Window: provider.RequestWindow{Lines: input.Current.File.Lines, CursorLine: input.Current.Cursor.Row - 1},
+	}
+}
+
+func buildPromptForTest(p *Provider, ctx *provider.RequestState) *openai.CompletionRequest {
+	req, err := p.Build(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return req
+}
+
+func parseCompletion(p *Provider, ctx *provider.RequestState, result *openai.CompletionResult) *types.CompletionResponse {
+	resp, err := p.Parse(ctx, result)
+	if err != nil {
+		panic(err)
+	}
+	return resp
 }
 
 func TestBuildPrompt_EmptyLines(t *testing.T) {
@@ -43,11 +62,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input:        sourcectx.CompletionInput{},
-		TrimmedLines: []string{},
-		CursorLine:   0,
-	}
+	ctx := stateForLines(nil, 1, 0, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -65,15 +80,7 @@ func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				Cursor: sourcectx.CursorPosition{Col: 5},
-			},
-		},
-		TrimmedLines: []string{"hello world"},
-		CursorLine:   0,
-	}
+	ctx := stateForLines([]string{"hello world"}, 1, 5, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -93,15 +100,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				Cursor: sourcectx.CursorPosition{Col: 4},
-			},
-		},
-		TrimmedLines: []string{"line 1", "line 2", "line 3"},
-		CursorLine:   1,
-	}
+	ctx := stateForLines([]string{"line 1", "line 2", "line 3"}, 2, 4, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -123,15 +122,7 @@ func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				Cursor: sourcectx.CursorPosition{Col: 100}, // Beyond line length
-			},
-		},
-		TrimmedLines: []string{"short"},
-		CursorLine:   0,
-	}
+	ctx := stateForLines([]string{"short"}, 1, 100, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -144,11 +135,9 @@ func TestParseCompletion_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: completionInput([]string{"hello world"}, 1, 5),
-	}
+	ctx := stateForLines([]string{"hello world"}, 1, 5, config)
 
-	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: " there"})
+	resp := parseCompletion(p, ctx, &openai.CompletionResult{Text: " there"})
 	assert.NotNil(t, resp, "response should not be nil")
 	assert.NotNil(t, resp.Completion, "completions count")
 	// "hello" + " there" + " world"
@@ -161,11 +150,9 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: completionInput([]string{"func main() {"}, 1, 13),
-	}
+	ctx := stateForLines([]string{"func main() {"}, 1, 13, config)
 
-	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "\n  fmt.Println()\n"})
+	resp := parseCompletion(p, ctx, &openai.CompletionResult{Text: "\n  fmt.Println()\n"})
 	assert.NotNil(t, resp.Completion, "completions count")
 	assert.Equal(t, 3, len(resp.Completion.Lines), "should have 3 lines")
 	assert.Equal(t, "func main() {", resp.Completion.Lines[0], "first line")
@@ -174,11 +161,9 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 
 func TestParseCompletion_DropsTruncatedLastLine(t *testing.T) {
 	p := NewProvider(&types.ProviderConfig{ProviderModel: "test-model"})
-	ctx := &provider.RequestState{
-		Input: completionInput([]string{"hello world"}, 1, 5),
-	}
+	ctx := stateForLines([]string{"hello world"}, 1, 5, &types.ProviderConfig{ProviderModel: "test-model"})
 
-	resp := parseCompletion(p, ctx, &openai.StreamResult{
+	resp := parseCompletion(p, ctx, &openai.CompletionResult{
 		Text:         " there\nincomplete",
 		FinishReason: "length",
 	})
@@ -200,32 +185,25 @@ func TestBuildPrompt_RepoContext(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				WorkspacePath: "/home/user/myproject",
-				File:          sourcectx.FileSnapshot{Path: "main.go"},
-				Cursor:        sourcectx.CursorPosition{Col: 5},
+	input := completionInput([]string{"hello world"}, 1, 5)
+	input.Current.WorkspacePath = "/home/user/myproject"
+	input.Current.File.Path = "main.go"
+	input.Materials = sourcectx.Materials{
+		sourcectx.RecentFiles{Files: []*types.RecentBufferSnapshot{
+			{FilePath: "utils.go", Lines: []string{"package main", "", "func helper() {}"}},
+		}},
+		sourcectx.Diagnostics{Data: &types.Diagnostics{
+			Items: []*types.Diagnostic{
+				{Message: "undefined: foo", Severity: types.SeverityError, Source: "gopls", Range: &types.CursorRange{StartLine: 10}},
 			},
-			Materials: sourcectx.Materials{
-				sourcectx.RecentFiles{Files: []*types.RecentBufferSnapshot{
-					{FilePath: "utils.go", Lines: []string{"package main", "", "func helper() {}"}},
-				}},
-				sourcectx.Diagnostics{Data: &types.Diagnostics{
-					Items: []*types.Diagnostic{
-						{Message: "undefined: foo", Severity: types.SeverityError, Source: "gopls", Range: &types.CursorRange{StartLine: 10}},
-					},
-				}},
-				sourcectx.Treesitter{Data: &types.TreesitterContext{
-					EnclosingSignature: "func main()",
-					Siblings:           []*types.TreesitterSymbol{{Signature: "func helper()", Line: 5}},
-					Imports:            []string{"import \"fmt\""},
-				}},
-			},
-		},
-		TrimmedLines: []string{"hello world"},
-		CursorLine:   0,
+		}},
+		sourcectx.Treesitter{Data: &types.TreesitterContext{
+			EnclosingSignature: "func main()",
+			Siblings:           []*types.TreesitterSymbol{{Signature: "func helper()", Line: 5}},
+			Imports:            []string{"import \"fmt\""},
+		}},
 	}
+	ctx := stateForInput(input)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -251,17 +229,10 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				WorkspacePath: "/home/user/myproject",
-				File:          sourcectx.FileSnapshot{Path: "main.go"},
-				Cursor:        sourcectx.CursorPosition{Col: 5},
-			},
-		},
-		TrimmedLines: []string{"hello world"},
-		CursorLine:   0,
-	}
+	input := completionInput([]string{"hello world"}, 1, 5)
+	input.Current.WorkspacePath = "/home/user/myproject"
+	input.Current.File.Path = "main.go"
+	ctx := stateForInput(input)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -283,16 +254,9 @@ func TestBuildPrompt_RepoContextStops(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				File:   sourcectx.FileSnapshot{Path: "main.go"},
-				Cursor: sourcectx.CursorPosition{Col: 5},
-			},
-		},
-		TrimmedLines: []string{"hello world"},
-		CursorLine:   0,
-	}
+	input := completionInput([]string{"hello world"}, 1, 5)
+	input.Current.File.Path = "main.go"
+	ctx := stateForInput(input)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -316,11 +280,7 @@ func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input:        sourcectx.CompletionInput{},
-		TrimmedLines: []string{},
-		CursorLine:   0,
-	}
+	ctx := stateForLines(nil, 1, 0, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -336,15 +296,7 @@ func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				Cursor: sourcectx.CursorPosition{Col: 5},
-			},
-		},
-		TrimmedLines: []string{"hello world"},
-		CursorLine:   0,
-	}
+	ctx := stateForLines([]string{"hello world"}, 1, 5, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -360,15 +312,7 @@ func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				Cursor: sourcectx.CursorPosition{Col: 4},
-			},
-		},
-		TrimmedLines: []string{"line 1", "line 2", "line 3"},
-		CursorLine:   1,
-	}
+	ctx := stateForLines([]string{"line 1", "line 2", "line 3"}, 2, 4, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -384,15 +328,7 @@ func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{
-			Current: sourcectx.CurrentSnapshot{
-				Cursor: sourcectx.CursorPosition{Col: 100},
-			},
-		},
-		TrimmedLines: []string{"short"},
-		CursorLine:   0,
-	}
+	ctx := stateForLines([]string{"short"}, 1, 100, config)
 
 	req := buildPromptForTest(p, ctx)
 
@@ -406,11 +342,9 @@ func TestParseCompletion_SingleLineWithAfterCursor(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input: completionInput([]string{"func()"}, 1, 4),
-	}
+	ctx := stateForLines([]string{"func()"}, 1, 4, config)
 
-	resp := parseCompletion(p, ctx, &openai.StreamResult{Text: "tion"})
+	resp := parseCompletion(p, ctx, &openai.CompletionResult{Text: "tion"})
 	assert.NotNil(t, resp, "response should not be nil")
 	// "func" + "tion" + "()"
 	assert.Equal(t, "function()", resp.Completion.Lines[0], "completion inserted at cursor with suffix")

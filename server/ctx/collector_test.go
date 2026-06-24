@@ -29,62 +29,27 @@ func (m collectedTestMaterial) collect(context.Context, ContextSourceInput) (mat
 	return m, nil
 }
 
-func TestCollectRunsMaterialsConcurrentlyAndPreservesOrder(t *testing.T) {
-	started := make(chan string, 2)
-	release := make(chan struct{})
+func TestCollectRunsMaterialsInOrder(t *testing.T) {
+	var calls []string
 
 	collectOne := func(name string) func(context.Context, ContextSourceInput) (material, error) {
 		return func(context.Context, ContextSourceInput) (material, error) {
-			started <- name
-			<-release
+			calls = append(calls, name)
 			return collectedTestMaterial{name: name}, nil
 		}
 	}
 
-	done := make(chan struct {
-		materials Materials
-		err       error
-	}, 1)
-	go func() {
-		materials, err := Collect(context.Background(), ContextSourceInput{}, Materials{
-			testMaterial{name: "first", collectFn: collectOne("first")},
-			testMaterial{name: "second", collectFn: collectOne("second")},
-		})
-		done <- struct {
-			materials Materials
-			err       error
-		}{materials: materials, err: err}
-	}()
+	materials, err := Collect(context.Background(), ContextSourceInput{}, Materials{
+		testMaterial{name: "first", collectFn: collectOne("first")},
+		testMaterial{name: "second", collectFn: collectOne("second")},
+	})
 
-	seen := map[string]bool{}
-	for range 2 {
-		select {
-		case name := <-started:
-			seen[name] = true
-		case <-time.After(200 * time.Millisecond):
-			t.Fatal("collect did not start all materials before release")
-		}
-	}
-	assert.True(t, seen["first"], "first material started")
-	assert.True(t, seen["second"], "second material started")
-
-	close(release)
-
-	var result struct {
-		materials Materials
-		err       error
-	}
-	select {
-	case result = <-done:
-	case <-time.After(time.Second):
-		t.Fatal("collect did not finish after release")
-	}
-
-	assert.NoError(t, result.err, "collect")
-	assert.Len(t, 2, result.materials, "materials")
-	first, ok := result.materials[0].(collectedTestMaterial)
+	assert.NoError(t, err, "collect")
+	assert.Equal(t, []string{"first", "second"}, calls, "call order")
+	assert.Len(t, 2, materials, "materials")
+	first, ok := materials[0].(collectedTestMaterial)
 	assert.True(t, ok, "first material type")
-	second, ok := result.materials[1].(collectedTestMaterial)
+	second, ok := materials[1].(collectedTestMaterial)
 	assert.True(t, ok, "second material type")
 	assert.Equal(t, "first", first.name, "first material order")
 	assert.Equal(t, "second", second.name, "second material order")
@@ -106,7 +71,7 @@ func TestCollectWrapsMaterialError(t *testing.T) {
 	assert.True(t, errors.Is(err, sourceErr), "wrapped source error")
 }
 
-func TestCollectRespectsSharedTimeout(t *testing.T) {
+func TestCollectPassesSharedTimeoutToCooperativeMaterial(t *testing.T) {
 	start := time.Now()
 	_, err := Collect(context.Background(), ContextSourceInput{}, Materials{
 		testMaterial{

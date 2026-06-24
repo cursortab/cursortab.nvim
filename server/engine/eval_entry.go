@@ -59,25 +59,18 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 	}
 	e.lastCompletionSource = types.CompletionSourceTyping
 
-	requirements := e.provider.RequiredMaterials()
-	sourceInput := e.buildContextSourceInput(completionInputOptions{}, requirements)
-	if !completionInputCompatible(e.provider.CompletionKind(), sourceInput.Current) {
-		return result, nil
-	}
-
-	input, err := e.collectCompletionInput(ctx, sourceInput, requirements)
+	input, compatible, err := e.prepareCompletionInput(ctx, completionInputOptions{})
 	if err != nil {
 		return result, fmt.Errorf("context: %w", err)
 	}
+	if !compatible {
+		return result, nil
+	}
 	start := time.Now()
-	resp, stream, err := e.provider.StartCompletion(ctx, input, false)
+	resp, err := e.completeProviderSynchronously(ctx, input)
 	result.ProviderLatency = time.Since(start)
 	if err != nil {
 		return result, fmt.Errorf("provider: %w", err)
-	}
-	if stream != nil {
-		stream.Cancel()
-		return result, fmt.Errorf("provider: returned stream for eval")
 	}
 
 	if resp == nil || resp.Completion == nil {

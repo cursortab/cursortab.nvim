@@ -160,11 +160,12 @@ func (e *Engine) suppressRejectedCompletionForStage(stage *text.Stage, manual bo
 // rememberRejectedCompletion caches the current completion so future similar
 // completions are suppressed. Called only when the user explicitly rejects.
 func (e *Engine) rememberRejectedCompletion() {
-	if e.currentRejectedCompletion == nil {
+	candidate := e.display.rejectionCandidate()
+	if candidate == nil {
 		return
 	}
 
-	entry := e.currentRejectedCompletion.clone()
+	entry := candidate.clone()
 	entry.expiresAt = e.clock.Now().Add(rejectedCompletionTTL)
 	entries := e.pruneRejectedCompletions(entry.filePath)
 	if len(entries) >= rejectedCompletionMaxPerFile {
@@ -172,7 +173,7 @@ func (e *Engine) rememberRejectedCompletion() {
 	}
 	entries = append(entries, entry)
 	e.rejectedCompletions[entry.filePath] = entries
-	e.currentRejectedCompletion = nil
+	e.display.clearRejectionCandidate()
 }
 
 // forgetRejectedCompletions drops the rejection cache for the given file.
@@ -186,15 +187,15 @@ func (e *Engine) forgetRejectedCompletions(filePath string) {
 }
 
 func (e *Engine) currentRejectedCompletionCandidate() *rejectedCompletion {
-	if len(e.completions) == 0 {
+	completion := e.display.current()
+	if completion == nil {
 		return nil
 	}
-	return e.rejectedCompletionFor(e.completions[0])
+	return e.rejectedCompletionFor(completion)
 }
 
 // rejectedCompletionForStage builds a rejection-cache candidate from a stage.
-// Used when no completion has been pushed into e.completions yet (e.g. a
-// cursor-target-only render that didn't show ghost text).
+// Used for cursor-target-only render paths that did not show ghost text.
 func (e *Engine) rejectedCompletionForStage(stage *text.Stage) *rejectedCompletion {
 	if stage == nil {
 		return nil

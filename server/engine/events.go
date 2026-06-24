@@ -329,18 +329,14 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 		return true
 
 	case EventPrefetchReady:
-		if e.prefetchState != prefetchInFlight &&
-			e.prefetchState != prefetchWaitingForTab &&
-			e.prefetchState != prefetchWaitingForCursorPrediction {
+		if event.RequestID == 0 || event.RequestID != e.currentPrefetchRequestID() {
 			return true
 		}
 		e.handlePrefetchReady(event.Response)
 		return true
 
 	case EventPrefetchError:
-		if e.prefetchState != prefetchInFlight &&
-			e.prefetchState != prefetchWaitingForTab &&
-			e.prefetchState != prefetchWaitingForCursorPrediction {
+		if event.RequestID == 0 || event.RequestID != e.currentPrefetchRequestID() {
 			return true
 		}
 		e.handlePrefetchError(event.Err)
@@ -430,7 +426,7 @@ func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) {
 }
 
 func (e *Engine) doRejectStreamingAndDebounce() {
-	if e.streamingState != nil && len(e.completions) > 0 {
+	if e.streamingState != nil && e.display.hasCompletion() {
 		e.cancelStreamAndCheckTyping(e.cancelStreamingKeepPartial)
 		return
 	}
@@ -449,7 +445,7 @@ func (e *Engine) doRejectStreamingAndStartIdleTimer() {
 func (e *Engine) doAcceptStreamingCompletion() {
 	hasStreaming := e.streamingState != nil
 
-	if len(e.completions) > 0 {
+	if e.display.hasCompletion() {
 		// Mark that we accepted during streaming so handleStreamCompleteSimple
 		// knows to compute cursor prediction from accumulated text
 		if hasStreaming {

@@ -45,20 +45,23 @@ type Buffer interface {
 
 // Provider is the engine boundary for completion providers.
 //
-// The engine reads [Provider.CompletionKind] and
-// [Provider.CompletionInputAuthority] before a request, collects
-// [Provider.RequiredMaterials] through ctx.Collect, then calls
-// [Provider.StartCompletion]. StartCompletion returns either a
-// [types.CompletionResponse] or a [CompletionStream].
+// The engine reads [Provider.CompletionKind] before call-before policy, uses
+// [Provider.CanPrefetchFromSyntheticCurrent] for cursor-target prefetch policy,
+// collects [Provider.RequiredMaterials] through ctx.Collect, then calls
+// [Provider.Complete].
 //
 // Concrete providers should implement this contract through their own methods
 // or a real shared implementation. Embedding this interface in a provider
 // struct hides missing methods when the contract changes.
 type Provider interface {
 	CompletionKind() CompletionKind
-	CompletionInputAuthority() CompletionInputAuthority
+	CanPrefetchFromSyntheticCurrent() bool
 	RequiredMaterials() ctx.Materials
-	StartCompletion(ctx context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, CompletionStream, error)
+	Complete(ctx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error)
+}
+
+type StreamingProvider interface {
+	StreamCompletion(ctx context.Context, input ctx.CompletionInput) (CompletionStream, error)
 }
 
 // CompletionKind describes the editing shape a provider can produce.
@@ -73,17 +76,6 @@ const (
 	CompletionFIM
 	// CompletionEdit may rewrite a nearby region and can drive cursor targets.
 	CompletionEdit
-)
-
-// CompletionInputAuthority states whether a provider honors
-// [ctx.CompletionInput.Current] as the request's editor snapshot.
-type CompletionInputAuthority int
-
-const (
-	// InputSuppliedCurrent uses the snapshot supplied in [ctx.CompletionInput].
-	InputSuppliedCurrent CompletionInputAuthority = iota
-	// InputLiveEditorState reads from an external live editor/server state.
-	InputLiveEditorState
 )
 
 const (
@@ -103,6 +95,79 @@ type CompletionStream interface {
 	Window() (windowStart int, oldLines []string)
 	Cancel()
 	Finish() (*types.CompletionResponse, error)
+}
+
+// displayedCompletion is the completion state currently rendered in the buffer.
+// It is the source for accept, partial accept, typing-match rerender, and Esc
+// rejection caching.
+type displayedCompletion struct {
+	completion      *types.Completion
+	batch           buffer.Batch
+	originalLines   []string
+	groups          []*text.Group
+	rejectCandidate *rejectedCompletion
+}
+
+func (d *displayedCompletion) show(
+	completion *types.Completion,
+	batch buffer.Batch,
+	originalLines []string,
+	groups []*text.Group,
+	rejectCandidate *rejectedCompletion,
+) {
+	*d = displayedCompletion{
+		completion:      completion,
+		batch:           batch,
+		originalLines:   originalLines,
+		groups:          groups,
+		rejectCandidate: rejectCandidate,
+	}
+}
+
+func (d *displayedCompletion) reset() {
+	*d = displayedCompletion{}
+}
+
+func (d *displayedCompletion) hasCompletion() bool {
+	return d.completion != nil
+}
+
+func (d *displayedCompletion) current() *types.Completion {
+	return d.completion
+}
+
+func (d *displayedCompletion) textGroups() []*text.Group {
+	return d.groups
+}
+
+func (d *displayedCompletion) oldLines() []string {
+	return d.originalLines
+}
+
+func (d *displayedCompletion) batchToApply() buffer.Batch {
+	return d.batch
+}
+
+func (d *displayedCompletion) rejectionCandidate() *rejectedCompletion {
+	return d.rejectCandidate
+}
+
+func (d *displayedCompletion) setRejectionCandidate(candidate *rejectedCompletion) {
+	d.rejectCandidate = candidate
+}
+
+func (d *displayedCompletion) clearRejectionCandidate() {
+	d.rejectCandidate = nil
+}
+
+func (d *displayedCompletion) advanceLine(wasInsertion bool) bool {
+	if d.completion == nil || len(d.completion.Lines) <= 1 {
+		return false
+	}
+	d.completion.Lines = d.completion.Lines[1:]
+	d.completion.StartLine++
+	d.groups = advanceGroupsAfterAccept(d.groups, wasInsertion)
+	return len(d.groups) > 0
 }
 
 type streamingState struct {
@@ -142,19 +207,28 @@ func (s state) String() string {
 	}
 }
 
-type prefetchState int
+type prefetchWait int
 
 const (
-	prefetchNone prefetchState = iota
-	prefetchInFlight
-	prefetchWaitingForTab
-	prefetchWaitingForCursorPrediction
-	prefetchReady
+	prefetchNoWait prefetchWait = iota
+	prefetchAfterTab
+	prefetchForCursorPrediction
 )
 
 type prefetchedCompletion struct {
 	*types.CompletionResponse
 	Manual bool
+}
+
+type prefetchInflight struct {
+	requestID uint64
+	cancel    context.CancelFunc
+	wait      prefetchWait
+}
+
+type prefetchSlot struct {
+	inflight *prefetchInflight
+	ready    *prefetchedCompletion
 }
 
 // CursorPredictionConfig holds cursor prediction settings

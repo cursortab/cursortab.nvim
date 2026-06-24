@@ -152,28 +152,28 @@ func verifyExpectations(t *testing.T, eng *Engine, buf *mockBuffer, expect *e2e.
 		}
 	}
 
-	if expect.PrefetchState != "" {
-		actual := prefetchStateName(eng.prefetchState)
-		if !strings.EqualFold(actual, expect.PrefetchState) {
-			t.Errorf("%s prefetchState: got %q, want %q", label, actual, expect.PrefetchState)
+	if expect.PrefetchStatus != "" {
+		actual := prefetchStatusName(eng.prefetch)
+		if !strings.EqualFold(actual, expect.PrefetchStatus) {
+			t.Errorf("%s prefetchStatus: got %q, want %q", label, actual, expect.PrefetchStatus)
 		}
 	}
 }
 
-func prefetchStateName(s prefetchState) string {
-	switch s {
-	case prefetchNone:
-		return "none"
-	case prefetchInFlight:
-		return "inFlight"
-	case prefetchWaitingForTab:
-		return "waitingForTab"
-	case prefetchWaitingForCursorPrediction:
-		return "waitingForCursorPrediction"
-	case prefetchReady:
+func prefetchStatusName(slot prefetchSlot) string {
+	if slot.ready != nil {
 		return "ready"
+	}
+	if slot.inflight == nil {
+		return "none"
+	}
+	switch slot.inflight.wait {
+	case prefetchAfterTab:
+		return "waitingForTab"
+	case prefetchForCursorPrediction:
+		return "waitingForCursorPrediction"
 	default:
-		return "unknown"
+		return "inFlight"
 	}
 }
 
@@ -224,12 +224,11 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 			if step.Completion == nil {
 				t.Fatalf("%s: missing completion field", label)
 			}
-			eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
+			eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 				StartLine:  step.Completion.StartLine,
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
-			}})
-			eng.prefetchState = prefetchReady
+			}}, false)
 			result := eng.tryShowPrefetchedCompletion()
 			if step.Expect != nil && step.Expect.Shown != nil {
 				assert.Equal(t, *step.Expect.Shown, result, label+" shown")
@@ -240,12 +239,11 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 			if step.Completion == nil {
 				t.Fatalf("%s: missing completion field", label)
 			}
-			eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
+			eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 				StartLine:  step.Completion.StartLine,
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
-			}})
-			eng.prefetchState = prefetchReady
+			}}, false)
 			verifyExpectations(t, eng, buf, step.Expect, label)
 
 		case "accept":

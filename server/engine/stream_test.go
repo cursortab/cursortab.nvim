@@ -16,13 +16,17 @@ func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
 
 	eng.state = stateStreamingCompletion
 	eng.streamingState = &streamingState{}
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
-	eng.currentRejectedCompletion = &rejectedCompletion{
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
+	eng.display.setRejectionCandidate(&rejectedCompletion{
 		filePath:   buf.Path(),
 		startLine:  1,
 		endLineInc: 1,
@@ -30,7 +34,7 @@ func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
 		afterLine:  "",
 		oldLines:   []string{"hello"},
 		lines:      []string{"hello world"},
-	}
+	})
 	eng.streamLinesChan = make(chan string)
 
 	eng.doRejectStreamingAndDebounce()
@@ -115,7 +119,7 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.currentRejectedCompletion = &rejectedCompletion{
+	eng.display.setRejectionCandidate(&rejectedCompletion{
 		filePath:   buf.Path(),
 		startLine:  1,
 		endLineInc: 1,
@@ -123,7 +127,7 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 		afterLine:  "",
 		oldLines:   []string{"hello"},
 		lines:      []string{"hello world"},
-	}
+	})
 	eng.rememberRejectedCompletion()
 
 	eng.state = stateStreamingCompletion
@@ -176,42 +180,45 @@ func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
 	// a wider first stage from the full stream, but accept must advance offsets
 	// from the stage that actually reached the buffer.
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  3,
-		EndLineInc: 3,
-		Lines: []string{
-			"def bubble_sort(arr):",
-			"    n = len(arr)",
-			"    for i in range(n):",
-			"        for j in range(0, n - i - 1):",
-		},
-	}}
-	eng.completionOriginalLines = []string{"def bubb"}
-	eng.currentGroups = []*text.Group{
-		{
-			Type:       "modification",
-			StartLine:  1,
-			EndLine:    1,
-			BufferLine: 3,
-			Lines:      []string{"def bubble_sort(arr):"},
-			OldLines:   []string{"def bubb"},
-			RenderHint: "append_chars",
-			ColStart:   8,
-			ColEnd:     21,
-		},
-		{
-			Type:       "addition",
-			StartLine:  2,
-			EndLine:    4,
-			BufferLine: 4,
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  3,
+			EndLineInc: 3,
 			Lines: []string{
+				"def bubble_sort(arr):",
 				"    n = len(arr)",
 				"    for i in range(n):",
 				"        for j in range(0, n - i - 1):",
 			},
 		},
-	}
-	eng.applyBatch = &mockBatch{}
+		&mockBatch{},
+		[]string{"def bubb"},
+		[]*text.Group{
+			{
+				Type:       "modification",
+				StartLine:  1,
+				EndLine:    1,
+				BufferLine: 3,
+				Lines:      []string{"def bubble_sort(arr):"},
+				OldLines:   []string{"def bubb"},
+				RenderHint: "append_chars",
+				ColStart:   8,
+				ColEnd:     21,
+			},
+			{
+				Type:       "addition",
+				StartLine:  2,
+				EndLine:    4,
+				BufferLine: 4,
+				Lines: []string{
+					"    n = len(arr)",
+					"    for i in range(n):",
+					"        for j in range(0, n - i - 1):",
+				},
+			},
+		},
+	)
 
 	eng.stagedCompletion = &text.StagedCompletion{
 		CurrentIdx: 0,

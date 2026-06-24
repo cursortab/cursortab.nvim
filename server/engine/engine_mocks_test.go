@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"cursortab/assert"
 	"cursortab/buffer"
 	"cursortab/ctx"
 	"cursortab/text"
 	"cursortab/types"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -278,19 +280,19 @@ func (b *mockBatch) Execute() error {
 
 // mockProvider implements the Provider interface for testing
 type mockProvider struct {
-	mu              sync.Mutex
-	completion      CompletionKind
-	authority       CompletionInputAuthority
-	completionResp  *types.CompletionResponse
-	completionErr   error
-	completionCalls int
-	lastInput       ctx.CompletionInput
+	mu                              sync.Mutex
+	completion                      CompletionKind
+	canPrefetchFromSyntheticCurrent bool
+	completionResp                  *types.CompletionResponse
+	completionErr                   error
+	completionCalls                 int
+	lastInput                       ctx.CompletionInput
 }
 
 func newMockProvider() *mockProvider {
 	return &mockProvider{
-		completion: CompletionEdit,
-		authority:  InputSuppliedCurrent,
+		completion:                      CompletionEdit,
+		canPrefetchFromSyntheticCurrent: true,
 		completionResp: &types.CompletionResponse{
 			Completion: &types.Completion{
 				StartLine:  1,
@@ -309,7 +311,7 @@ func newMockProviderWithKind(kind CompletionKind) *mockProvider {
 
 func newMockProviderWithLiveEditorState() *mockProvider {
 	p := newMockProvider()
-	p.authority = InputLiveEditorState
+	p.canPrefetchFromSyntheticCurrent = false
 	return p
 }
 
@@ -317,31 +319,97 @@ func completionResponse(completion *types.Completion) *types.CompletionResponse 
 	return &types.CompletionResponse{Completion: completion}
 }
 
-func cachedPrefetch(resp *types.CompletionResponse) *prefetchedCompletion {
-	return &prefetchedCompletion{CompletionResponse: resp}
+func showDisplayedCompletionForTest(
+	eng *Engine,
+	completion *types.Completion,
+	originalLines []string,
+	groups []*text.Group,
+) {
+	showDisplayedCompletionWithBatchForTest(eng, completion, nil, originalLines, groups)
+}
+
+func showDisplayedCompletionWithBatchForTest(
+	eng *Engine,
+	completion *types.Completion,
+	batch buffer.Batch,
+	originalLines []string,
+	groups []*text.Group,
+) {
+	eng.display.show(
+		completion,
+		batch,
+		originalLines,
+		groups,
+		eng.rejectedCompletionFor(completion),
+	)
+}
+
+func assertNoPrefetch(t *testing.T, eng *Engine, label string) {
+	t.Helper()
+	assert.Nil(t, eng.prefetch.inflight, label+" inflight")
+	assert.Nil(t, eng.prefetch.ready, label+" ready")
+}
+
+func assertReadyPrefetch(t *testing.T, eng *Engine, label string) {
+	t.Helper()
+	assert.NotNil(t, eng.readyPrefetch(), label)
+}
+
+func assertInflightPrefetch(t *testing.T, eng *Engine, wait prefetchWait, label string) {
+	t.Helper()
+	assert.NotNil(t, eng.prefetch.inflight, label)
+	assert.Nil(t, eng.prefetch.ready, label+" ready")
+	assert.Equal(t, wait, eng.prefetch.inflight.wait, label+" wait")
+}
+
+func seedInflightPrefetch(eng *Engine, wait prefetchWait) uint64 {
+	eng.prefetchRequestID++
+	requestID := eng.prefetchRequestID
+	eng.prefetch = prefetchSlot{inflight: &prefetchInflight{requestID: requestID, wait: wait}}
+	return requestID
 }
 
 func (p *mockProvider) CompletionKind() CompletionKind {
 	return p.completion
 }
 
-func (p *mockProvider) CompletionInputAuthority() CompletionInputAuthority {
-	return p.authority
+func (p *mockProvider) CanPrefetchFromSyntheticCurrent() bool {
+	return p.canPrefetchFromSyntheticCurrent
 }
 
 func (p *mockProvider) RequiredMaterials() ctx.Materials {
 	return nil
 }
 
-func (p *mockProvider) StartCompletion(_ context.Context, input ctx.CompletionInput, allowStream bool) (*types.CompletionResponse, CompletionStream, error) {
+func (p *mockProvider) Complete(_ context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.completionCalls++
 	p.lastInput = input
 	if p.completionErr != nil {
-		return nil, nil, p.completionErr
+		return nil, p.completionErr
 	}
-	return p.completionResp, nil, nil
+	return p.completionResp, nil
+}
+
+type mockStreamingProvider struct {
+	*mockProvider
+	stream    CompletionStream
+	streamErr error
+}
+
+func newMockStreamingProvider(stream CompletionStream) *mockStreamingProvider {
+	return &mockStreamingProvider{
+		mockProvider: newMockProvider(),
+		stream:       stream,
+	}
+}
+
+func (p *mockStreamingProvider) StreamCompletion(_ context.Context, _ ctx.CompletionInput) (CompletionStream, error) {
+	if p.streamErr != nil {
+		return nil, p.streamErr
+	}
+	return p.stream, nil
 }
 
 type mockCompletionStream struct {
@@ -455,7 +523,7 @@ func (t *mockTimer) fire() {
 
 // --- Helper functions ---
 
-func createTestEngine(buf *mockBuffer, prov *mockProvider, clock *mockClock) *Engine {
+func createTestEngine(buf *mockBuffer, prov Provider, clock *mockClock) *Engine {
 	eng, _ := NewEngine(prov, buf, EngineConfig{
 		NsID:                1,
 		CompletionTimeout:   5 * time.Second,
@@ -473,7 +541,7 @@ func createTestEngine(buf *mockBuffer, prov *mockProvider, clock *mockClock) *En
 }
 
 // createTestEngineWithContext creates an engine with mainCtx set (needed for prefetch tests)
-func createTestEngineWithContext(buf *mockBuffer, prov *mockProvider, clock *mockClock) (*Engine, context.CancelFunc) {
+func createTestEngineWithContext(buf *mockBuffer, prov Provider, clock *mockClock) (*Engine, context.CancelFunc) {
 	eng := createTestEngine(buf, prov, clock)
 	ctx, cancel := context.WithCancel(context.Background())
 	eng.mainCtx = ctx

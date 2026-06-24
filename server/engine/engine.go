@@ -66,7 +66,7 @@ type Engine struct {
 	ctx                 context.Context
 	currentCancel       context.CancelFunc
 	completionRequestID uint64
-	prefetchCancel      context.CancelFunc
+	prefetchRequestID   uint64
 	idleTimer           Timer
 	textChangeTimer     Timer
 	mu                  sync.RWMutex
@@ -79,22 +79,14 @@ type Engine struct {
 	stopOnce   sync.Once
 
 	// Completion state
-	completions  []*types.Completion
-	applyBatch   buffer.Batch
+	display      displayedCompletion
 	cursorTarget *types.CursorPredictionTarget
 
 	// Staged completion state (for multi-stage completions)
 	stagedCompletion *text.StagedCompletion
 
-	// Original buffer lines when completion was shown (for partial typing optimization)
-	completionOriginalLines []string
-
-	// Current groups for partial accept (stored when showing completion)
-	currentGroups []*text.Group
-
 	// Prefetch state
-	prefetchedResponse *prefetchedCompletion
-	prefetchState      prefetchState
+	prefetch prefetchSlot
 
 	// Streaming state (line-by-line)
 	streamingState          *streamingState
@@ -122,11 +114,10 @@ type Engine struct {
 	currentSnapshot *metrics.Snapshot
 	metricsCh       chan metrics.Event
 
-	lastCompletionSource      types.CompletionSource
-	completionsSinceAccept    int
-	pendingMetricsInfo        *types.MetricsInfo // stored from provider completion for showCurrentStage
-	rejectedCompletions       map[string][]*rejectedCompletion
-	currentRejectedCompletion *rejectedCompletion
+	lastCompletionSource   types.CompletionSource
+	completionsSinceAccept int
+	pendingMetricsInfo     *types.MetricsInfo // stored from provider completion for showCurrentStage
+	rejectedCompletions    map[string][]*rejectedCompletion
 }
 
 // NewEngine creates a new Engine instance.
@@ -152,10 +143,8 @@ func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, 
 		idleTimer:           nil,
 		textChangeTimer:     nil,
 		mu:                  sync.RWMutex{},
-		completions:         nil,
 		cursorTarget:        nil,
-		prefetchedResponse:  nil,
-		prefetchState:       prefetchNone,
+		prefetch:            prefetchSlot{},
 		stopped:             false,
 		fileStateStore:      make(map[string]*FileState),
 		rejectedCompletions: make(map[string][]*rejectedCompletion),
@@ -214,10 +203,8 @@ func (e *Engine) Stop() {
 		e.stopTextChangeTimer()
 		e.state = stateIdle
 		e.cursorTarget = nil
-		e.completions = nil
-		e.applyBatch = nil
+		e.resetCompletionFields()
 		e.stagedCompletion = nil
-		e.completionOriginalLines = nil
 		// Cancel the main context to signal all in-flight goroutines and
 		// loops to exit. We deliberately do NOT close eventChan or metricsCh:
 		// senders use `select { case ch <- ...: case <-mainCtx.Done(): }` and
@@ -237,11 +224,7 @@ func (e *Engine) Stop() {
 // stage to prepare for the next one. Does not cancel requests, drop the staged
 // completion, or send metrics.
 func (e *Engine) resetCompletionFields() {
-	e.completions = nil
-	e.applyBatch = nil
-	e.completionOriginalLines = nil
-	e.currentGroups = nil
-	e.currentRejectedCompletion = nil
+	e.display.reset()
 	e.pendingMetricsInfo = nil
 }
 
@@ -256,18 +239,56 @@ func (e *Engine) cancelCurrentRequest() {
 // "Cancel" here means both: stop the request if running, and drop any completion
 // that was already returned but not yet consumed.
 func (e *Engine) cancelPrefetch() {
-	if e.prefetchCancel != nil {
-		e.prefetchCancel()
-		e.prefetchCancel = nil
+	if e.prefetch.inflight != nil && e.prefetch.inflight.cancel != nil {
+		e.prefetch.inflight.cancel()
 	}
-	e.clearPrefetchResult()
+	e.clearPrefetch()
 }
 
-// clearPrefetchResult resets the in-memory prefetch result and state.
+// clearPrefetch resets the in-memory prefetch result and request state.
 // Does not cancel an in-flight prefetch (use cancelPrefetch for that).
-func (e *Engine) clearPrefetchResult() {
-	e.prefetchState = prefetchNone
-	e.prefetchedResponse = nil
+func (e *Engine) clearPrefetch() {
+	e.prefetch = prefetchSlot{}
+}
+
+func (e *Engine) storeReadyPrefetch(resp *types.CompletionResponse, manual bool) {
+	e.prefetch.inflight = nil
+	e.prefetch.ready = &prefetchedCompletion{CompletionResponse: resp, Manual: manual}
+}
+
+func (e *Engine) hasInflightPrefetch() bool {
+	return e.prefetch.inflight != nil
+}
+
+func (e *Engine) inflightPrefetchWait() prefetchWait {
+	if e.prefetch.inflight == nil {
+		return prefetchNoWait
+	}
+	return e.prefetch.inflight.wait
+}
+
+func (e *Engine) setInflightPrefetchWait(wait prefetchWait) {
+	if e.prefetch.inflight != nil {
+		e.prefetch.inflight.wait = wait
+	}
+}
+
+func (e *Engine) currentPrefetchRequestID() uint64 {
+	if e.prefetch.inflight == nil {
+		return 0
+	}
+	return e.prefetch.inflight.requestID
+}
+
+func (e *Engine) readyPrefetch() *prefetchedCompletion {
+	return e.prefetch.ready
+}
+
+func (e *Engine) readyPrefetchCompletion() *types.Completion {
+	if prefetch := e.readyPrefetch(); prefetch != nil {
+		return prefetch.Completion
+	}
+	return nil
 }
 
 // RegisterEventHandler registers the event handler for nvim RPC callbacks.
@@ -497,9 +518,9 @@ func (e *Engine) recordMetricsShown(info *types.MetricsInfo, manual bool) {
 		e.currentMetrics.ID = info.ID
 		e.currentMetrics.Additions = info.Additions
 		e.currentMetrics.Deletions = info.Deletions
-	} else if len(e.completions) > 0 {
+	} else if e.display.hasCompletion() {
 		// Estimate additions/deletions from completion line counts
-		comp := e.completions[0]
+		comp := e.display.current()
 		bufferLines := e.buffer.Lines()
 		origCount := 0
 		for i := comp.StartLine; i <= comp.EndLineInc && i-1 < len(bufferLines); i++ {
@@ -618,8 +639,8 @@ func (e *Engine) captureSnapshot(manual bool) *metrics.Snapshot {
 	}
 
 	completionLines := 0
-	if len(e.completions) > 0 {
-		completionLines = len(e.completions[0].Lines)
+	if e.display.hasCompletion() {
+		completionLines = len(e.display.current().Lines)
 	}
 
 	editCount, predictedEditRatio, timeSinceLastEditMs := metricsDiffStatsFromSnapshot(fileContext, e.config.MaxDiffTokens)
@@ -667,7 +688,7 @@ func (e *Engine) captureSnapshot(manual bool) *metrics.Snapshot {
 		Provider:               e.config.ProviderName,
 		StageIndex:             stageIndex,
 		CursorTargetDistance:   cursorTargetDistance,
-		IsPrefetched:           e.prefetchState == prefetchReady,
+		IsPrefetched:           e.readyPrefetch() != nil,
 		TimeSinceLastEditMs:    timeSinceLastEditMs,
 		TypingSpeed:            typingSpeed,
 		RecentActions:          recentActions,

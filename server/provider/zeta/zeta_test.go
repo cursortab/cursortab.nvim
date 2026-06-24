@@ -24,6 +24,25 @@ func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.Com
 	}
 }
 
+func stateForInput(input sourcectx.CompletionInput, config *types.ProviderConfig) *provider.RequestState {
+	return &provider.RequestState{
+		Input:  input,
+		Window: provider.RequestWindow{Lines: input.Current.File.Lines, CursorLine: input.Current.Cursor.Row - 1},
+	}
+}
+
+func stateForCurrent(current sourcectx.CurrentSnapshot, config *types.ProviderConfig) *provider.RequestState {
+	return stateForInput(sourcectx.CompletionInput{Current: current}, config)
+}
+
+func parseCompletionForTest(p *Provider, ctx *provider.RequestState, result *openai.CompletionResult) *types.CompletionResponse {
+	resp, err := p.Parse(ctx, result)
+	if err != nil {
+		panic(err)
+	}
+	return resp
+}
+
 func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 	current := sourcectx.CurrentSnapshot{
 		File: sourcectx.FileSnapshot{
@@ -31,9 +50,7 @@ func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 			Lines: []string{},
 		},
 	}
-	ctx := &provider.RequestState{
-		Input: sourcectx.CompletionInput{Current: current},
-	}
+	ctx := stateForCurrent(current, nil)
 
 	result := buildUserExcerpt(current, ctx)
 
@@ -52,11 +69,7 @@ func TestBuildUserExcerpt_WithContent(t *testing.T) {
 		},
 		Cursor: sourcectx.CursorPosition{Row: 2, Col: 2},
 	}
-	ctx := &provider.RequestState{
-		Input:        sourcectx.CompletionInput{Current: current},
-		TrimmedLines: current.File.Lines,
-		WindowStart:  0,
-	}
+	ctx := stateForCurrent(current, nil)
 
 	result := buildUserExcerpt(current, ctx)
 
@@ -73,11 +86,7 @@ func TestBuildUserExcerpt_CursorAtEndOfLine(t *testing.T) {
 		},
 		Cursor: sourcectx.CursorPosition{Row: 1, Col: 100}, // Beyond line length
 	}
-	ctx := &provider.RequestState{
-		Input:        sourcectx.CompletionInput{Current: current},
-		TrimmedLines: current.File.Lines,
-		WindowStart:  0,
-	}
+	ctx := stateForCurrent(current, nil)
 
 	result := buildUserExcerpt(current, ctx)
 
@@ -142,13 +151,9 @@ func TestParseCompletion_WithEditableRegion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input:        completionInput([]string{"line 1", "line 2"}, 0, 0),
-		TrimmedLines: []string{"line 1", "line 2"},
-		WindowStart:  0,
-	}
+	ctx := stateForInput(completionInput([]string{"line 1", "line 2"}, 1, 0), config)
 
-	resp := parseResult(p, ctx, &openai.StreamResult{
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
 		Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
 	})
 	assert.NotNil(t, resp, "should have response")
@@ -160,13 +165,9 @@ func TestParseCompletion_NoEditableMarker(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input:        completionInput([]string{"line 1"}, 1, 6),
-		TrimmedLines: []string{"line 1"},
-		WindowStart:  0,
-	}
+	ctx := stateForInput(completionInput([]string{"line 1"}, 1, 6), config)
 
-	resp := parseResult(p, ctx, &openai.StreamResult{
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
 		Text: " completion",
 	})
 	assert.NotNil(t, resp, "should have response")
@@ -178,13 +179,9 @@ func TestParseCompletion_StripsMarkers(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input:        completionInput([]string{"original"}, 1, 0),
-		TrimmedLines: []string{"original"},
-		WindowStart:  0,
-	}
+	ctx := stateForInput(completionInput([]string{"original"}, 1, 0), config)
 
-	resp := parseResult(p, ctx, &openai.StreamResult{
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
 		Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
 	})
 	// The cursor marker should be stripped
@@ -199,45 +196,27 @@ func TestParseCompletion_IdenticalContent(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.RequestState{
-		Input:        completionInput([]string{"line 1", "line 2"}, 0, 0),
-		TrimmedLines: []string{"line 1", "line 2"},
-		WindowStart:  0,
-	}
+	ctx := stateForInput(completionInput([]string{"line 1", "line 2"}, 1, 0), config)
 
-	resp := parseResult(p, ctx, &openai.StreamResult{
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
 		Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
 	})
 	assert.Nil(t, resp.Completion, "no completions for identical content")
 }
 
 func TestParseSimpleCompletion(t *testing.T) {
-	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-	}
-	p := NewProvider(config)
+	ctx := stateForInput(completionInput([]string{"hello"}, 1, 5), nil)
 
-	ctx := &provider.RequestState{
-		Input: completionInput([]string{"hello"}, 1, 5),
-	}
-
-	resp := parseSimpleCompletion(p, ctx, " world", 0)
+	resp := parseSimpleCompletion(ctx, " world", 0)
 	assert.NotNil(t, resp, "should have response")
 	assert.True(t, resp.Completion != nil, "should have completions")
 	assert.Equal(t, "hello world", resp.Completion.Lines[0], "completion merged")
 }
 
 func TestParseSimpleCompletion_MultiLine(t *testing.T) {
-	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-	}
-	p := NewProvider(config)
+	ctx := stateForInput(completionInput([]string{"start"}, 1, 5), nil)
 
-	ctx := &provider.RequestState{
-		Input: completionInput([]string{"start"}, 1, 5),
-	}
-
-	resp := parseSimpleCompletion(p, ctx, " middle\nend", 0)
+	resp := parseSimpleCompletion(ctx, " middle\nend", 0)
 	assert.NotNil(t, resp.Completion, "completions count")
 	assert.Equal(t, 2, len(resp.Completion.Lines), "should have 2 lines")
 }

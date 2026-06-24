@@ -156,12 +156,11 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 				sr.OldStart = step.Completion.StartLine
 				sr.NewLines = step.Completion.Lines
 
-				eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
+				eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 					StartLine:  step.Completion.StartLine,
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
-				}})
-				eng.prefetchState = prefetchReady
+				}}, false)
 				sr.Shown = eng.tryShowPrefetchedCompletion()
 			}
 
@@ -171,12 +170,11 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 				sr.OldStart = step.Completion.StartLine
 				sr.NewLines = step.Completion.Lines
 
-				eng.prefetchedResponse = cachedPrefetch(&types.CompletionResponse{Completion: &types.Completion{
+				eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 					StartLine:  step.Completion.StartLine,
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
-				}})
-				eng.prefetchState = prefetchReady
+				}}, false)
 			}
 
 		case "accept":
@@ -253,10 +251,10 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 					sr.Failures = append(sr.Failures, fmt.Sprintf("state: got %q, want %q", actual, want))
 				}
 			}
-			if step.Expect.PrefetchState != "" {
-				actual := prefetchStateName(eng.prefetchState)
-				if !strings.EqualFold(actual, step.Expect.PrefetchState) {
-					sr.Failures = append(sr.Failures, fmt.Sprintf("prefetchState: got %q, want %q", actual, step.Expect.PrefetchState))
+			if step.Expect.PrefetchStatus != "" {
+				actual := prefetchStatusName(eng.prefetch)
+				if !strings.EqualFold(actual, step.Expect.PrefetchStatus) {
+					sr.Failures = append(sr.Failures, fmt.Sprintf("prefetchStatus: got %q, want %q", actual, step.Expect.PrefetchStatus))
 				}
 			}
 		}

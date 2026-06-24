@@ -46,7 +46,7 @@ func (e *Engine) handleCompletionNoChanges(response *types.CompletionResponse) {
 }
 
 func (e *Engine) handleTextChangeImpl() {
-	if len(e.completions) == 0 {
+	if !e.display.hasCompletion() {
 		e.reject()
 		e.startTextChangeTimer()
 		return
@@ -75,13 +75,13 @@ func (e *Engine) handleTextChangeImpl() {
 // - matches: true if the current buffer is a valid prefix of the target
 // - hasRemaining: true if there's still content left to predict
 func (e *Engine) checkTypingMatchesPrediction() (bool, bool) {
-	if len(e.completions) == 0 || len(e.completionOriginalLines) == 0 {
+	originalLines := e.display.oldLines()
+	if !e.display.hasCompletion() || len(originalLines) == 0 {
 		return false, false
 	}
 
-	completion := e.completions[0]
+	completion := e.display.current()
 	targetLines := completion.Lines
-	originalLines := e.completionOriginalLines
 	bufferLines := e.buffer.Lines()
 
 	if len(targetLines) == 0 {
@@ -149,7 +149,7 @@ func (e *Engine) checkTypingMatchesPrediction() (bool, bool) {
 }
 
 func (e *Engine) rerenderActiveCompletion() completionOutcome {
-	if len(e.completions) == 0 {
+	if !e.display.hasCompletion() {
 		return completionNoChanges
 	}
 
@@ -172,7 +172,7 @@ func (e *Engine) rerenderActiveCompletion() completionOutcome {
 		}
 	}
 
-	outcome := e.processCompletionCandidate(e.completions[0], e.cursorTarget, metricsInfo, manual)
+	outcome := e.processCompletionCandidate(e.display.current(), e.cursorTarget, metricsInfo, manual)
 	if outcome == completionShown && e.stagedCompletion != nil && len(tail) > 0 {
 		e.stagedCompletion.Stages = append(e.stagedCompletion.Stages, tail...)
 	}
@@ -209,11 +209,11 @@ func (e *Engine) handleCursorTarget() {
 			return
 		}
 
-		if e.prefetchState == prefetchReady && e.tryShowPrefetchedCompletion() {
+		if e.readyPrefetchCompletion() != nil && e.tryShowPrefetchedCompletion() {
 			return
 		}
-		if e.prefetchState == prefetchInFlight {
-			e.prefetchState = prefetchWaitingForCursorPrediction
+		if e.hasInflightPrefetch() {
+			e.setInflightPrefetchWait(prefetchForCursorPrediction)
 		}
 		e.clearCompletionUIOnly()
 		return
@@ -224,7 +224,7 @@ func (e *Engine) handleCursorTarget() {
 }
 
 func (e *Engine) clearCompletionUIOnly() {
-	if len(e.completions) > 0 {
+	if e.display.hasCompletion() {
 		e.sendMetric(metrics.EventIgnored)
 	}
 	e.cancelCurrentRequest()
@@ -240,7 +240,7 @@ func (e *Engine) showCursorTargetWithCandidate(target *types.CursorPredictionTar
 	}
 	e.cursorTarget = target
 	e.state = stateHasCursorTarget
-	e.currentRejectedCompletion = candidate
+	e.display.setRejectionCandidate(candidate)
 	e.buffer.ShowCursorTarget(int(target.LineNumber))
 }
 
@@ -265,35 +265,50 @@ func (e *Engine) showCurrentStage() {
 		return
 	}
 
-	e.completions = []*types.Completion{{
-		StartLine:  stage.BufferStart,
-		EndLineInc: stage.BufferEnd,
-		Lines:      stage.Lines,
-	}}
 	e.cursorTarget = stage.CursorTarget
 	e.state = stateHasCompletion
-
-	e.applyBatch = e.buffer.PrepareCompletion(
-		stage.BufferStart,
-		stage.BufferEnd,
-		stage.Lines,
-		stage.Groups,
-	)
-
-	bufferLines := e.buffer.Lines()
-	e.completionOriginalLines = nil
-	for i := stage.BufferStart; i <= stage.BufferEnd && i-1 < len(bufferLines); i++ {
-		e.completionOriginalLines = append(e.completionOriginalLines, bufferLines[i-1])
-	}
 
 	// Deep copy groups so that partial accept mutations (advanceGroupsAfterAccept)
 	// don't corrupt the stage's original Groups, which advanceStagedCompletion
 	// needs for correct isPureInsertion/offset calculations.
-	e.currentGroups = text.CopyGroups(stage.Groups)
-
-	e.currentRejectedCompletion = e.currentRejectedCompletionCandidate()
+	e.setDisplayedStage(stage, text.CopyGroups(stage.Groups))
 	e.recordMetricsShown(e.pendingMetricsInfo, manual) // nil for streaming
 	e.pendingMetricsInfo = nil
+}
+
+func (e *Engine) setDisplayedStage(stage *text.Stage, groups []*text.Group) {
+	if stage == nil {
+		e.resetCompletionFields()
+		return
+	}
+
+	completion := &types.Completion{
+		StartLine:  stage.BufferStart,
+		EndLineInc: stage.BufferEnd,
+		Lines:      stage.Lines,
+	}
+
+	e.display.show(
+		completion,
+		e.buffer.PrepareCompletion(
+			stage.BufferStart,
+			stage.BufferEnd,
+			stage.Lines,
+			groups,
+		),
+		e.displayOriginalLines(stage.BufferStart, stage.BufferEnd),
+		groups,
+		e.rejectedCompletionFor(completion),
+	)
+}
+
+func (e *Engine) displayOriginalLines(startLine, endLineInc int) []string {
+	bufferLines := e.buffer.Lines()
+	var originalLines []string
+	for i := startLine; i <= endLineInc && i-1 < len(bufferLines); i++ {
+		originalLines = append(originalLines, bufferLines[i-1])
+	}
+	return originalLines
 }
 
 func (e *Engine) getStage(idx int) *text.Stage {

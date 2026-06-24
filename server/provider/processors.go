@@ -88,15 +88,15 @@ func DiffEntryToUnifiedDiff(entry *types.DiffEntry) string {
 	return strings.TrimSuffix(diffBuilder.String(), "\n")
 }
 
-func RejectEmptyText(p *Provider, text string) (*types.CompletionResponse, bool) {
+func RejectEmptyText(providerName, text string) (*types.CompletionResponse, bool) {
 	if strings.TrimSpace(text) == "" {
-		logger.Debug("%s: rejected, empty or whitespace-only", p.name)
-		return p.EmptyResponse(), true
+		logger.Debug("%s: rejected, empty or whitespace-only", providerName)
+		return EmptyResponse(), true
 	}
 	return nil, false
 }
 
-func StripRepetitionText(p *Provider, text string) (string, *types.CompletionResponse, bool) {
+func StripRepetitionText(text string) (string, *types.CompletionResponse, bool) {
 	lines := strings.Split(text, "\n")
 	cutIdx := -1
 	for i := 2; i < len(lines); i++ {
@@ -109,12 +109,12 @@ func StripRepetitionText(p *Provider, text string) (string, *types.CompletionRes
 		return text, nil, false
 	}
 	if cutIdx == 0 {
-		return text, p.EmptyResponse(), true
+		return text, EmptyResponse(), true
 	}
 	return strings.Join(lines[:cutIdx], "\n"), nil, false
 }
 
-func AnchorTruncationText(p *Provider, ctx *RequestState, text, finishReason string, stoppedEarly bool, threshold float64) (string, int, *types.CompletionResponse, bool) {
+func AnchorTruncationText(providerName string, ctx *RequestState, text, finishReason string, stoppedEarly bool, threshold float64) (string, int, *types.CompletionResponse, bool) {
 	if finishReason != "length" && !stoppedEarly {
 		return text, 0, nil, false
 	}
@@ -125,28 +125,28 @@ func AnchorTruncationText(p *Provider, ctx *RequestState, text, finishReason str
 
 	newLines := strings.Split(text, "\n")
 	originalLineCount := len(newLines)
-	windowEnd := ctx.WindowStart + len(ctx.TrimmedLines)
-	oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart:windowEnd]
+	windowEnd := ctx.Window.Start + len(ctx.Window.Lines)
+	oldLines := ctx.Input.Current.File.Lines[ctx.Window.Start:windowEnd]
 
 	processedLines, endLineInc, shouldReject := handleTruncatedCompletionWithAnchor(
-		newLines, oldLines, finishReason, ctx.WindowStart, windowEnd,
+		newLines, oldLines, finishReason, ctx.Window.Start, windowEnd,
 	)
 	if shouldReject {
-		logger.Debug("%s: rejected, truncation handling failed", p.name)
-		return text, 0, p.EmptyResponse(), true
+		logger.Debug("%s: rejected, truncation handling failed", providerName)
+		return text, 0, EmptyResponse(), true
 	}
 
 	if len(oldLines) > minLinesForAnchorValidation {
 		minAllowedLines := int(float64(len(oldLines)) * threshold)
 		if len(processedLines) < minAllowedLines {
 			logger.Debug("%s: rejected, too few lines (%d < %d min)",
-				p.name, len(processedLines), minAllowedLines)
-			return text, 0, p.EmptyResponse(), true
+				providerName, len(processedLines), minAllowedLines)
+			return text, 0, EmptyResponse(), true
 		}
 	}
 
 	logger.Info("%s: truncated, replacing lines %d-%d (%d -> %d lines)",
-		p.name, ctx.WindowStart+1, endLineInc, originalLineCount, len(processedLines))
+		providerName, ctx.Window.Start+1, endLineInc, originalLineCount, len(processedLines))
 	return strings.Join(processedLines, "\n"), endLineInc, nil, false
 }
 
@@ -161,24 +161,24 @@ func checkAnchorPosition(firstLine string, oldLines []string, maxRatio float64) 
 	return anchorIdx, maxAllowed, anchorIdx > maxAllowed
 }
 
-func ValidateAnchorPositionText(p *Provider, ctx *RequestState, text string, maxAnchorRatio float64) (*types.CompletionResponse, bool) {
+func ValidateAnchorPositionText(providerName string, ctx *RequestState, text string, maxAnchorRatio float64) (*types.CompletionResponse, bool) {
 	newLines := strings.Split(text, "\n")
 	if len(newLines) == 0 {
 		return nil, false
 	}
-	oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart : ctx.WindowStart+len(ctx.TrimmedLines)]
+	oldLines := ctx.Input.Current.File.Lines[ctx.Window.Start : ctx.Window.Start+len(ctx.Window.Lines)]
 	anchorIdx, maxAllowed, reject := checkAnchorPosition(newLines[0], oldLines, maxAnchorRatio)
 	if reject {
 		logger.Debug("%s: rejected, first line anchors at %d (max allowed %d)",
-			p.name, anchorIdx, maxAllowed)
-		return p.EmptyResponse(), true
+			providerName, anchorIdx, maxAllowed)
+		return EmptyResponse(), true
 	}
 	return nil, false
 }
 
-func FirstLineAnchorChecker(maxAnchorRatio float64) func(*Provider, *RequestState, string) error {
-	return func(p *Provider, ctx *RequestState, firstLine string) error {
-		oldLines := ctx.Input.Current.File.Lines[ctx.WindowStart : ctx.WindowStart+len(ctx.TrimmedLines)]
+func FirstLineAnchorChecker(maxAnchorRatio float64) func(*RequestState, string) error {
+	return func(ctx *RequestState, firstLine string) error {
+		oldLines := ctx.Input.Current.File.Lines[ctx.Window.Start : ctx.Window.Start+len(ctx.Window.Lines)]
 		_, _, reject := checkAnchorPosition(firstLine, oldLines, maxAnchorRatio)
 		if reject {
 			return errors.New("first line anchor position too far from start")

@@ -71,19 +71,6 @@ func (e *Engine) startProviderCompletion(reqCtx context.Context, input ctx.Compl
 	return result, nil, nil
 }
 
-func (e *Engine) completeProviderSynchronously(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
-	result, stream, err := e.startProviderCompletion(reqCtx, input)
-	if err != nil {
-		return nil, err
-	}
-	if stream == nil {
-		return result, nil
-	}
-	for range stream.Lines() {
-	}
-	return stream.Finish()
-}
-
 func (e *Engine) suppressCompletionRequest(source types.CompletionSource, manual bool) string {
 	if manual {
 		return ""

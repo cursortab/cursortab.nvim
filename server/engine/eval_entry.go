@@ -67,7 +67,7 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 		return result, nil
 	}
 	start := time.Now()
-	resp, err := e.completeProviderSynchronously(ctx, input)
+	resp, err := e.provider.Complete(ctx, input)
 	result.ProviderLatency = time.Since(start)
 	if err != nil {
 		return result, fmt.Errorf("provider: %w", err)

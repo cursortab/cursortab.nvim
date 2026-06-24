@@ -63,7 +63,7 @@ func TestRequestCompletion_ErrorReturnsToIdle(t *testing.T) {
 	assert.Equal(t, stateIdle, eng.state, "provider error should finish the pending request")
 }
 
-func TestEvalRequestCompletion_ReturnsStreamFinishError(t *testing.T) {
+func TestEvalRequestCompletion_UsesBatchProviderPath(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"existing"}
 	buf.row = 1
@@ -72,15 +72,20 @@ func TestEvalRequestCompletion_ReturnsStreamFinishError(t *testing.T) {
 	stream.err = errors.New("stream failed")
 	close(stream.lines)
 	prov := newMockStreamingProvider(stream)
+	prov.completionResp = completionResponse(&types.Completion{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"updated"},
+	})
 	clock := newMockClock()
 	eng, cancel := createTestEngineWithContext(buf, prov, clock)
 	defer cancel()
 
-	_, err := eng.EvalRequestCompletion(context.Background(), true)
+	res, err := eng.EvalRequestCompletion(context.Background(), true)
 
-	assert.Error(t, err, "eval should return stream finish error")
-	assert.Contains(t, err.Error(), "provider: stream failed", "eval error")
-	assert.Equal(t, 0, prov.completionCalls, "eval should use streaming provider path")
+	assert.NoError(t, err, "eval should use batch provider path")
+	assert.True(t, res.Shown, "batch completion should be shown")
+	assert.Equal(t, 1, prov.completionCalls, "eval should call Complete")
 }
 
 func TestCompletionError_IgnoresStaleRequest(t *testing.T) {

@@ -346,7 +346,7 @@ func (b *NvimBuffer) PrepareCompletion(startLine, endLineInc int, lines []string
 	// Groups are pre-computed by staging with BufferLine already set
 
 	replaceEnd := computeReplaceEnd(startLine, endLineInc, lines, groups)
-	applyBatch := b.getApplyBatch(startLine, replaceEnd, lines, diffResult)
+	applyBatch := b.getApplyBatch(startLine, replaceEnd, lines, groups, diffResult)
 
 	// Convert to Lua format
 	luaDiffResult := text.ToLuaFormat(&text.Stage{
@@ -826,11 +826,82 @@ func computeReplaceEnd(startLine, endLineInc int, lines []string, groups []*text
 	return endLineInc
 }
 
-func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, diffResult *text.DiffResult) *nvim.Batch {
-	applyBatch := b.client.NewBatch()
+type bufferTextEdit struct {
+	row         int
+	startCol    int
+	endCol      int
+	replacement []byte
+}
 
-	b.clearNamespace(applyBatch, b.config.NsID)
+func textEditForCharGroup(group *text.Group) (bufferTextEdit, bool) {
+	if group == nil || group.StartLine != group.EndLine || group.BufferLine <= 0 {
+		return bufferTextEdit{}, false
+	}
+	switch group.RenderHint {
+	case "append_chars", "replace_chars", "delete_chars":
+	default:
+		return bufferTextEdit{}, false
+	}
+	if len(group.Lines) != 1 || len(group.OldLines) != 1 {
+		return bufferTextEdit{}, false
+	}
 
+	oldLine := group.OldLines[0]
+	newLine := group.Lines[0]
+	if oldLine == newLine {
+		return bufferTextEdit{}, false
+	}
+
+	prefixLen := 0
+	minLen := min(len(oldLine), len(newLine))
+	for prefixLen < minLen && oldLine[prefixLen] == newLine[prefixLen] {
+		prefixLen++
+	}
+
+	suffixLen := 0
+	for suffixLen < minLen-prefixLen && oldLine[len(oldLine)-1-suffixLen] == newLine[len(newLine)-1-suffixLen] {
+		suffixLen++
+	}
+
+	oldEnd := len(oldLine) - suffixLen
+	newEnd := len(newLine) - suffixLen
+	if oldEnd < prefixLen || newEnd < prefixLen {
+		return bufferTextEdit{}, false
+	}
+
+	return bufferTextEdit{
+		row:         group.BufferLine - 1,
+		startCol:    prefixLen,
+		endCol:      oldEnd,
+		replacement: []byte(newLine[prefixLen:newEnd]),
+	}, true
+}
+
+func charLevelTextEdits(groups []*text.Group) ([]bufferTextEdit, bool) {
+	if len(groups) == 0 {
+		return nil, false
+	}
+
+	edits := make([]bufferTextEdit, 0, len(groups))
+	for _, group := range groups {
+		edit, ok := textEditForCharGroup(group)
+		if !ok {
+			return nil, false
+		}
+		edits = append(edits, edit)
+	}
+
+	slices.SortFunc(edits, func(a, b bufferTextEdit) int {
+		if a.row != b.row {
+			return b.row - a.row
+		}
+		return b.startCol - a.startCol
+	})
+
+	return edits, true
+}
+
+func setBufferLines(batch *nvim.Batch, buf nvim.Buffer, startLine, replaceEnd int, lines []string) {
 	placeBytes := make([][]byte, len(lines))
 	for i, line := range lines {
 		placeBytes[i] = []byte(line)
@@ -840,7 +911,21 @@ func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, di
 	// Replacement: 1-indexed inclusive [startLine, replaceEnd] maps to
 	// 0-indexed exclusive [startLine-1, replaceEnd) by indexing coincidence.
 	// Pure insertion: replaceEnd = startLine-1, so start == end inserts without replacing.
-	applyBatch.SetBufferLines(b.id, startLine-1, replaceEnd, false, placeBytes)
+	batch.SetBufferLines(buf, startLine-1, replaceEnd, false, placeBytes)
+}
+
+func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, groups []*text.Group, diffResult *text.DiffResult) *nvim.Batch {
+	applyBatch := b.client.NewBatch()
+
+	b.clearNamespace(applyBatch, b.config.NsID)
+
+	if edits, ok := charLevelTextEdits(groups); ok {
+		for _, edit := range edits {
+			applyBatch.SetBufferText(b.id, edit.row, edit.startCol, edit.row, edit.endCol, [][]byte{edit.replacement})
+		}
+	} else {
+		setBufferLines(applyBatch, b.id, startLine, replaceEnd, lines)
+	}
 
 	b.pending = &PendingEdit{
 		StartLine:        startLine,

@@ -70,9 +70,9 @@ func (e *Engine) suppressForSingleDeletion() bool {
 }
 
 // suppressForMidLine returns true if the cursor is in the middle of a line
-// with meaningful code to the right, and the provider is inline (not FIM or edit).
+// with meaningful code to the right, and the provider cannot complete there.
 func (e *Engine) suppressForMidLine() bool {
-	if e.config.EditCompletionProvider || e.config.ProviderName == string(types.ProviderTypeFIM) {
+	if e.provider.CompletionKind() != CompletionInline {
 		return false
 	}
 
@@ -133,8 +133,8 @@ func (e *Engine) suppressForDisabledScope() string {
 // always done at stage granularity because that's also how cache entries are
 // stored — the user only sees one stage at a time. It emits exactly one
 // debug log per call describing the outcome.
-func (e *Engine) suppressRejectedCompletionForStage(stage *text.Stage) bool {
-	if e.manuallyTriggered || stage == nil {
+func (e *Engine) suppressRejectedCompletionForStage(stage *text.Stage, manual bool) bool {
+	if manual || stage == nil {
 		return false
 	}
 	entry := e.rejectedCompletionForStage(stage)
@@ -160,11 +160,12 @@ func (e *Engine) suppressRejectedCompletionForStage(stage *text.Stage) bool {
 // rememberRejectedCompletion caches the current completion so future similar
 // completions are suppressed. Called only when the user explicitly rejects.
 func (e *Engine) rememberRejectedCompletion() {
-	if e.currentRejectedCompletion == nil {
+	candidate := e.display.rejectionCandidate()
+	if candidate == nil {
 		return
 	}
 
-	entry := e.currentRejectedCompletion.clone()
+	entry := candidate.clone()
 	entry.expiresAt = e.clock.Now().Add(rejectedCompletionTTL)
 	entries := e.pruneRejectedCompletions(entry.filePath)
 	if len(entries) >= rejectedCompletionMaxPerFile {
@@ -172,7 +173,7 @@ func (e *Engine) rememberRejectedCompletion() {
 	}
 	entries = append(entries, entry)
 	e.rejectedCompletions[entry.filePath] = entries
-	e.currentRejectedCompletion = nil
+	e.display.clearRejectionCandidate()
 }
 
 // forgetRejectedCompletions drops the rejection cache for the given file.
@@ -185,16 +186,8 @@ func (e *Engine) forgetRejectedCompletions(filePath string) {
 	delete(e.rejectedCompletions, filePath)
 }
 
-func (e *Engine) currentRejectedCompletionCandidate() *rejectedCompletion {
-	if len(e.completions) == 0 {
-		return nil
-	}
-	return e.rejectedCompletionFor(e.completions[0])
-}
-
 // rejectedCompletionForStage builds a rejection-cache candidate from a stage.
-// Used when no completion has been pushed into e.completions yet (e.g. a
-// cursor-target-only render that didn't show ghost text).
+// Used for cursor-target-only render paths that did not show ghost text.
 func (e *Engine) rejectedCompletionForStage(stage *text.Stage) *rejectedCompletion {
 	if stage == nil {
 		return nil

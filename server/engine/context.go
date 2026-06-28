@@ -6,7 +6,6 @@ import (
 
 	"cursortab/buffer"
 	"cursortab/logger"
-	"cursortab/types"
 	"cursortab/utils"
 )
 
@@ -42,9 +41,9 @@ func (e *Engine) saveCurrentFileState() {
 	}
 
 	state := e.newFileStateFromBuffer()
-	state.FirstLines = firstN(e.buffer.Lines(), e.contextLimits.FileChunkLines)
+	state.FirstLines = firstN(e.buffer.Lines(), defaultFileChunkLines)
 	e.fileStateStore[e.buffer.Path()] = state
-	e.trimFileStateStore(3) // Keep at most 3 files for FileChunks
+	e.trimFileStateStore(defaultMaxRecentSnapshots)
 }
 
 // handleFileSwitch manages file state when switching between files.
@@ -69,9 +68,9 @@ func (e *Engine) handleFileSwitch(oldPath, newPath string, currentLines []string
 
 	if oldPath != "" {
 		state := e.newFileStateFromBuffer()
-		// Capture first lines for FileChunks context
-		state.FirstLines = firstN(currentLines, e.contextLimits.FileChunkLines)
+		state.FirstLines = firstN(currentLines, defaultFileChunkLines)
 		e.fileStateStore[oldPath] = state
+		e.trimFileStateStore(defaultMaxRecentSnapshots)
 	}
 
 	if state, exists := e.fileStateStore[newPath]; exists {
@@ -152,6 +151,9 @@ type fileStateEntry struct {
 
 // trimFileStateStore keeps only the most recently accessed maxFiles files
 func (e *Engine) trimFileStateStore(maxFiles int) {
+	if maxFiles <= 0 {
+		return
+	}
 	if len(e.fileStateStore) <= maxFiles {
 		return
 	}
@@ -162,70 +164,10 @@ func (e *Engine) trimFileStateStore(maxFiles int) {
 	}
 }
 
-// getAllFileDiffHistories returns processed diff history for the current file
-// and recent cross-file diffs, ordered chronologically (most recent last).
-func (e *Engine) getAllFileDiffHistories() []*types.FileDiffHistory {
-	var result []*types.FileDiffHistory
-
-	// Cross-file histories (older context, added first)
-	currentPath := e.buffer.Path()
-	for path, state := range e.fileStateStore {
-		if path == currentPath || len(state.DiffHistories) == 0 {
-			continue
-		}
-		diffs := buffer.ProcessDiffHistory(state.DiffHistories, e.clock.Now().UnixNano())
-		if len(diffs) > 0 {
-			result = append(result, &types.FileDiffHistory{
-				FileName:    path,
-				DiffHistory: diffs,
-			})
-		}
-	}
-
-	// Current file history (most recent, added last for chronological ordering)
-	if currentPath != "" && len(e.buffer.DiffHistories()) > 0 {
-		diffs := buffer.ProcessDiffHistory(slices.Clone(e.buffer.DiffHistories()), e.clock.Now().UnixNano())
-
-		if e.config.MaxDiffTokens > 0 {
-			diffs = utils.TrimDiffEntries(diffs, e.config.MaxDiffTokens)
-		}
-
-		if len(diffs) > 0 {
-			result = append(result, &types.FileDiffHistory{
-				FileName:    currentPath,
-				DiffHistory: diffs,
-			})
-		}
-	}
-
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
-
 // firstN returns a clone of the first n lines (or all of them if n exceeds the length).
 func firstN(lines []string, n int) []string {
 	if n < 0 || len(lines) <= n {
 		return slices.Clone(lines)
 	}
 	return slices.Clone(lines[:n])
-}
-
-// getRecentBufferSnapshots returns up to limit recent buffer snapshots
-// excluding the current file, sorted by most recently accessed
-func (e *Engine) getRecentBufferSnapshots(excludePath string, limit int) []*types.RecentBufferSnapshot {
-	entries := e.fileStatesByRecency(func(path string, state *FileState) bool {
-		return path != excludePath && len(state.FirstLines) > 0
-	})
-
-	var result []*types.RecentBufferSnapshot
-	for i := 0; i < limit && i < len(entries); i++ {
-		result = append(result, &types.RecentBufferSnapshot{
-			FilePath:    entries[i].path,
-			Lines:       entries[i].state.FirstLines,
-			TimestampMs: entries[i].state.LastAccessNs / 1e6, // ns to ms
-		})
-	}
-	return result
 }

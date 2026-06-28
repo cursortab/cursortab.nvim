@@ -20,7 +20,7 @@ stash-prefetch 6-6
   | "  return a - b;"
 
 accept
-expect state=hasCursorTarget cursorTargetLine=6 prefetchState=none
+expect state=hasCursorTarget cursorTargetLine=6 prefetchStatus=none
   buffer:
     | "function add(a, b) {"
     | "  return a + b;"

@@ -105,7 +105,7 @@ func TestSuppressForSingleDeletion(t *testing.T) {
 func TestSuppressForMidLine(t *testing.T) {
 	// Edit completion provider → never suppress mid-line
 	e := &Engine{
-		config: EngineConfig{EditCompletionProvider: true},
+		provider: newMockProviderWithKind(CompletionEdit),
 		buffer: &mockBuffer{
 			lines: []string{"func process(items []string) {"},
 			row:   1,
@@ -116,7 +116,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Non-edit provider, cursor at end → no suppress
 	e = &Engine{
-		config: EngineConfig{EditCompletionProvider: false},
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"result = "},
 			row:   1,
@@ -127,7 +127,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// FIM provider → never suppress mid-line
 	e = &Engine{
-		config: EngineConfig{ProviderName: "fim"},
+		provider: newMockProviderWithKind(CompletionFIM),
 		buffer: &mockBuffer{
 			lines: []string{"for _, item := range items {"},
 			row:   1,
@@ -138,7 +138,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Inline provider, cursor mid-line with code to right → suppress
 	e = &Engine{
-		config: EngineConfig{EditCompletionProvider: false},
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"for _, item := range items {"},
 			row:   1,
@@ -149,7 +149,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Non-edit provider, only closing paren to right → no suppress
 	e = &Engine{
-		config: EngineConfig{EditCompletionProvider: false},
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"result = append(result, )"},
 			row:   1,
@@ -160,7 +160,7 @@ func TestSuppressForMidLine(t *testing.T) {
 
 	// Non-edit provider, closing bracket + semicolon → no suppress
 	e = &Engine{
-		config: EngineConfig{EditCompletionProvider: false},
+		provider: newMockProviderWithKind(CompletionInline),
 		buffer: &mockBuffer{
 			lines: []string{"doSomething();"},
 			row:   1,
@@ -185,17 +185,17 @@ func TestRejectedCompletionSuppression_EscRejectsSimilarCompletion(t *testing.T)
 		Lines:      []string{"hello world"},
 	}
 
-	outcome := eng.processCompletion(comp)
+	outcome := eng.processCompletion(completionResponse(comp))
 	assert.Equal(t, completionShown, outcome, "initial completion shown")
 	assert.Equal(t, 1, buf.prepareCompletionCalls, "initial render count")
 
 	eng.doReject()
 
-	outcome = eng.processCompletion(&types.Completion{
+	outcome = eng.processCompletion(completionResponse(&types.Completion{
 		StartLine:  1,
 		EndLineInc: 1,
 		Lines:      []string{"hello world!"},
-	})
+	}))
 	assert.Equal(t, completionSuppressed, outcome, "similar rejected completion suppressed")
 	assert.Equal(t, 1, buf.prepareCompletionCalls, "suppressed completion should not render")
 	assert.Equal(t, stateIdle, eng.state, "state after suppression")
@@ -216,11 +216,10 @@ func TestRejectedCompletionSuppression_ManualTriggerBypassesCache(t *testing.T) 
 		Lines:      []string{"hello world"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doReject()
 
-	eng.manuallyTriggered = true
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "manual trigger bypasses rejection cache")
+	assert.Equal(t, completionShown, eng.processCompletionWithManual(completionResponse(comp), true), "manual trigger bypasses rejection cache")
 	assert.Equal(t, 2, buf.prepareCompletionCalls, "manual trigger should render completion")
 }
 
@@ -239,11 +238,11 @@ func TestRejectedCompletionSuppression_ExpiresAfterTTL(t *testing.T) {
 		Lines:      []string{"hello world"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doReject()
 	clock.Advance(rejectedCompletionTTL + time.Second)
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "expired rejection should not suppress completion")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "expired rejection should not suppress completion")
 	assert.Equal(t, 2, buf.prepareCompletionCalls, "completion should render after ttl")
 }
 
@@ -262,7 +261,7 @@ func TestRejectedCompletionSuppression_TypingMismatchCachesRejection(t *testing.
 		Lines:      []string{"hello world"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 
 	buf.lines = []string{"hello x"}
 	buf.col = 7
@@ -270,7 +269,7 @@ func TestRejectedCompletionSuppression_TypingMismatchCachesRejection(t *testing.
 
 	buf.lines = []string{"hello"}
 	buf.col = 5
-	assert.Equal(t, completionSuppressed, eng.processCompletion(comp), "typed-over completion should be cached as rejected")
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(comp)), "typed-over completion should be cached as rejected")
 	assert.Equal(t, 1, buf.prepareCompletionCalls, "typed-over completion should not rerender")
 }
 
@@ -289,12 +288,12 @@ func TestRejectedCompletionSuppression_BufferProgressAllowsCompletion(t *testing
 		Lines:      []string{"import numpy as np"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doReject()
 
 	buf.lines = []string{"import nump"}
 	buf.col = len("import nump")
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "buffer progress should allow previously rejected completion")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "buffer progress should allow previously rejected completion")
 	assert.Equal(t, 2, buf.prepareCompletionCalls, "completion should rerender after buffer changes")
 }
 
@@ -313,10 +312,10 @@ func TestRejectedCompletionSuppression_CursorMoveDoesNotCache(t *testing.T) {
 		Lines:      []string{"hello world"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doResetIdleTimer()
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "cursor move should not populate rejection cache")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "cursor move should not populate rejection cache")
 	assert.Equal(t, 2, buf.prepareCompletionCalls, "completion should rerender after cursor move")
 }
 
@@ -336,10 +335,10 @@ func TestRejectedCompletionSuppression_PureInsertionSuppresses(t *testing.T) {
 		Lines:      []string{`    print("hi")`},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doReject()
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(comp),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(comp)),
 		"same completion into empty line should be suppressed")
 }
 
@@ -358,13 +357,13 @@ func TestRejectedCompletionSuppression_AcceptClearsCache(t *testing.T) {
 		Lines:      []string{"hello world"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doReject()
 
 	// Simulate an accept in the same file (unrelated completion).
 	eng.forgetRejectedCompletions(buf.Path())
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp),
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)),
 		"accept should clear rejection cache so identical completion is shown again")
 }
 
@@ -406,12 +405,12 @@ func TestRejectedCompletionSuppression_MultiStageMatchesOnFirstStage(t *testing.
 		}
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(multiRegion()), "initial multi-stage shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(multiRegion())), "initial multi-stage shown")
 	assert.Equal(t, 2, len(eng.stagedCompletion.Stages), "produces two stages")
 
 	eng.doReject()
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(multiRegion()),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(multiRegion())),
 		"identical multi-stage completion suppressed via first-stage match")
 }
 
@@ -434,10 +433,10 @@ func TestRejectedCompletionSuppression_PureDeletionCached(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(deletion()), "initial deletion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(deletion())), "initial deletion shown")
 	eng.doReject()
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(deletion()),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(deletion())),
 		"pure-deletion completion is suppressed after rejection")
 }
 
@@ -458,10 +457,10 @@ func TestRejectedCompletionSuppression_BlankLineDeletionCached(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(deleteBlankLine()), "initial blank-line deletion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(deleteBlankLine())), "initial blank-line deletion shown")
 	eng.doReject()
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(deleteBlankLine()),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(deleteBlankLine())),
 		"blank-line deletion should be suppressed after rejection")
 }
 
@@ -482,10 +481,10 @@ func TestRejectedCompletionSuppression_NewlineDeletionCached(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(removeNewline()), "initial newline-deletion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(removeNewline())), "initial newline-deletion shown")
 	eng.doReject()
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(removeNewline()),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(removeNewline())),
 		"newline deletion should be suppressed after rejection")
 }
 
@@ -520,10 +519,10 @@ func TestRejectedCompletionSuppression_MinLineGateBlocksFalseMatch(t *testing.T)
 		}
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(makeBig("import path/to/foo")), "first big completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(makeBig("import path/to/foo"))), "first big completion shown")
 	eng.doReject()
 
-	assert.Equal(t, completionShown, eng.processCompletion(makeBig("import totally/different/bar")),
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(makeBig("import totally/different/bar"))),
 		"different first line should not be drowned by 49 identical trailing lines")
 }
 
@@ -538,11 +537,11 @@ func TestRejectedCompletionSuppression_LRUCapPerFile(t *testing.T) {
 
 	// Seed more than the cap directly through rememberRejectedCompletion.
 	for i := 0; i < rejectedCompletionMaxPerFile+5; i++ {
-		eng.currentRejectedCompletion = &rejectedCompletion{
+		eng.display.setRejectionCandidate(&rejectedCompletion{
 			filePath:  buf.Path(),
 			startLine: i + 1,
 			lines:     []string{"x"},
-		}
+		})
 		eng.rememberRejectedCompletion()
 	}
 
@@ -572,13 +571,13 @@ func TestRejectedCompletionSuppression_ShortContextLineLenient(t *testing.T) {
 		Lines:      []string{"  let x = 42;"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial completion shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial completion shown")
 	eng.doReject()
 
 	// Trailing punctuation tweak on the after-line (closing brace).
 	buf.lines[2] = "};"
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(comp),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(comp)),
 		"trailing punctuation in short after-line context should not break suppression")
 }
 
@@ -704,15 +703,15 @@ func TestRejectedCompletionSuppression_CursorTargetTypingCachesRejection(t *test
 		Lines:      []string{"line 10 modified"},
 	}
 
-	assert.Equal(t, completionShown, eng.processCompletion(comp), "initial cursor target shown")
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(comp)), "initial cursor target shown")
 	assert.Equal(t, stateHasCursorTarget, eng.state, "should be in cursor target state")
-	assert.NotNil(t, eng.currentRejectedCompletion, "candidate captured for cursor target")
+	assert.NotNil(t, eng.display.rejectionCandidate(), "candidate captured for cursor target")
 
 	// EventTextChanged from stateHasCursorTarget is dispatched as
 	// doRejectAndDebounce by the state machine.
 	eng.doRejectAndDebounce()
 
-	assert.Equal(t, completionSuppressed, eng.processCompletion(comp),
+	assert.Equal(t, completionSuppressed, eng.processCompletion(completionResponse(comp)),
 		"typing during cursor target should cache the rejection")
 }
 
@@ -737,8 +736,7 @@ func TestRejectedCompletionSuppression_AcceptCursorTargetClearsCache(t *testing.
 
 	eng.state = stateHasCursorTarget
 	eng.cursorTarget = &types.CursorPredictionTarget{
-		RelativePath: buf.Path(),
-		LineNumber:   1,
+		LineNumber: 1,
 	}
 
 	eng.acceptCursorTarget()

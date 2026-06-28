@@ -50,6 +50,7 @@ type StagingResult struct {
 type StagedCompletion struct {
 	Stages           []*Stage
 	CurrentIdx       int
+	Manual           bool
 	CumulativeOffset int // Tracks line count drift after each stage accept (for unequal line counts)
 }
 
@@ -503,13 +504,11 @@ func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []stri
 				targetLine = min(b.bufferStart, len(newLines)+baseLineOffset-1)
 			}
 			cursorTarget = &types.CursorPredictionTarget{
-				RelativePath:    filePath,
 				LineNumber:      int32(targetLine),
 				ShouldRetrigger: true,
 			}
 		} else {
 			cursorTarget = &types.CursorPredictionTarget{
-				RelativePath:    filePath,
 				LineNumber:      int32(builders[i+1].bufferStart),
 				ShouldRetrigger: false,
 			}

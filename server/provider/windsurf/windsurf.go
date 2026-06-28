@@ -86,9 +86,11 @@ import (
 	"time"
 
 	"cursortab/buffer"
+	"cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
+	"cursortab/provider"
 	"cursortab/types"
 )
 
@@ -281,13 +283,29 @@ type windsurfAcceptRequest struct {
 }
 
 type Provider struct {
+	provider.Base
 	buffer     InfoProvider
 	httpClient *http.Client
 	reqCounter int64
 }
 
+var _ engine.Provider = (*Provider)(nil)
+var _ provider.CompletionFlow[*windsurfRequestPayload, *windsurfRawResult] = (*Provider)(nil)
+
+type windsurfRequestPayload struct {
+	ready bool
+	url   string
+	body  []byte
+}
+
+type windsurfRawResult struct {
+	ready    bool
+	response *windsurfResponse
+}
+
 func NewProvider(buf InfoProvider) *Provider {
 	return &Provider{
+		Base:   provider.NewBase(engine.CompletionEdit, nil),
 		buffer: buf,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
@@ -303,45 +321,103 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 	p.httpClient.Transport = rt
 }
 
-func (p *Provider) GetContextLimits() engine.ContextLimits {
-	return engine.ContextLimits{
-		MaxUserActions:     -1,
-		FileChunkLines:     -1,
-		MaxRecentSnapshots: -1,
-		MaxDiffBytes:       -1,
-		MaxChangedSymbols:  -1,
-		MaxSiblings:        -1,
-		MaxInputLines:      -1,
-		MaxInputBytes:      -1,
-	}
+func (p *Provider) Complete(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+	return provider.StartBatch(reqCtx, input, nil, p)
 }
 
-func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	defer logger.Trace("windsurf.GetCompletion")()
+func (p *Provider) Build(state *provider.RequestState) (*windsurfRequestPayload, error) {
+	info, ready, err := p.windsurfInfo()
+	if err != nil {
+		return nil, err
+	}
+	if !ready {
+		return &windsurfRequestPayload{}, nil
+	}
+	return p.build(state, info)
+}
 
+func (p *Provider) windsurfInfo() (*buffer.WindsurfInfo, bool, error) {
 	info, err := p.buffer.GetWindsurfInfo()
 	if err != nil {
-		logger.Error("failed to get windsurf info: %v", err)
-		return p.emptyResponse(), nil
+		return nil, false, fmt.Errorf("windsurf info: %w", err)
 	}
 	if info == nil || !info.Healthy {
 		logger.Debug("windsurf: server not healthy")
+		return nil, false, nil
+	}
+	return info, true, nil
+}
+
+func (p *Provider) build(state *provider.RequestState, info *buffer.WindsurfInfo) (*windsurfRequestPayload, error) {
+	current := state.Input.Current
+
+	wsReq := buildWindsurfRequest(info, current, p.nextRequestID())
+
+	body, err := json.Marshal(wsReq)
+	if err != nil {
+		return nil, fmt.Errorf("marshal windsurf request: %w", err)
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCompletions", info.Port)
+	return &windsurfRequestPayload{ready: true, url: url, body: body}, nil
+}
+
+func (p *Provider) Call(reqCtx context.Context, payload *windsurfRequestPayload) (*windsurfRawResult, error) {
+	if payload == nil {
+		return nil, fmt.Errorf("windsurf: nil request")
+	}
+	if !payload.ready {
+		return &windsurfRawResult{}, nil
+	}
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, payload.url, bytes.NewReader(payload.body))
+	if err != nil {
+		return nil, fmt.Errorf("create windsurf request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("windsurf request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("windsurf response %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var wsResp windsurfResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wsResp); err != nil {
+		return nil, fmt.Errorf("decode windsurf response: %w", err)
+	}
+	return &windsurfRawResult{ready: true, response: &wsResp}, nil
+}
+
+func (p *Provider) Parse(state *provider.RequestState, result *windsurfRawResult) (*types.CompletionResponse, error) {
+	if result == nil {
+		return nil, fmt.Errorf("windsurf: nil response")
+	}
+	if !result.ready {
+		return p.emptyResponse(), nil
+	}
+	if result.response == nil {
+		return nil, fmt.Errorf("windsurf: nil response")
+	}
+	if result.response.State.State != "CODEIUM_STATE_SUCCESS" {
+		logger.Debug("windsurf: non-success state: %v", result.response.State)
 		return p.emptyResponse(), nil
 	}
 
+	return p.convertResponse(result.response, state.Input.Current)
+}
+
+func buildWindsurfRequest(info *buffer.WindsurfInfo, current ctx.CurrentSnapshot, reqID int) windsurfRequest {
 	lineEnding := "\n"
-	language := resolveLanguage(req.FilePath)
+	language := resolveLanguage(current.File.Path)
+	absFilePath, _ := filepath.Abs(current.File.Path)
+	absWorkspacePath, _ := filepath.Abs(current.WorkspacePath)
 
-	absFilePath, _ := filepath.Abs(req.FilePath)
-	absWorkspacePath, _ := filepath.Abs(req.WorkspacePath)
-
-	text := strings.Join(req.Lines, lineEnding)
-	if len(req.Lines) > 0 {
-		text += lineEnding
-	}
-
-	reqID := p.nextRequestID()
-	wsReq := windsurfRequest{
+	return windsurfRequest{
 		Metadata: windsurfMetadata{
 			APIKey:           info.APIKey,
 			IDEName:          "neovim",
@@ -355,59 +431,18 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 			InsertSpaces: true,
 		},
 		Document: windsurfDocument{
-			Text:           text,
+			Text:           buildDocumentText(current.File.Lines),
 			EditorLanguage: language,
 			Language:       LanguageEnum(language),
 			CursorPosition: windsurfPos{
-				Row: req.CursorRow - 1,
-				Col: req.CursorCol,
+				Row: current.Cursor.Row - 1,
+				Col: current.Cursor.Col,
 			},
 			AbsoluteURI:  "file://" + absFilePath,
 			WorkspaceURI: "file://" + absWorkspacePath,
 			LineEnding:   lineEnding,
 		},
 	}
-
-	body, err := json.Marshal(wsReq)
-	if err != nil {
-		logger.Error("windsurf: failed to marshal request: %v", err)
-		return p.emptyResponse(), nil
-	}
-
-	url := fmt.Sprintf("http://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCompletions", info.Port)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		logger.Error("windsurf: failed to create request: %v", err)
-		return p.emptyResponse(), nil
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		logger.Debug("windsurf: request failed: %v", err)
-		return p.emptyResponse(), nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		logger.Debug("windsurf: non-200 response %d: %s", resp.StatusCode, string(respBody))
-		return p.emptyResponse(), nil
-	}
-
-	var wsResp windsurfResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wsResp); err != nil {
-		logger.Error("windsurf: failed to decode response: %v", err)
-		return p.emptyResponse(), nil
-	}
-
-	if wsResp.State.State != "CODEIUM_STATE_SUCCESS" {
-		logger.Debug("windsurf: non-success state: %v", wsResp.State)
-		return p.emptyResponse(), nil
-	}
-
-	return p.convertResponse(&wsResp, req)
 }
 
 func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
@@ -459,44 +494,39 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	resp.Body.Close()
 }
 
-func (p *Provider) convertResponse(wsResp *windsurfResponse, req *types.CompletionRequest) (*types.CompletionResponse, error) {
+func (p *Provider) convertResponse(wsResp *windsurfResponse, current ctx.CurrentSnapshot) (*types.CompletionResponse, error) {
 	if len(wsResp.CompletionItems) == 0 {
 		return p.emptyResponse(), nil
 	}
 
-	var completions []*types.Completion
-	var metricsInfo *types.MetricsInfo
-
 	for i, item := range wsResp.CompletionItems {
-		completion := p.convertSingleItem(item, req, i)
+		completion := p.convertSingleItem(item, current, i)
 		if completion != nil {
-			completions = append(completions, completion)
-			if metricsInfo == nil && item.Completion.CompletionID != "" {
+			var metricsInfo *types.MetricsInfo
+			if item.Completion.CompletionID != "" {
 				metricsInfo = &types.MetricsInfo{
 					ID: item.Completion.CompletionID,
 				}
 			}
+			return &types.CompletionResponse{
+				Completion:  completion,
+				MetricsInfo: metricsInfo,
+			}, nil
 		}
 	}
 
-	if len(completions) == 0 {
-		return p.emptyResponse(), nil
-	}
-
-	return &types.CompletionResponse{
-		Completions: completions,
-		MetricsInfo: metricsInfo,
-	}, nil
+	return p.emptyResponse(), nil
 }
 
-func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.CompletionRequest, idx int) *types.Completion {
-	documentText := buildDocumentText(req.Lines)
+func (p *Provider) convertSingleItem(item windsurfCompletionItem, current ctx.CurrentSnapshot, idx int) *types.Completion {
+	lines := current.File.Lines
+	documentText := buildDocumentText(lines)
 	startOffset, endOffset, ok := p.resolveItemOffsets(item, idx, len(documentText))
 	if !ok {
 		return nil
 	}
 
-	startLine, endLine, ok := p.resolveReplacementLines(item, req, startOffset, endOffset, documentText, idx)
+	startLine, endLine, ok := p.resolveReplacementLines(lines, startOffset, endOffset, documentText, idx)
 	if !ok {
 		return nil
 	}
@@ -514,14 +544,14 @@ func (p *Provider) convertSingleItem(item windsurfCompletionItem, req *types.Com
 	// above, so the suffix must be preserved here to avoid truncation of the
 	// line tail.
 	endCol, _ := strconv.Atoi(item.Range.EndPosition.Col)
-	if endCol > 0 && endLine >= 1 && endLine <= len(req.Lines) {
-		lastOrigLine := req.Lines[endLine-1]
+	if endCol > 0 && endLine >= 1 && endLine <= len(lines) {
+		lastOrigLine := lines[endLine-1]
 		if endCol < len(lastOrigLine) && len(newLines) > 0 {
 			newLines[len(newLines)-1] += lastOrigLine[endCol:]
 		}
 	}
 
-	origLines := req.Lines[startLine-1 : endLine]
+	origLines := lines[startLine-1 : endLine]
 	if slices.Equal(newLines, origLines) {
 		logger.Debug("windsurf: item %d is no-op", idx)
 		return nil
@@ -560,7 +590,7 @@ func (p *Provider) resolveItemOffsets(item windsurfCompletionItem, idx, document
 	return startOffset, endOffset, true
 }
 
-func (p *Provider) resolveReplacementLines(item windsurfCompletionItem, req *types.CompletionRequest, startOffset, endOffset int, documentText string, idx int) (int, int, bool) {
+func (p *Provider) resolveReplacementLines(lines []string, startOffset, endOffset int, documentText string, idx int) (int, int, bool) {
 	startLine, _ := byteOffsetToLineCol(documentText, startOffset)
 	endLine, endCol := byteOffsetToLineCol(documentText, endOffset)
 
@@ -568,26 +598,25 @@ func (p *Provider) resolveReplacementLines(item windsurfCompletionItem, req *typ
 		endLine--
 	}
 
-	if startLine < 1 || startLine > len(req.Lines)+1 {
+	if startLine < 1 || startLine > len(lines)+1 {
 		logger.Debug("windsurf: item %d start line %d out of bounds", idx, startLine)
 		return 0, 0, false
 	}
 
-	if len(req.Lines) == 0 {
+	if len(lines) == 0 {
 		return 1, 1, true
 	}
 
-	if startLine > len(req.Lines) {
-		startLine = len(req.Lines)
+	if startLine > len(lines) {
+		startLine = len(lines)
 	}
-	if endLine > len(req.Lines) {
-		endLine = len(req.Lines)
+	if endLine > len(lines) {
+		endLine = len(lines)
 	}
 	if endLine < startLine {
 		endLine = startLine
 	}
 
-	_ = item
 	return startLine, endLine, true
 }
 
@@ -684,9 +713,4 @@ func resolveLanguage(filePath string) string {
 	return lang
 }
 
-func (p *Provider) emptyResponse() *types.CompletionResponse {
-	return &types.CompletionResponse{
-		Completions:  []*types.Completion{},
-		CursorTarget: nil,
-	}
-}
+func (p *Provider) emptyResponse() *types.CompletionResponse { return &types.CompletionResponse{} }

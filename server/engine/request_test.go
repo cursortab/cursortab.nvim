@@ -5,19 +5,13 @@ import (
 	"cursortab/assert"
 	"cursortab/text"
 	"cursortab/types"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 )
 
-// TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming verifies
-// that requestCompletion cancels any in-flight stream from a prior accept-during-
-// streaming. Without this, the leftover stream completes after the new request
-// starts, and handleStreamCompleteSimple sees acceptedDuringStreaming=true and
-// fires handleStreamCompleteAfterAccept against either the old stream or (for
-// line-stream providers) the new stream's accumulated text — overwriting state
-// the new request is in the middle of setting up.
 func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"existing"}
@@ -28,15 +22,14 @@ func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *tes
 	eng, cancel := createTestEngineWithContext(buf, prov, clock)
 	defer cancel()
 
-	eng.manuallyTriggered = true
-
 	streamCtx, streamCancel := context.WithCancel(context.Background())
-	eng.streamingState = &StreamingState{}
-	eng.streamingCancel = streamCancel
+	defer streamCancel()
+	eng.streamingState = &streamingState{}
+	eng.completionStream = newMockCompletionStream(streamCancel)
 	eng.acceptedDuringStreaming = true
 	eng.state = stateIdle
 
-	eng.requestCompletion(types.CompletionSourceTyping)
+	eng.requestCompletion(types.CompletionSourceTyping, true)
 
 	assert.False(t, eng.acceptedDuringStreaming, "flag should be cleared")
 
@@ -45,6 +38,126 @@ func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *tes
 	default:
 		t.Errorf("stream context should be cancelled before new request starts")
 	}
+}
+
+func TestRequestCompletion_ErrorReturnsToIdle(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"existing"}
+	buf.row = 1
+	buf.col = 0
+	prov := newMockProvider()
+	prov.completionErr = errors.New("provider failed")
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.requestCompletion(types.CompletionSourceTyping, true)
+
+	select {
+	case event := <-eng.eventChan:
+		eng.handleEvent(event)
+	case <-time.After(time.Second):
+		t.Fatal("completion error event timed out")
+	}
+
+	assert.Equal(t, stateIdle, eng.state, "provider error should finish the pending request")
+}
+
+func TestEvalRequestCompletion_UsesBatchProviderPath(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"existing"}
+	buf.row = 1
+	buf.col = 0
+	stream := newMockCompletionStream(nil)
+	stream.err = errors.New("stream failed")
+	close(stream.lines)
+	prov := newMockStreamingProvider(stream)
+	prov.completionResp = completionResponse(&types.Completion{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"updated"},
+	})
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	res, err := eng.EvalRequestCompletion(context.Background(), true)
+
+	assert.NoError(t, err, "eval should use batch provider path")
+	assert.True(t, res.Shown, "batch completion should be shown")
+	assert.Equal(t, 1, prov.completionCalls, "eval should call Complete")
+}
+
+func TestCompletionError_IgnoresStaleRequest(t *testing.T) {
+	for _, requestID := range []uint64{0, 1} {
+		buf := newMockBuffer()
+		buf.lines = []string{"existing"}
+		buf.row = 1
+		buf.col = 0
+		prov := newMockProvider()
+		clock := newMockClock()
+		eng, cancel := createTestEngineWithContext(buf, prov, clock)
+
+		eng.state = statePendingCompletion
+		eng.completionRequestID = 1
+		eng.currentCancel = func() {}
+
+		eng.handleEvent(Event{Type: EventTextChanged})
+
+		eng.state = statePendingCompletion
+		eng.completionRequestID = 2
+		cancelledNewRequest := false
+		eng.currentCancel = func() { cancelledNewRequest = true }
+
+		eng.handleEvent(Event{
+			Type:      EventCompletionError,
+			Err:       errors.New("old request failed"),
+			RequestID: requestID,
+		})
+
+		assert.Equal(t, statePendingCompletion, eng.state, "stale completion error should not finish current pending request")
+		assert.False(t, cancelledNewRequest, "stale completion error should not cancel current request")
+		cancel()
+	}
+}
+
+func TestPrefetchReady_IgnoresStaleRequest(t *testing.T) {
+	buf := newMockBuffer()
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.prefetchRequestID = 1
+	currentID := seedInflightPrefetch(eng, prefetchNoWait)
+	stale := &types.CompletionResponse{Completion: &types.Completion{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"stale"},
+	}}
+
+	eng.handleEvent(Event{
+		Type:      EventPrefetchReady,
+		RequestID: currentID - 1,
+		Response:  stale,
+	})
+
+	assertInflightPrefetch(t, eng, prefetchNoWait, "stale prefetch ready should leave current request inflight")
+	assert.Nil(t, eng.readyPrefetch(), "stale prefetch ready should not populate ready slot")
+
+	current := &types.CompletionResponse{Completion: &types.Completion{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"current"},
+	}}
+	eng.handleEvent(Event{
+		Type:      EventPrefetchReady,
+		RequestID: currentID,
+		Response:  current,
+	})
+
+	assertReadyPrefetch(t, eng, "current prefetch ready should populate ready slot")
+	assert.Equal(t, current, eng.readyPrefetch().CompletionResponse, "ready response")
 }
 
 func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
@@ -58,12 +171,17 @@ func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.applyBatch = &mockBatch{}
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
 	eng.stagedCompletion = nil
 	eng.cursorTarget = &types.CursorPredictionTarget{
 		LineNumber:      5,
@@ -72,7 +190,41 @@ func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 
 	eng.acceptCompletion()
 
-	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction after accept")
+	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "prefetch should be waiting for cursor prediction after accept")
+}
+
+func TestAcceptCompletion_DoesNotPrefetchWithLiveEditorStateProvider(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProviderWithLiveEditorState()
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.state = stateHasCompletion
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
+	eng.stagedCompletion = nil
+	eng.cursorTarget = &types.CursorPredictionTarget{
+		LineNumber:      5,
+		ShouldRetrigger: true,
+	}
+
+	eng.acceptCompletion()
+
+	assertNoPrefetch(t, eng, "synthetic current support should gate cursor-target prefetch")
+	assert.Equal(t, 0, prov.completionCalls, "prefetch request should not be issued")
 }
 
 func TestPrefetchReady_DoesNotInterruptActiveCompletion(t *testing.T) {
@@ -86,15 +238,20 @@ func TestPrefetchReady_DoesNotInterruptActiveCompletion(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  2,
-		EndLineInc: 2,
-		Lines:      []string{"modified line 2"},
-	}}
-	eng.applyBatch = &mockBatch{}
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  2,
+			EndLineInc: 2,
+			Lines:      []string{"modified line 2"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
 
-	eng.prefetchState = prefetchWaitingForCursorPrediction
-	eng.prefetchedCompletions = []*types.Completion{{
+	seedInflightPrefetch(eng, prefetchForCursorPrediction)
+	prefetched := &types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  4,
 		EndLineInc: 4,
 		Lines:      []string{"modified line 4"},
@@ -102,13 +259,11 @@ func TestPrefetchReady_DoesNotInterruptActiveCompletion(t *testing.T) {
 
 	initialShowCursorTargetCalls := buf.showCursorTargetLine
 
-	eng.handlePrefetchReady(&types.CompletionResponse{
-		Completions: eng.prefetchedCompletions,
-	})
+	eng.handlePrefetchReady(prefetched)
 
 	assert.Equal(t, stateHasCompletion, eng.state, "state should remain HasCompletion, not interrupted by cursor prediction")
 	assert.Equal(t, initialShowCursorTargetCalls, buf.showCursorTargetLine, "should not show cursor target while completion is active")
-	assert.Equal(t, prefetchReady, eng.prefetchState, "prefetch state should be ready")
+	assertReadyPrefetch(t, eng, "prefetch state should be ready")
 }
 
 func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
@@ -130,12 +285,17 @@ func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  15,
-		EndLineInc: 15,
-		Lines:      []string{"new 15"},
-	}}
-	eng.applyBatch = &mockBatch{}
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  15,
+			EndLineInc: 15,
+			Lines:      []string{"new 15"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
 
 	eng.stagedCompletion = &text.StagedCompletion{
 		CurrentIdx: 1,
@@ -172,12 +332,11 @@ func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
 		ShouldRetrigger: true,
 	}
 
-	eng.prefetchState = prefetchReady
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  25,
 		EndLineInc: 25,
 		Lines:      []string{"new 25"},
-	}}
+	}}, false)
 
 	eng.acceptCompletion()
 
@@ -204,12 +363,17 @@ func TestAcceptLastStage_ClearsStalePrefetch_WhenOverlaps(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  15,
-		EndLineInc: 15,
-		Lines:      []string{"new 15"},
-	}}
-	eng.applyBatch = &mockBatch{}
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  15,
+			EndLineInc: 15,
+			Lines:      []string{"new 15"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
 
 	eng.stagedCompletion = &text.StagedCompletion{
 		CurrentIdx: 1,
@@ -247,19 +411,17 @@ func TestAcceptLastStage_ClearsStalePrefetch_WhenOverlaps(t *testing.T) {
 	}
 
 	// Prefetch is for line 15 - same as the stage being applied (overlaps)
-	eng.prefetchState = prefetchReady
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  15,
 		EndLineInc: 15,
 		Lines:      []string{"new 15"},
-	}}
+	}}, false)
 
 	eng.acceptCompletion()
 
 	// Stale prefetch should be cleared because it overlaps with the applied stage.
 	// Then a new prefetch is requested (since ShouldRetrigger=true).
-	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "new prefetch should be requested after clearing stale")
-	assert.Nil(t, eng.prefetchedCompletions, "stale prefetched completions should be nil")
+	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "new prefetch should be requested after clearing stale")
 }
 
 func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
@@ -273,19 +435,22 @@ func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello!"},
-	}}
-	eng.completionOriginalLines = []string{"hello"}
-	eng.currentGroups = []*text.Group{{
-		Type:       "modification",
-		BufferLine: 1,
-		RenderHint: "append_chars",
-		ColStart:   5,
-		Lines:      []string{"hello!"},
-	}}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello!"},
+		},
+		[]string{"hello"},
+		[]*text.Group{{
+			Type:       "modification",
+			BufferLine: 1,
+			RenderHint: "append_chars",
+			ColStart:   5,
+			Lines:      []string{"hello!"},
+		}},
+	)
 	eng.cursorTarget = &types.CursorPredictionTarget{
 		LineNumber:      5,
 		ShouldRetrigger: true,
@@ -297,7 +462,7 @@ func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	eng.partialAcceptCompletion()
 
 	assert.True(t, buf.syncCalls > initialSyncCalls, "buffer should be synced after finish")
-	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction")
+	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "prefetch should be waiting for cursor prediction")
 }
 
 func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
@@ -316,13 +481,16 @@ func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
 	}}
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"new line 1"},
-	}}
-	eng.completionOriginalLines = []string{"line 1"}
-	eng.currentGroups = stage0Groups
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"new line 1"},
+		},
+		[]string{"line 1"},
+		stage0Groups,
+	)
 
 	eng.cursorTarget = &types.CursorPredictionTarget{
 		LineNumber:      2,
@@ -359,7 +527,7 @@ func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
 
 	assert.NotNil(t, eng.stagedCompletion, "stagedCompletion should not be nil")
 	assert.Equal(t, 1, eng.stagedCompletion.CurrentIdx, "should be at stage 1")
-	assert.Equal(t, prefetchWaitingForCursorPrediction, eng.prefetchState, "prefetch should be waiting for cursor prediction at n-1 stage")
+	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "prefetch should be waiting for cursor prediction at n-1 stage")
 }
 
 // TestTryShowPrefetchedCompletion_WithChanges tests that tryShowPrefetchedCompletion
@@ -377,19 +545,18 @@ func TestTryShowPrefetchedCompletion_WithChanges(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateIdle
-	eng.prefetchState = prefetchReady
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  1,
 		EndLineInc: 3,
 		Lines:      []string{"line 1", "new line 2", "line 3"},
-	}}
+	}}, false)
 
 	result := eng.tryShowPrefetchedCompletion()
 
 	assert.True(t, result, "should return true when prefetch has changes")
 	assert.Equal(t, stateHasCompletion, eng.state, "should transition to HasCompletion")
 	assert.NotNil(t, eng.stagedCompletion, "should have staged completion")
-	assert.Equal(t, prefetchNone, eng.prefetchState, "prefetch state should be cleared")
+	assertNoPrefetch(t, eng, "prefetch state should be cleared")
 }
 
 // TestTryShowPrefetchedCompletion_NoChanges tests that tryShowPrefetchedCompletion
@@ -407,17 +574,16 @@ func TestTryShowPrefetchedCompletion_NoChanges(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateIdle
-	eng.prefetchState = prefetchReady
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  1,
 		EndLineInc: 3,
 		Lines:      []string{"line 1", "line 2", "line 3"},
-	}}
+	}}, false)
 
 	result := eng.tryShowPrefetchedCompletion()
 
 	assert.False(t, result, "should return false when no changes")
-	assert.Equal(t, prefetchNone, eng.prefetchState, "prefetch state should be cleared")
+	assertNoPrefetch(t, eng, "prefetch state should be cleared")
 }
 
 // TestHandlePrefetchCursorPrediction_CloseDistance tests that when the cursor is close
@@ -435,20 +601,18 @@ func TestHandlePrefetchCursorPrediction_CloseDistance(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCursorTarget
-	eng.prefetchState = prefetchWaitingForCursorPrediction
-	eng.prefetchedCompletions = []*types.Completion{{
+	seedInflightPrefetch(eng, prefetchForCursorPrediction)
+	prefetched := &types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  1,
 		EndLineInc: 3,
 		Lines:      []string{"line 1", "line 2", "new line 3"},
 	}}
 
-	eng.handlePrefetchReady(&types.CompletionResponse{
-		Completions: eng.prefetchedCompletions,
-	})
+	eng.handlePrefetchReady(prefetched)
 
 	assert.Equal(t, stateHasCompletion, eng.state, "should show completion when cursor is close")
 	assert.NotNil(t, eng.stagedCompletion, "should have staged completion")
-	assert.Equal(t, prefetchNone, eng.prefetchState, "prefetch should be consumed")
+	assertNoPrefetch(t, eng, "prefetch should be consumed")
 }
 
 // TestHandlePrefetchCursorPrediction_FarDistance tests that when the cursor
@@ -469,8 +633,8 @@ func TestHandlePrefetchCursorPrediction_FarDistance(t *testing.T) {
 	defer cancel()
 
 	eng.state = stateHasCursorTarget
-	eng.prefetchState = prefetchWaitingForCursorPrediction
-	eng.prefetchedCompletions = []*types.Completion{{
+	seedInflightPrefetch(eng, prefetchForCursorPrediction)
+	prefetched := &types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  1,
 		EndLineInc: 10,
 		Lines: []string{
@@ -479,15 +643,13 @@ func TestHandlePrefetchCursorPrediction_FarDistance(t *testing.T) {
 		},
 	}}
 
-	eng.handlePrefetchReady(&types.CompletionResponse{
-		Completions: eng.prefetchedCompletions,
-	})
+	eng.handlePrefetchReady(prefetched)
 
 	assert.Equal(t, stateHasCursorTarget, eng.state, "should show cursor target when far")
 	assert.NotNil(t, eng.cursorTarget, "should have cursor target")
 	assert.Equal(t, int32(10), eng.cursorTarget.LineNumber, "cursor target should point to changed line")
-	assert.NotNil(t, eng.currentRejectedCompletion, "far prefetch cursor target should capture rejection candidate")
-	assert.Equal(t, prefetchReady, eng.prefetchState, "prefetch should be ready for later use")
+	assert.NotNil(t, eng.display.rejectionCandidate(), "far prefetch cursor target should capture rejection candidate")
+	assertReadyPrefetch(t, eng, "prefetch should be ready for later use")
 }
 
 // TestAcceptLastStage_UsesPrefetchWithAdditionalChanges tests that when accepting the last
@@ -535,20 +697,24 @@ func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
 	}
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  3,
-		EndLineInc: 3,
-		Lines:      []string{"new line 3"},
-	}}
-	eng.applyBatch = &mockBatch{}
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  3,
+			EndLineInc: 3,
+			Lines:      []string{"new line 3"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
 	eng.cursorTarget = &types.CursorPredictionTarget{
 		LineNumber:      3,
 		ShouldRetrigger: true,
 	}
 
 	// Setup prefetch that extends beyond the current stage
-	eng.prefetchState = prefetchReady
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  1,
 		EndLineInc: 5,
 		Lines: []string{
@@ -558,7 +724,7 @@ func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
 			"line 4",
 			"new line 5",
 		},
-	}}
+	}}, false)
 
 	eng.acceptCompletion()
 
@@ -606,8 +772,7 @@ func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
 	// Prefetch was computed against a 11-line buffer (before stage 4 added 4 lines).
 	// EndLineInc=11 is stale - the buffer now has 15 lines.
 	// The completion's Lines match the current buffer exactly.
-	eng.prefetchState = prefetchReady
-	eng.prefetchedCompletions = []*types.Completion{{
+	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
 		StartLine:  1,
 		EndLineInc: 11,
 		Lines: []string{
@@ -627,13 +792,10 @@ func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
 			"    sorted_arr = bubble_sort(arr)",
 			"    print(\"Sorted array:\", sorted_arr)",
 		},
-	}}
+	}}, false)
 
 	result := eng.tryShowPrefetchedCompletion()
 
-	// Should return false because all content already exists in the buffer.
-	// Without the EndLineInc fix, this would return true and show lines 12-15
-	// as phantom additions even though they're already present.
 	assert.False(t, result, "should return false when prefetch content already in buffer")
 }
 
@@ -693,10 +855,9 @@ func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	prov.mu.Lock()
-	req := prov.lastRequest
+	input := prov.lastInput
 	prov.mu.Unlock()
 
-	assert.NotNil(t, req, "prefetch request should be issued")
 	assert.Equal(t, []string{
 		"import numpy as np",
 		"import matplotlib.pyplot as plt",
@@ -710,7 +871,7 @@ func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
 		"",
 		"if __name__ == \"__main__\":",
 		"    pass",
-	}, req.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
+	}, input.Current.File.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
 }
 
 // TestAcceptLastStage_WaitsForInflightPrefetch tests that when accepting the last stage
@@ -751,24 +912,29 @@ func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
 	}
 
 	eng.state = stateHasCompletion
-	eng.completions = []*types.Completion{{
-		StartLine:  2,
-		EndLineInc: 2,
-		Lines:      []string{"new line 2"},
-	}}
-	eng.applyBatch = &mockBatch{}
+	showDisplayedCompletionWithBatchForTest(
+		eng,
+		&types.Completion{
+			StartLine:  2,
+			EndLineInc: 2,
+			Lines:      []string{"new line 2"},
+		},
+		&mockBatch{},
+		nil,
+		nil,
+	)
 	eng.cursorTarget = &types.CursorPredictionTarget{
 		LineNumber:      2,
 		ShouldRetrigger: true,
 	}
 
 	// Prefetch is in-flight (not ready yet)
-	eng.prefetchState = prefetchInFlight
+	seedInflightPrefetch(eng, prefetchNoWait)
 
 	eng.acceptCompletion()
 
 	// Should wait for prefetch instead of triggering a new request
-	assert.Equal(t, prefetchWaitingForTab, eng.prefetchState, "should be waiting for prefetch")
+	assertInflightPrefetch(t, eng, prefetchAfterTab, "should be waiting for prefetch")
 	assert.Equal(t, stateIdle, eng.state, "should clear UI while waiting")
 }
 
@@ -825,7 +991,7 @@ func TestRequestPrefetch_NoRaceWithFileStateStoreWrites(t *testing.T) {
 
 	for range 100 {
 		eng.mu.Lock()
-		eng.requestPrefetch(types.CompletionSourceTyping, 1, 0, prefetchOpts{})
+		eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
 		eng.mu.Unlock()
 		time.Sleep(time.Millisecond)
 	}

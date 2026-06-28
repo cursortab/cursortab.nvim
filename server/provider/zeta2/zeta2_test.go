@@ -6,27 +6,63 @@ import (
 
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/text"
 	"cursortab/types"
 )
 
-func newTestProvider() *provider.Provider {
+func newTestProvider() *Provider {
 	return NewProvider(&types.ProviderConfig{
 		ProviderModel:     "zeta2",
 		ProviderMaxTokens: 2048,
 	})
 }
 
+func parseCompletionForTest(p *Provider, ctx *provider.RequestState, result *openai.CompletionResult) *types.CompletionResponse {
+	resp, err := p.Parse(ctx, result)
+	if err != nil {
+		panic(err)
+	}
+	return resp
+}
+
+func testInput(filePath string, lines []string, cursorRow int, cursorCol int, contexts ...sourcectx.Materials) sourcectx.CompletionInput {
+	var materials sourcectx.Materials
+	for _, context := range contexts {
+		materials = append(materials, context...)
+	}
+	return sourcectx.CompletionInput{
+		Current: sourcectx.CurrentSnapshot{
+			File: sourcectx.FileSnapshot{
+				Path:  filePath,
+				Lines: lines,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: cursorRow,
+				Col: cursorCol,
+			},
+		},
+		Materials: materials,
+	}
+}
+
+func stateForInput(input sourcectx.CompletionInput, config *types.ProviderConfig) *provider.RequestState {
+	return &provider.RequestState{
+		Input:  input,
+		Window: provider.RequestWindow{Lines: input.Current.File.Lines, CursorLine: input.Current.Cursor.Row - 1},
+	}
+}
+
+func stateForLines(filePath string, lines []string, cursorRow int, cursorCol int, contexts ...sourcectx.Materials) *provider.RequestState {
+	return stateForInput(testInput(filePath, lines, cursorRow, cursorCol, contexts...), nil)
+}
+
 func TestAssemblePrompt_EmptyBuffer(t *testing.T) {
 	p := newTestProvider()
-	req := &types.CompletionRequest{
-		FilePath: "main.go",
-		Lines:    []string{},
-	}
-	ctx := &provider.Context{Request: req, TrimmedLines: []string{}}
+	ctx := stateForLines("main.go", nil, 1, 0)
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	assert.True(t, strings.HasPrefix(prompt, fimSuffix), "starts with fim-suffix")
 	assert.True(t, strings.Contains(prompt, fimPrefix), "contains fim-prefix")
@@ -47,21 +83,9 @@ func TestAssemblePrompt_StructuralOrder(t *testing.T) {
 		"\tprintln(\"hello\")",
 		"}",
 	}
-	req := &types.CompletionRequest{
-		FilePath:  "main.go",
-		Lines:     lines,
-		CursorRow: 4,
-		CursorCol: 17,
-	}
-	ctx := &provider.Context{
-		Request:      req,
-		TrimmedLines: lines,
-		WindowStart:  0,
-		WindowEnd:    len(lines),
-		CursorLine:   3,
-	}
+	ctx := stateForLines("main.go", lines, 4, 17)
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	// SPM order: suffix, then prefix, then middle.
 	suffixIdx := strings.Index(prompt, fimSuffix)
@@ -84,19 +108,9 @@ func TestAssemblePrompt_StructuralOrder(t *testing.T) {
 func TestAssemblePrompt_CursorPositionInLine(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"hello world"}
-	req := &types.CompletionRequest{
-		FilePath:  "a.txt",
-		Lines:     lines,
-		CursorRow: 1,
-		CursorCol: 5, // right after "hello"
-	}
-	ctx := &provider.Context{
-		Request:      req,
-		TrimmedLines: lines,
-		CursorLine:   0,
-	}
+	ctx := stateForLines("a.txt", lines, 1, 5)
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 	assert.True(t, strings.Contains(prompt, "hello"+cursorMarker+" world"),
 		"cursor marker inserted at column")
 }
@@ -109,24 +123,14 @@ func TestAssemblePrompt_SuffixContainsPostEditableLines(t *testing.T) {
 	for i := range lines {
 		lines[i] = "line" + string(rune('A'+(i%26)))
 	}
-	req := &types.CompletionRequest{
-		FilePath:  "big.go",
-		Lines:     lines,
-		CursorRow: 11,
-		CursorCol: 0,
-	}
-	ctx := &provider.Context{
-		Request:      req,
-		TrimmedLines: lines,
-		CursorLine:   10,
-	}
+	ctx := stateForLines("big.go", lines, 11, 0)
 
 	start, end := computeEditableRange(lines, 10, 0, nil)
 	assert.Equal(t, 0, start, "start clamps toward 0 then expands, got editable start")
 	_ = end
 	assert.True(t, end < len(lines), "editable end leaves room for suffix content")
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 	afterEditable := lines[end]
 	suffixSection := prompt[strings.Index(prompt, fimSuffix)+len(fimSuffix) : strings.Index(prompt, fimPrefix)]
 	assert.True(t, strings.Contains(suffixSection, afterEditable),
@@ -318,36 +322,24 @@ func TestBuildEditHistory_UnixPathNormalization(t *testing.T) {
 func TestParseCompletion_StripsEndMarker(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1", "line2", "line3"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   1,
-		Result:       &openai.StreamResult{Text: "new1\nnew2\nnew3" + endMarker},
-	}
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
-	assert.True(t, len(resp.Completions) > 0, "has completion")
-	for _, line := range resp.Completions[0].Lines {
+	ctx := stateForLines("", lines, 2, 0)
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: "new1\nnew2\nnew3" + endMarker})
+	assert.True(t, resp.Completion != nil, "has completion")
+	for _, line := range resp.Completion.Lines {
 		assert.False(t, strings.Contains(line, endMarker), "no end marker in output")
 	}
 }
 
-func TestParseCompletion_StripsCursorMarker(t *testing.T) {
+func TestParseCompletion_StripsCursorMarkerAndPopulatesTarget(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1", "line2"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   0,
-		Result:       &openai.StreamResult{Text: "pre" + cursorMarker + "post\nother"},
-	}
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
-	for _, line := range resp.Completions[0].Lines {
+	ctx := stateForLines("", lines, 1, 0)
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: "pre" + cursorMarker + "post\nother"})
+	for _, line := range resp.Completion.Lines {
 		assert.False(t, strings.Contains(line, cursorMarker), "cursor marker stripped")
 	}
+	assert.NotNil(t, resp.CursorTarget, "cursor target populated")
+	assert.Equal(t, int32(1), resp.CursorTarget.LineNumber, "cursor marker line")
 }
 
 func TestSplitLines_PreservesBoundaryBlankLines(t *testing.T) {
@@ -362,73 +354,37 @@ func TestSplitLines_PreservesBoundaryBlankLines(t *testing.T) {
 func TestParseCompletion_PreservesBoundaryBlankLines(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"a", "b", "c"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     lines,
-			CursorRow: 2,
-			CursorCol: 0,
-		},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   1,
-		Result:       &openai.StreamResult{Text: "\na\nb\n\n" + endMarker},
-	}
+	ctx := stateForLines("", lines, 2, 0)
 
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
-	assert.True(t, len(resp.Completions) > 0, "has completion")
-	assert.Equal(t, []string{"", "a", "b", ""}, resp.Completions[0].Lines, "blank lines preserved at both boundaries")
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: "\na\nb\n\n" + endMarker})
+	assert.True(t, resp.Completion != nil, "has completion")
+	assert.Equal(t, []string{"", "a", "b", ""}, resp.Completion.Lines, "blank lines preserved at both boundaries")
 }
 
 func TestParseCompletion_NoEditsSentinel(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   0,
-		Result:       &openai.StreamResult{Text: "NO_EDITS\n" + endMarker},
-	}
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "returned done")
-	assert.Equal(t, 0, len(resp.Completions), "no completions on NO_EDITS")
+	ctx := stateForLines("", lines, 1, 0)
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: "NO_EDITS\n" + endMarker})
+	assert.Nil(t, resp.Completion, "no completions on NO_EDITS")
 }
 
 func TestParseCompletion_EmptyAfterStripping(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"line1"}
-	ctx := &provider.Context{
-		Request:      &types.CompletionRequest{Lines: lines},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   0,
-		Result:       &openai.StreamResult{Text: endMarker},
-	}
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "returned done")
-	assert.Equal(t, 0, len(resp.Completions), "no completions for empty output")
+	ctx := stateForLines("", lines, 1, 0)
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: endMarker})
+	assert.Nil(t, resp.Completion, "no completions for empty output")
 }
 
 func TestParseCompletion_ReplacesEditableRegion(t *testing.T) {
 	p := newTestProvider()
 	// 5 lines, cursor at line 2 → editable spans full buffer (cursor ±15 clamps).
 	lines := []string{"a", "b", "c", "d", "e"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     lines,
-			CursorRow: 3,
-			CursorCol: 0,
-		},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   2,
-		Result:       &openai.StreamResult{Text: "a\nb\nNEW\nd\ne\n" + endMarker},
-	}
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
-	assert.True(t, len(resp.Completions) > 0, "has completion")
-	completion := resp.Completions[0]
+	ctx := stateForLines("", lines, 3, 0)
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: "a\nb\nNEW\nd\ne\n" + endMarker})
+	assert.True(t, resp.Completion != nil, "has completion")
+	completion := resp.Completion
 	assert.Equal(t, 1, completion.StartLine, "replaces from line 1")
 	assert.Equal(t, 5, completion.EndLineInc, "to line 5 inclusive")
 	assert.Equal(t, 5, len(completion.Lines), "5 new lines")
@@ -438,27 +394,17 @@ func TestParseCompletion_ReplacesEditableRegion(t *testing.T) {
 func TestAssemblePrompt_WithEditHistory(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"x", "y", "z"}
-	req := &types.CompletionRequest{
-		FilePath:  "main.go",
-		Lines:     lines,
-		CursorRow: 2,
-		CursorCol: 1,
-		FileDiffHistories: []*types.FileDiffHistory{
-			{
-				FileName: "main.go",
-				DiffHistory: []*types.DiffEntry{
-					{Original: "old", Updated: "new", TimestampNs: 1},
-				},
+	editHistory := []*types.FileDiffHistory{
+		{
+			FileName: "main.go",
+			DiffHistory: []*types.DiffEntry{
+				{Original: "old", Updated: "new", TimestampNs: 1},
 			},
 		},
 	}
-	ctx := &provider.Context{
-		Request:      req,
-		TrimmedLines: lines,
-		CursorLine:   1,
-	}
+	ctx := stateForLines("main.go", lines, 2, 1, sourcectx.Materials{sourcectx.EditHistory{Files: editHistory}})
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 	assert.True(t, strings.Contains(prompt, fileMarker+"edit_history\n"),
 		"edit_history section present")
 	assert.True(t, strings.Contains(prompt, "--- a/main.go\n"), "unified diff header")
@@ -583,187 +529,109 @@ func TestWriteGitDiffPseudoFile_Format(t *testing.T) {
 	assert.True(t, strings.Contains(out, "+new"), "diff body included")
 }
 
-// --- Integration: all context sources together ---
-
 // --- Cursor-marker streaming strip & CursorTarget capture ---
 
-func TestArmCursorMarkerStripping_SetsMarker(t *testing.T) {
-	p := newTestProvider()
-	ctx := &provider.Context{Request: &types.CompletionRequest{}}
+func TestVisibleStreamLine_StripsCursorMarker(t *testing.T) {
+	line, emit := visibleStreamLine("plain")
+	assert.Equal(t, "plain", line, "plain line")
+	assert.True(t, emit, "plain line emitted")
 
-	armCursorMarkerStripping()(p, ctx)
-	assert.Equal(t, cursorMarker, ctx.CursorMarker, "preprocessor configures marker")
+	line, emit = visibleStreamLine("  " + cursorMarker + "  ")
+	assert.Equal(t, "    ", line, "marker-only line stripped")
+	assert.False(t, emit, "marker-only line dropped")
+
+	line, emit = visibleStreamLine("pre" + cursorMarker + "post")
+	assert.Equal(t, "prepost", line, "inline marker stripped")
+	assert.True(t, emit, "content line emitted")
 }
 
-func TestTransformLine_EndToEnd_StripsMarker(t *testing.T) {
-	// Simulate what the engine does: the provider context TransformLine is
-	// called on every streamed line. Verify the stage builder never sees the
-	// marker.
-	ctx := &provider.Context{CursorMarker: cursorMarker}
-
-	streamed := []string{
-		"def bubble_sort(arr):",
-		"    for i in range(len(arr)):",
-		"        for j in range(i + 1, len(arr)):",
-		"            if arr[i] > arr[j]:",
-		"                arr[i], arr[j] = arr[j], arr[i]",
-		"    return arr",
-		"",
-		"def insertion_sort(arr):",
-		"    return arr<|user_cursor|>",
-		"",
-		"if __name__ == \"__main__\":",
+func TestParseCompletion_MapsCursorTargetThroughTrimmedWindow(t *testing.T) {
+	lines := []string{
+		"line 1", "line 2", "line 3", "line 4", "line 5",
+		"line 6", "line 7", "line 8", "line 9", "line 10",
+		"line 11", "line 12", "line 13", "line 14", "line 15",
 	}
-	var seen []string
-	for _, line := range streamed {
-		seen = append(seen, ctx.TransformLine(line))
+	input := testInput("src/main.py", lines, 11, 0)
+	ctx := stateForInput(input, nil)
+	ctx.Window = provider.RequestWindow{
+		Lines:      []string{"line 11"},
+		Start:      10,
+		CursorLine: 0,
 	}
 
-	for i, line := range seen {
-		assert.False(t, strings.Contains(line, cursorMarker),
-			"streamed line "+string(rune('0'+i))+" must not contain the marker")
-	}
-	assert.True(t, ctx.CursorMarkerSeen, "marker recorded")
-	assert.Equal(t, 8, ctx.CursorMarkerLine, "marker on line 8 (0-indexed)")
-	assert.Equal(t, 14, ctx.CursorMarkerCol, "marker column after 'return arr'")
-	assert.Equal(t, "    return arr", seen[8], "that specific line is clean")
-}
+	resp := parseCompletionWithCursorMarker(ctx, "updated\n"+cursorMarker+"\nnext", true, 1)
 
-func TestBuildCursorTarget_BasicOffsetTranslation(t *testing.T) {
-	ctx := &provider.Context{
-		Request:          &types.CompletionRequest{FilePath: "src/main.py"},
-		WindowStart:      10, // trimmed window starts at buffer line 11 (1-indexed)
-		CursorMarkerSeen: true,
-		CursorMarkerLine: 3, // marker on 4th line of the streamed response
-		CursorMarkerCol:  7,
-	}
-	newLines := []string{"alpha", "beta", "gamma", "delta", "epsilon"}
-
-	target := buildCursorTarget(ctx, 2, newLines)
-
-	// bufferRow = WindowStart(10) + editableStart(2) + lineIdx(3) + 1 = 16
-	assert.Equal(t, int32(16), target.LineNumber, "translated buffer row")
-	assert.Equal(t, "src/main.py", target.RelativePath, "relative path preserved")
-	assert.Equal(t, "delta", target.ExpectedContent, "expected content = stripped line at marker index")
-	assert.True(t, target.ShouldRetrigger, "auto-chain prefetch enabled")
+	assert.NotNil(t, resp.CursorTarget, "cursor target")
+	assert.Equal(t, int32(12), resp.CursorTarget.LineNumber, "translated buffer row")
+	assert.True(t, resp.CursorTarget.ShouldRetrigger, "auto-chain prefetch enabled")
 }
 
 func TestBuildCursorTarget_ClampsBeyondNewLines(t *testing.T) {
-	ctx := &provider.Context{
-		Request:          &types.CompletionRequest{FilePath: "f.go"},
-		WindowStart:      0,
-		CursorMarkerSeen: true,
-		CursorMarkerLine: 99, // out of range
-		CursorMarkerCol:  0,
-	}
+	ctx := stateForLines("f.go", []string{"a"}, 1, 0)
 	newLines := []string{"a", "b", "c"}
 
-	target := buildCursorTarget(ctx, 0, newLines)
+	target := buildCursorTarget(ctx, 0, 99, newLines)
 	assert.Equal(t, int32(3), target.LineNumber, "clamped to last new line")
-	assert.Equal(t, "c", target.ExpectedContent, "expected = last line")
 }
 
 func TestBuildCursorTarget_NoNewLines(t *testing.T) {
-	ctx := &provider.Context{
-		Request:          &types.CompletionRequest{FilePath: "f.go"},
-		CursorMarkerSeen: true,
-		CursorMarkerLine: 0,
-	}
-	assert.Nil(t, buildCursorTarget(ctx, 0, nil), "nil target when no lines")
+	ctx := stateForLines("f.go", nil, 1, 0)
+	assert.Nil(t, buildCursorTarget(ctx, 0, 0, nil), "nil target when no lines")
 }
 
 func TestParseCompletion_PopulatesCursorTargetWhenMarkerSeen(t *testing.T) {
-	p := newTestProvider()
-
 	// 5-line buffer, cursor on line 3. editable region = full buffer (cursor ±15 clamped).
 	lines := []string{"a", "b", "c", "d", "e"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			FilePath:  "main.go",
-			Lines:     lines,
-			CursorRow: 3,
-			CursorCol: 0,
-		},
-		TrimmedLines:     lines,
-		WindowStart:      0,
-		CursorLine:       2,
-		CursorMarker:     cursorMarker, // as set by the preprocessor
-		CursorMarkerSeen: true,
-		CursorMarkerLine: 2, // marker ended up on 3rd line of response
-		CursorMarkerCol:  5,
-		Result:           &openai.StreamResult{Text: "a\nb\nNEW\nd\ne\n" + endMarker},
-	}
+	ctx := stateForLines("main.go", lines, 3, 0)
 
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
+	resp := parseCompletionWithCursorMarker(ctx, "a\nb\nNEW\nd\ne\n"+endMarker, true, 2)
 	assert.NotNil(t, resp.CursorTarget, "cursor target populated")
 	assert.Equal(t, int32(3), resp.CursorTarget.LineNumber, "buffer row = 0 + 0 + 2 + 1 = 3")
 	assert.True(t, resp.CursorTarget.ShouldRetrigger, "retrigger enabled")
-	assert.Equal(t, "NEW", resp.CursorTarget.ExpectedContent, "expected content = new line 3")
 }
 
 func TestParseCompletion_NoCursorTargetWhenMarkerAbsent(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"a", "b", "c"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			FilePath:  "main.go",
-			Lines:     lines,
-			CursorRow: 2,
-			CursorCol: 0,
-		},
-		TrimmedLines:     lines,
-		WindowStart:      0,
-		CursorLine:       1,
-		CursorMarker:     cursorMarker,
-		CursorMarkerSeen: false, // model did not emit the marker
-		Result:           &openai.StreamResult{Text: "a\nNEW\nc\n" + endMarker},
-	}
+	ctx := stateForLines("main.go", lines, 2, 0)
 
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{Text: "a\nNEW\nc\n" + endMarker})
 	assert.Nil(t, resp.CursorTarget, "no cursor target when marker absent")
 }
 
 func TestAssemblePrompt_ContextOrderingAndCoexistence(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"package main", "", "func main() {}"}
-	req := &types.CompletionRequest{
-		FilePath:  "main.go",
-		Lines:     lines,
-		CursorRow: 3,
-		CursorCol: 13,
-		RecentBufferSnapshots: []*types.RecentBufferSnapshot{
-			{FilePath: "helper.go", Lines: []string{"package main", "func help() {}"}},
+	recentFiles := []*types.RecentBufferSnapshot{
+		{FilePath: "helper.go", Lines: []string{"package main", "func help() {}"}},
+	}
+	diagnostics := &types.Diagnostics{
+		Items: []*types.Diagnostic{
+			{Severity: types.SeverityError, Message: "oops", Source: "gopls", Range: &types.CursorRange{StartLine: 3}},
 		},
-		AdditionalContext: &types.ContextResult{
-			Diagnostics: &types.Diagnostics{
-				Items: []*types.Diagnostic{
-					{Severity: types.SeverityError, Message: "oops", Source: "gopls", Range: &types.CursorRange{StartLine: 3}},
-				},
-			},
-			Treesitter: &types.TreesitterContext{
-				EnclosingSignature: "func main()",
-				Imports:            []string{"import \"fmt\""},
-			},
-			GitDiff: &types.GitDiffContext{Diff: "some diff"},
-		},
-		FileDiffHistories: []*types.FileDiffHistory{
-			{
-				FileName: "main.go",
-				DiffHistory: []*types.DiffEntry{
-					{Original: "old", Updated: "new", TimestampNs: 1},
-				},
+	}
+	treesitter := &types.TreesitterContext{
+		EnclosingSignature: "func main()",
+		Imports:            []string{"import \"fmt\""},
+	}
+	gitDiff := &types.GitDiffContext{Diff: "some diff"}
+	editHistory := []*types.FileDiffHistory{
+		{
+			FileName: "main.go",
+			DiffHistory: []*types.DiffEntry{
+				{Original: "old", Updated: "new", TimestampNs: 1},
 			},
 		},
 	}
-	ctx := &provider.Context{
-		Request:      req,
-		TrimmedLines: lines,
-		CursorLine:   2,
-	}
+	ctx := stateForLines("main.go", lines, 3, 13, sourcectx.Materials{
+		sourcectx.RecentFiles{Files: recentFiles},
+		sourcectx.Diagnostics{Data: diagnostics},
+		sourcectx.Treesitter{Data: treesitter},
+		sourcectx.GitDiff{Data: gitDiff},
+		sourcectx.EditHistory{Files: editHistory},
+	})
 
-	prompt := assemblePrompt(p, ctx, req)
+	prompt := assemblePrompt(p, ctx)
 
 	// Every context section present.
 	assert.True(t, strings.Contains(prompt, fileMarker+"helper.go\n"), "recent file present")
@@ -794,53 +662,55 @@ func TestAssemblePrompt_ContextOrderingAndCoexistence(t *testing.T) {
 	assert.True(t, idxRecent > prefixIdx, "pseudo-files live inside fim-prefix region")
 }
 
-func TestStripCursorMarker_InlinePreserved(t *testing.T) {
-	result := stripCursorMarker("    return arr<|user_cursor|>\nother line\n", cursorMarker)
-	assert.Equal(t, "    return arr\nother line\n", result, "inline marker stripped, line kept")
-}
+func TestStripCursorMarker(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{
+			name: "inline marker stripped",
+			text: "    return arr<|user_cursor|>\nother line\n",
+			want: "    return arr\nother line\n",
+		},
+		{
+			name: "marker only line dropped",
+			text: "  }\n<|user_cursor|>\n",
+			want: "  }\n",
+		},
+		{
+			name: "marker only line with whitespace dropped",
+			text: "  }\n  <|user_cursor|>  \n",
+			want: "  }\n",
+		},
+		{
+			name: "no marker",
+			text: "hello\nworld\n",
+			want: "hello\nworld\n",
+		},
+		{
+			name: "marker at end of text",
+			text: "  }\n<|user_cursor|>",
+			want: "  }",
+		},
+	}
 
-func TestStripCursorMarker_MarkerOnlyLineDropped(t *testing.T) {
-	result := stripCursorMarker("  }\n<|user_cursor|>\n", cursorMarker)
-	assert.Equal(t, "  }\n", result, "marker-only line removed entirely")
-}
-
-func TestStripCursorMarker_MarkerOnlyLineWithWhitespaceDropped(t *testing.T) {
-	result := stripCursorMarker("  }\n  <|user_cursor|>  \n", cursorMarker)
-	assert.Equal(t, "  }\n", result, "whitespace-padded marker line removed")
-}
-
-func TestStripCursorMarker_NoMarker(t *testing.T) {
-	result := stripCursorMarker("hello\nworld\n", cursorMarker)
-	assert.Equal(t, "hello\nworld\n", result, "text without marker unchanged")
-}
-
-func TestStripCursorMarker_MarkerAtEndOfText(t *testing.T) {
-	result := stripCursorMarker("  }\n<|user_cursor|>", cursorMarker)
-	assert.Equal(t, "  }", result, "trailing marker-only line removed")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, stripCursorMarker(tt.text, cursorMarker), "stripped text")
+		})
+	}
 }
 
 func TestParseCompletion_MarkerOnlyLineDropped(t *testing.T) {
 	p := newTestProvider()
 	lines := []string{"func foo() {", "    return 1", "}"}
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     lines,
-			CursorRow: 2,
-			CursorCol: 0,
-		},
-		TrimmedLines: lines,
-		WindowStart:  0,
-		CursorLine:   1,
-		CursorMarker: cursorMarker,
-		Result: &openai.StreamResult{
-			// Model changes "return 1" to "return 2" plus emits cursor marker on its own line.
-			Text: "func foo() {\n    return 2\n}\n" + cursorMarker + "\n" + endMarker,
-		},
-	}
-	resp, ok := parseCompletion(p, ctx)
-	assert.True(t, ok, "parsed")
-	assert.True(t, len(resp.Completions) > 0, "has completions")
+	ctx := stateForLines("", lines, 2, 0)
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
+		Text: "func foo() {\n    return 2\n}\n" + cursorMarker + "\n" + endMarker,
+	})
+	assert.True(t, resp.Completion != nil, "has completions")
 	// The completion should have exactly 3 lines (matching old line count),
 	// not 4 with trailing empty from the stripped marker line.
-	assert.Equal(t, 3, len(resp.Completions[0].Lines), "marker-only line excluded from completion")
+	assert.Equal(t, 3, len(resp.Completion.Lines), "marker-only line excluded from completion")
 }

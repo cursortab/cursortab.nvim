@@ -4,16 +4,20 @@ import (
 	"testing"
 
 	"cursortab/assert"
-	"cursortab/types"
+	"cursortab/ctx"
 )
 
-func makeRequest(lines []string, cursorRow, cursorCol int) *types.CompletionRequest {
-	return &types.CompletionRequest{
-		Lines:         lines,
-		CursorRow:     cursorRow,
-		CursorCol:     cursorCol,
-		FilePath:      "/test/main.go",
+func makeCurrent(lines []string, cursorRow, cursorCol int) ctx.CurrentSnapshot {
+	return ctx.CurrentSnapshot{
 		WorkspacePath: "/test",
+		File: ctx.FileSnapshot{
+			Path:  "/test/main.go",
+			Lines: lines,
+		},
+		Cursor: ctx.CursorPosition{
+			Row: cursorRow,
+			Col: cursorCol,
+		},
 	}
 }
 
@@ -44,11 +48,11 @@ func TestConvertResponse_EmptyItems(t *testing.T) {
 		State:           windsurfState{State: "CODEIUM_STATE_SUCCESS"},
 		CompletionItems: []windsurfCompletionItem{},
 	}
-	req := makeRequest([]string{"line1", "line2"}, 1, 0)
+	current := makeCurrent([]string{"line1", "line2"}, 1, 0)
 
-	resp, err := p.convertResponse(wsResp, req)
+	resp, err := p.convertResponse(wsResp, current)
 	assert.NoError(t, err, "convertResponse error")
-	assert.Len(t, 0, resp.Completions, "completions")
+	assert.Nil(t, resp.Completion, "completions")
 }
 
 func TestConvertResponse_EmptyState(t *testing.T) {
@@ -56,11 +60,11 @@ func TestConvertResponse_EmptyState(t *testing.T) {
 	wsResp := &windsurfResponse{
 		State: windsurfState{State: ""},
 	}
-	req := makeRequest([]string{"line1"}, 1, 0)
+	current := makeCurrent([]string{"line1"}, 1, 0)
 
-	resp, err := p.convertResponse(wsResp, req)
+	resp, err := p.convertResponse(wsResp, current)
 	assert.NoError(t, err, "convertResponse error")
-	assert.Len(t, 0, resp.Completions, "completions")
+	assert.Nil(t, resp.Completion, "completions")
 }
 
 func TestConvertSingleItem_SingleLineReplacement(t *testing.T) {
@@ -72,9 +76,9 @@ func TestConvertSingleItem_SingleLineReplacement(t *testing.T) {
 		},
 		Range: makeOffsetRange("0", "5", "0", "0", "5"),
 	}
-	req := makeRequest([]string{"hello"}, 1, 5)
+	current := makeCurrent([]string{"hello"}, 1, 5)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, 1, comp.StartLine, "startLine")
 	assert.Equal(t, 1, comp.EndLineInc, "endLineInc")
@@ -90,9 +94,9 @@ func TestConvertSingleItem_SingleLineWithSuffix(t *testing.T) {
 		},
 		Range: makeOffsetRange("0", "5", "0", "0", "5"),
 	}
-	req := makeRequest([]string{"hello world"}, 1, 5)
+	current := makeCurrent([]string{"hello world"}, 1, 5)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, []string{"goodbye world"}, comp.Lines, "lines with suffix preserved")
 }
@@ -106,9 +110,9 @@ func TestConvertSingleItem_MultiLineReplacement(t *testing.T) {
 		},
 		Range: makeOffsetRange("6", "20", "1", "3", "5"),
 	}
-	req := makeRequest([]string{"line0", "old1", "old2", "old3", "line4"}, 2, 0)
+	current := makeCurrent([]string{"line0", "old1", "old2", "old3", "line4"}, 2, 0)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, 2, comp.StartLine, "startLine")
 	assert.Equal(t, 4, comp.EndLineInc, "endLineInc")
@@ -124,9 +128,9 @@ func TestConvertSingleItem_NoOp(t *testing.T) {
 		},
 		Range: makeOffsetRange("0", "5", "0", "0", "5"),
 	}
-	req := makeRequest([]string{"hello"}, 1, 5)
+	current := makeCurrent([]string{"hello"}, 1, 5)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.Nil(t, comp, "completion should be nil for no-op")
 }
 
@@ -139,9 +143,9 @@ func TestConvertSingleItem_StartLineOutOfBounds(t *testing.T) {
 		},
 		Range: makeOffsetRange("999", "999", "99", "99", "0"),
 	}
-	req := makeRequest([]string{"line1", "line2"}, 1, 0)
+	current := makeCurrent([]string{"line1", "line2"}, 1, 0)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.Nil(t, comp, "completion should be nil for out of bounds")
 }
 
@@ -154,9 +158,9 @@ func TestConvertSingleItem_EmptyBuffer(t *testing.T) {
 		},
 		Range: makeOffsetRange("0", "0", "0", "0", "0"),
 	}
-	req := makeRequest([]string{""}, 1, 0)
+	current := makeCurrent([]string{""}, 1, 0)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, []string{"package main"}, comp.Lines, "lines")
 }
@@ -170,9 +174,9 @@ func TestConvertSingleItem_EmptyText(t *testing.T) {
 		},
 		Range: makeOffsetRange("0", "5", "0", "0", "5"),
 	}
-	req := makeRequest([]string{"hello"}, 1, 5)
+	current := makeCurrent([]string{"hello"}, 1, 5)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.Nil(t, comp, "completion should be nil for empty text")
 }
 
@@ -190,11 +194,11 @@ func TestConvertResponse_MetricsInfo(t *testing.T) {
 			},
 		},
 	}
-	req := makeRequest([]string{"old"}, 1, 3)
+	current := makeCurrent([]string{"old"}, 1, 3)
 
-	resp, err := p.convertResponse(wsResp, req)
+	resp, err := p.convertResponse(wsResp, current)
 	assert.NoError(t, err, "convertResponse error")
-	assert.Len(t, 1, resp.Completions, "completions")
+	assert.NotNil(t, resp.Completion, "completions")
 	assert.NotNil(t, resp.MetricsInfo, "metricsInfo")
 	assert.Equal(t, "comp-id-1", resp.MetricsInfo.ID, "metricsInfo.ID")
 }
@@ -225,8 +229,8 @@ func TestConvertSingleItem_CompletionParts_AppendsSuffix(t *testing.T) {
 		},
 	}
 
-	req := makeRequest([]string{"abcdef"}, 1, 3)
-	comp := p.convertSingleItem(item, req, 0)
+	current := makeCurrent([]string{"abcdef"}, 1, 3)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion should not be nil")
 	assert.Equal(t, []string{"abcXdef"}, comp.Lines, "suffix should be appended")
 }
@@ -268,9 +272,9 @@ func TestConvertSingleItem_ColOutOfBounds(t *testing.T) {
 		},
 		Range: makeOffsetRange("0", "5", "0", "0", "200"),
 	}
-	req := makeRequest([]string{"short"}, 1, 5)
+	current := makeCurrent([]string{"short"}, 1, 5)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, []string{"more"}, comp.Lines, "lines with offset-based replacement")
 }
@@ -280,7 +284,7 @@ func TestConvertSingleItem_ReconstructsFromCompletionParts(t *testing.T) {
 	item := windsurfCompletionItem{
 		Completion: windsurfCompletion{
 			CompletionID: "abc123",
-			Text:         "ignored fallback",
+			Text:         "ignored text",
 		},
 		Range: makeOffsetRange("0", "12", "0", "0", "12"),
 		CompletionParts: []windsurfCompletionPart{
@@ -291,9 +295,9 @@ func TestConvertSingleItem_ReconstructsFromCompletionParts(t *testing.T) {
 			},
 		},
 	}
-	req := makeRequest([]string{"prefixsuffix"}, 1, 6)
+	current := makeCurrent([]string{"prefixsuffix"}, 1, 6)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, []string{"prefixMIDDLEsuffix"}, comp.Lines, "reconstructed lines")
 }
@@ -303,7 +307,7 @@ func TestConvertSingleItem_ReconstructsBlockCompletionParts(t *testing.T) {
 	item := windsurfCompletionItem{
 		Completion: windsurfCompletion{
 			CompletionID: "abc123",
-			Text:         "ignored fallback",
+			Text:         "ignored text",
 		},
 		Range: makeOffsetRange("0", "10", "0", "0", "10"),
 		CompletionParts: []windsurfCompletionPart{
@@ -314,9 +318,9 @@ func TestConvertSingleItem_ReconstructsBlockCompletionParts(t *testing.T) {
 			},
 		},
 	}
-	req := makeRequest([]string{"if true {}"}, 1, 9)
+	current := makeCurrent([]string{"if true {}"}, 1, 9)
 
-	comp := p.convertSingleItem(item, req, 0)
+	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, []string{"if true {", "\twork()", "}"}, comp.Lines, "reconstructed block completion")
 }

@@ -59,36 +59,28 @@ type StreamChunk struct {
 	} `json:"choices"`
 }
 
-// StreamResult contains the result of a streaming completion
-type StreamResult struct {
+// CompletionResult is the raw text result shared by batch and line-stream calls.
+type CompletionResult struct {
 	Text         string
 	FinishReason string
 	StoppedEarly bool
+	Err          error
 }
-
-// GetText returns the accumulated text (implements engine.StreamResult)
-func (r *StreamResult) GetText() string { return r.Text }
-
-// GetFinishReason returns the finish reason (implements engine.StreamResult)
-func (r *StreamResult) GetFinishReason() string { return r.FinishReason }
-
-// IsStoppedEarly returns whether the stream was stopped early (implements engine.StreamResult)
-func (r *StreamResult) IsStoppedEarly() bool { return r.StoppedEarly }
 
 // LineStream provides incremental line-by-line streaming
 type LineStream struct {
-	lines  <-chan string       // Complete lines (without trailing \n)
-	done   <-chan StreamResult // Completion signal with final result
-	cancel func()              // Cancel the stream early
+	lines  <-chan string           // Complete lines (without trailing \n)
+	done   <-chan CompletionResult // Completion signal with final result
+	cancel func()                  // Cancel the stream early
 }
 
-// LinesChan returns the channel for receiving lines (implements engine.LineStream)
+// LinesChan returns the channel for receiving complete lines.
 func (s *LineStream) LinesChan() <-chan string { return s.lines }
 
-// DoneChan returns the channel for completion signal (implements engine.LineStream)
-func (s *LineStream) DoneChan() <-chan StreamResult { return s.done }
+// DoneChan returns the final stream result.
+func (s *LineStream) DoneChan() <-chan CompletionResult { return s.done }
 
-// Cancel cancels the stream early (implements engine.LineStream)
+// Cancel cancels the stream early.
 func (s *LineStream) Cancel() {
 	if s.cancel != nil {
 		s.cancel()
@@ -128,7 +120,7 @@ func (c *Client) SetHTTPTransport(rt http.RoundTripper) {
 // DoCompletion sends a non-streaming completion request
 func (c *Client) DoCompletion(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
 	defer logger.Trace("openai.DoCompletion")()
-	req.Stream = false
+	req = completionRequestWithStream(req, false)
 
 	body, err := c.doRequest(ctx, req)
 	if err != nil {
@@ -146,9 +138,9 @@ func (c *Client) DoCompletion(ctx context.Context, req *CompletionRequest) (*Com
 // DoLineStream sends a streaming completion request and returns lines as they complete.
 // Lines are emitted when a newline is encountered. Stop tokens trigger stream completion.
 // maxLines: stop after receiving this many lines (0 = no limit)
-func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLines int, stopTokens []string) *LineStream {
+func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLines int) *LineStream {
 	linesChan := make(chan string, 100)
-	doneChan := make(chan StreamResult, 1)
+	doneChan := make(chan CompletionResult, 1)
 
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -159,10 +151,11 @@ func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLi
 	}
 
 	go func() {
+		defer cancel()
 		defer close(linesChan)
 		defer close(doneChan)
 
-		result := c.runLineStream(ctx, req, linesChan, maxLines, stopTokens)
+		result := c.runLineStream(ctx, req, linesChan, maxLines)
 		doneChan <- result
 	}()
 
@@ -170,9 +163,9 @@ func (c *Client) DoLineStream(ctx context.Context, req *CompletionRequest, maxLi
 }
 
 // runLineStream executes the streaming request and sends lines to the channel
-func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, lines chan<- string, maxLines int, stopTokens []string) StreamResult {
+func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, lines chan<- string, maxLines int) CompletionResult {
 	defer logger.Trace("openai.runLineStream")()
-	req.Stream = true
+	req = completionRequestWithStream(req, true)
 
 	// Marshal the request without HTML escaping
 	var reqBodyBuf bytes.Buffer
@@ -180,14 +173,14 @@ func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, line
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(req); err != nil {
 		logger.Error("line stream: failed to marshal request: %v", err)
-		return StreamResult{FinishReason: "error"}
+		return CompletionResult{FinishReason: "error", StoppedEarly: true, Err: fmt.Errorf("marshal stream request: %w", err)}
 	}
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.URL+c.CompletionPath, &reqBodyBuf)
 	if err != nil {
 		logger.Error("line stream: failed to create request: %v", err)
-		return StreamResult{FinishReason: "error"}
+		return CompletionResult{FinishReason: "error", StoppedEarly: true, Err: fmt.Errorf("create stream request: %w", err)}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
@@ -199,10 +192,10 @@ func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, line
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
 		if ctx.Err() != nil {
-			return StreamResult{FinishReason: "cancelled"}
+			return CompletionResult{FinishReason: "cancelled"}
 		}
 		logger.Error("line stream: failed to send request: %v", err)
-		return StreamResult{FinishReason: "error"}
+		return CompletionResult{FinishReason: "error", StoppedEarly: true, Err: fmt.Errorf("send stream request: %w", err)}
 	}
 	defer resp.Body.Close()
 
@@ -210,323 +203,154 @@ func (c *Client) runLineStream(ctx context.Context, req *CompletionRequest, line
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		logger.Error("line stream: request failed with status %d: %s", resp.StatusCode, string(body))
-		return StreamResult{FinishReason: "error"}
+		return CompletionResult{FinishReason: "error", StoppedEarly: true, Err: fmt.Errorf("stream request failed with status %d: %s", resp.StatusCode, string(body))}
 	}
 
-	return c.processLineStream(ctx, resp.Body, lines, maxLines, stopTokens)
+	return c.processLineStream(ctx, resp.Body, lines, maxLines, req.Stop)
 }
 
 // processLineStream reads SSE events and emits complete lines
-func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines chan<- string, maxLines int, stopTokens []string) StreamResult {
+func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines chan<- string, maxLines int, stopTokens []string) CompletionResult {
 	var textBuilder strings.Builder
 	var lineBuffer strings.Builder
+	pending := ""
 	var finishReason string
 	lineCount := 0
 	stoppedEarly := false
 
-	// Build stop token set for efficient lookup
-	stopTokenSet := make(map[string]bool)
+	longestStopToken := 0
 	for _, token := range stopTokens {
-		stopTokenSet[token] = true
+		if len(token) > longestStopToken {
+			longestStopToken = len(token)
+		}
 	}
 
-	scanner := bufio.NewScanner(body)
-	for scanner.Scan() {
-		// Check for cancellation
-		select {
-		case <-ctx.Done():
-			return StreamResult{
-				Text:         textBuilder.String(),
-				FinishReason: "cancelled",
-				StoppedEarly: true,
+	findStop := func(text string) (int, bool) {
+		stopIdx := -1
+		for _, token := range stopTokens {
+			if token == "" {
+				continue
 			}
-		default:
-		}
-
-		line := scanner.Text()
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
-		}
-
-		// Check for end of stream
-		if line == "data: [DONE]" {
-			break
-		}
-
-		// Parse SSE data line
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		jsonData := strings.TrimPrefix(line, "data: ")
-		var chunk StreamChunk
-		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
-			logger.Debug("line stream: failed to parse chunk: %v", err)
-			continue
-		}
-
-		// Extract text from chunk
-		if len(chunk.Choices) > 0 {
-			text := chunk.Choices[0].Text
-
-			// Check for stop tokens in the text
-			for token := range stopTokenSet {
-				if idx := strings.Index(text, token); idx != -1 {
-					text = text[:idx]
-					finishReason = "stop"
-					// Process any remaining text before stop token
-					if text != "" {
-						lineBuffer.WriteString(text)
-						textBuilder.WriteString(text)
-					}
-					// Flush any remaining content in buffer as final line
-					if lineBuffer.Len() > 0 {
-						select {
-						case lines <- lineBuffer.String():
-							lineCount++
-						case <-ctx.Done():
-							return StreamResult{Text: textBuilder.String(), FinishReason: "cancelled", StoppedEarly: true}
-						}
-					}
-					return StreamResult{
-						Text:         textBuilder.String(),
-						FinishReason: finishReason,
-						StoppedEarly: false,
-					}
-				}
-			}
-
-			textBuilder.WriteString(text)
-
-			// Process text character by character for newlines
-			for _, ch := range text {
-				if ch == '\n' {
-					// Emit complete line
-					select {
-					case lines <- lineBuffer.String():
-						lineCount++
-					case <-ctx.Done():
-						return StreamResult{Text: textBuilder.String(), FinishReason: "cancelled", StoppedEarly: true}
-					}
-					lineBuffer.Reset()
-
-					// Check line limit
-					if maxLines > 0 && lineCount >= maxLines {
-						stoppedEarly = true
-						logger.Debug("line stream: stopping early at %d lines (max: %d)", lineCount, maxLines)
-						return StreamResult{
-							Text:         textBuilder.String(),
-							FinishReason: "length",
-							StoppedEarly: true,
-						}
-					}
-				} else {
-					lineBuffer.WriteRune(ch)
-				}
-			}
-
-			// Capture finish reason if present
-			if chunk.Choices[0].FinishReason != "" {
-				finishReason = chunk.Choices[0].FinishReason
+			idx := strings.Index(text, token)
+			if idx != -1 && (stopIdx == -1 || idx < stopIdx) {
+				stopIdx = idx
 			}
 		}
+		return stopIdx, stopIdx != -1
 	}
 
-	if err := scanner.Err(); err != nil {
-		logger.Debug("line stream: scanner error: %v", err)
-	}
-
-	// Emit any remaining content as final line (handles truncation)
-	if lineBuffer.Len() > 0 {
-		select {
-		case lines <- lineBuffer.String():
-			lineCount++
-		case <-ctx.Done():
-		}
-	}
-
-	return StreamResult{
-		Text:         textBuilder.String(),
-		FinishReason: finishReason,
-		StoppedEarly: stoppedEarly,
-	}
-}
-
-// DoTokenStream sends a streaming completion request and emits cumulative text after each token.
-// Each emission is the full accumulated text so far (idempotent for UI rendering).
-// maxChars: stop after receiving this many characters (0 = no limit)
-// stopTokens: stop tokens that terminate the stream (e.g., "\n" for inline completion)
-func (c *Client) DoTokenStream(ctx context.Context, req *CompletionRequest, maxChars int, stopTokens []string) *LineStream {
-	linesChan := make(chan string, 100)
-	doneChan := make(chan StreamResult, 1)
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	stream := &LineStream{
-		lines:  linesChan,
-		done:   doneChan,
-		cancel: cancel,
-	}
-
-	go func() {
-		defer close(linesChan)
-		defer close(doneChan)
-
-		result := c.runTokenStream(ctx, req, linesChan, maxChars, stopTokens)
-		doneChan <- result
-	}()
-
-	return stream
-}
-
-// runTokenStream executes the streaming request and sends cumulative text to the channel
-func (c *Client) runTokenStream(ctx context.Context, req *CompletionRequest, textChan chan<- string, maxChars int, stopTokens []string) StreamResult {
-	defer logger.Trace("openai.runTokenStream")()
-	req.Stream = true
-
-	// Marshal the request without HTML escaping
-	var reqBodyBuf bytes.Buffer
-	encoder := json.NewEncoder(&reqBodyBuf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(req); err != nil {
-		logger.Error("token stream: failed to marshal request: %v", err)
-		return StreamResult{FinishReason: "error"}
-	}
-
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.URL+c.CompletionPath, &reqBodyBuf)
-	if err != nil {
-		logger.Error("token stream: failed to create request: %v", err)
-		return StreamResult{FinishReason: "error"}
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	if c.APIKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
-	}
-
-	// Send the request
-	resp, err := c.HTTPClient.Do(httpReq)
-	if err != nil {
-		if ctx.Err() != nil {
-			return StreamResult{FinishReason: "cancelled"}
-		}
-		logger.Error("token stream: failed to send request: %v", err)
-		return StreamResult{FinishReason: "error"}
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		logger.Error("token stream: request failed with status %d: %s", resp.StatusCode, string(body))
-		return StreamResult{FinishReason: "error"}
-	}
-
-	return c.processTokenStream(ctx, resp.Body, textChan, maxChars, stopTokens)
-}
-
-// processTokenStream reads SSE events and emits cumulative text after each chunk
-func (c *Client) processTokenStream(ctx context.Context, body io.Reader, textChan chan<- string, maxChars int, stopTokens []string) StreamResult {
-	var textBuilder strings.Builder
-	var finishReason string
-	stoppedEarly := false
-
-	// Build stop token set for efficient lookup
-	stopTokenSet := make(map[string]bool)
-	for _, token := range stopTokens {
-		stopTokenSet[token] = true
-	}
-
-	scanner := bufio.NewScanner(body)
-	for scanner.Scan() {
-		// Check for cancellation
-		select {
-		case <-ctx.Done():
-			return StreamResult{
-				Text:         textBuilder.String(),
-				FinishReason: "cancelled",
-				StoppedEarly: true,
-			}
-		default:
-		}
-
-		line := scanner.Text()
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
-		}
-
-		// Check for end of stream
-		if line == "data: [DONE]" {
-			break
-		}
-
-		// Parse SSE data line
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		jsonData := strings.TrimPrefix(line, "data: ")
-		var chunk StreamChunk
-		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
-			logger.Debug("token stream: failed to parse chunk: %v", err)
-			continue
-		}
-
-		// Extract text from chunk
-		if len(chunk.Choices) > 0 {
-			text := chunk.Choices[0].Text
-
-			// Check for stop tokens in the text
-			for token := range stopTokenSet {
-				if idx := strings.Index(text, token); idx != -1 {
-					// Only take text before the stop token
-					text = text[:idx]
-					finishReason = "stop"
-					if text != "" {
-						textBuilder.WriteString(text)
-						// Emit final accumulated text
-						select {
-						case textChan <- textBuilder.String():
-						case <-ctx.Done():
-							return StreamResult{Text: textBuilder.String(), FinishReason: "cancelled", StoppedEarly: true}
-						}
-					}
-					return StreamResult{
-						Text:         textBuilder.String(),
-						FinishReason: finishReason,
-						StoppedEarly: false,
-					}
-				}
+	commitText := func(text string) (CompletionResult, bool) {
+		for _, ch := range text {
+			textBuilder.WriteRune(ch)
+			if ch != '\n' {
+				lineBuffer.WriteRune(ch)
+				continue
 			}
 
-			textBuilder.WriteString(text)
+			select {
+			case lines <- lineBuffer.String():
+				lineCount++
+			case <-ctx.Done():
+				return CompletionResult{Text: textBuilder.String(), FinishReason: "cancelled", StoppedEarly: true}, true
+			}
+			lineBuffer.Reset()
 
-			// Check character limit
-			if maxChars > 0 && textBuilder.Len() >= maxChars {
+			if maxLines > 0 && lineCount >= maxLines {
 				stoppedEarly = true
-				logger.Debug("token stream: stopping early at %d chars (max: %d)", textBuilder.Len(), maxChars)
-				// Emit final accumulated text before stopping
-				select {
-				case textChan <- textBuilder.String():
-				case <-ctx.Done():
-				}
-				return StreamResult{
+				logger.Debug("line stream: stopping early at %d lines (max: %d)", lineCount, maxLines)
+				return CompletionResult{
 					Text:         textBuilder.String(),
 					FinishReason: "length",
 					StoppedEarly: true,
+				}, true
+			}
+		}
+		return CompletionResult{}, false
+	}
+
+	flushLine := func(finishReason string, stoppedEarly bool) CompletionResult {
+		if lineBuffer.Len() > 0 {
+			select {
+			case lines <- lineBuffer.String():
+				lineCount++
+			case <-ctx.Done():
+				return CompletionResult{Text: textBuilder.String(), FinishReason: "cancelled", StoppedEarly: true}
+			}
+		}
+
+		return CompletionResult{
+			Text:         textBuilder.String(),
+			FinishReason: finishReason,
+			StoppedEarly: stoppedEarly,
+		}
+	}
+
+	scanner := bufio.NewScanner(body)
+	for scanner.Scan() {
+		// Check for cancellation
+		select {
+		case <-ctx.Done():
+			return CompletionResult{
+				Text:         textBuilder.String(),
+				FinishReason: "cancelled",
+				StoppedEarly: true,
+			}
+		default:
+		}
+
+		line := scanner.Text()
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+
+		// Check for end of stream
+		if line == "data: [DONE]" {
+			break
+		}
+
+		// Parse SSE data line
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		jsonData := strings.TrimPrefix(line, "data: ")
+		var chunk StreamChunk
+		if err := json.Unmarshal([]byte(jsonData), &chunk); err != nil {
+			return CompletionResult{
+				Text:         textBuilder.String(),
+				FinishReason: "error",
+				StoppedEarly: true,
+				Err:          fmt.Errorf("parse stream chunk: %w", err),
+			}
+		}
+
+		// Extract text from chunk
+		if len(chunk.Choices) > 0 {
+			pending += chunk.Choices[0].Text
+
+			if idx, ok := findStop(pending); ok {
+				if result, done := commitText(pending[:idx]); done {
+					return result
 				}
+				return flushLine("stop", false)
 			}
 
-			// Emit cumulative text after each chunk (idempotent for UI)
-			select {
-			case textChan <- textBuilder.String():
-			case <-ctx.Done():
-				return StreamResult{Text: textBuilder.String(), FinishReason: "cancelled", StoppedEarly: true}
+			commitLen := len(pending)
+			if longestStopToken > 0 {
+				keep := longestStopToken - 1
+				if commitLen > keep {
+					commitLen -= keep
+				} else {
+					commitLen = 0
+				}
+			}
+			if commitLen > 0 {
+				if result, done := commitText(pending[:commitLen]); done {
+					return result
+				}
+				pending = pending[commitLen:]
 			}
 
 			// Capture finish reason if present
@@ -536,15 +360,44 @@ func (c *Client) processTokenStream(ctx context.Context, body io.Reader, textCha
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		logger.Debug("token stream: scanner error: %v", err)
+	if pending != "" {
+		if idx, ok := findStop(pending); ok {
+			if result, done := commitText(pending[:idx]); done {
+				return result
+			}
+			return flushLine("stop", false)
+		}
+		if result, done := commitText(pending); done {
+			return result
+		}
 	}
 
-	return StreamResult{
-		Text:         textBuilder.String(),
-		FinishReason: finishReason,
-		StoppedEarly: stoppedEarly,
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return CompletionResult{
+				Text:         textBuilder.String(),
+				FinishReason: "cancelled",
+				StoppedEarly: true,
+			}
+		}
+		return CompletionResult{
+			Text:         textBuilder.String(),
+			FinishReason: "error",
+			StoppedEarly: true,
+			Err:          fmt.Errorf("read stream: %w", err),
+		}
 	}
+
+	return flushLine(finishReason, stoppedEarly)
+}
+
+func completionRequestWithStream(req *CompletionRequest, stream bool) *CompletionRequest {
+	cloned := *req
+	cloned.Stream = stream
+	if req.Stop != nil {
+		cloned.Stop = append([]string(nil), req.Stop...)
+	}
+	return &cloned
 }
 
 // doRequest sends an HTTP request and returns the response body

@@ -19,6 +19,60 @@ func TestCheckTypingMatchesPrediction_NoCompletions(t *testing.T) {
 	assert.False(t, hasRemaining, "hasRemaining when no completions")
 }
 
+func TestShowCurrentStage_UsesStagedManualFlagForMetrics(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	eng.stagedCompletion = &text.StagedCompletion{
+		Manual: true,
+		Stages: []*text.Stage{{
+			BufferStart: 1,
+			BufferEnd:   1,
+			Lines:       []string{"hello world"},
+			Groups: []*text.Group{{
+				Type:       "modification",
+				BufferLine: 1,
+				Lines:      []string{"hello world"},
+				OldLines:   []string{"hello"},
+			}},
+		}},
+	}
+
+	eng.showCurrentStage()
+
+	assert.NotNil(t, eng.currentSnapshot, "metrics snapshot")
+	assert.True(t, eng.currentSnapshot.ManuallyTriggered, "manual flag follows staged completion")
+}
+
+func TestTextChangeRerender_PreservesManualFlagForMetrics(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"hello"}
+	buf.row = 1
+	buf.col = 5
+	prov := newMockProvider()
+	clock := newMockClock()
+	eng := createTestEngine(buf, prov, clock)
+
+	resp := completionResponse(&types.Completion{
+		StartLine:  1,
+		EndLineInc: 1,
+		Lines:      []string{"hello world"},
+	})
+	assert.Equal(t, completionShown, eng.processCompletionWithManual(resp, true), "initial manual completion")
+
+	buf.lines = []string{"hello w"}
+	buf.col = 7
+	eng.handleTextChangeImpl()
+
+	assert.NotNil(t, eng.currentSnapshot, "metrics snapshot")
+	assert.True(t, eng.currentSnapshot.ManuallyTriggered, "manual flag survives rerender")
+}
+
 func TestCheckTypingMatchesPrediction_MatchesPrefix(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"hello wo"}
@@ -26,12 +80,16 @@ func TestCheckTypingMatchesPrediction_MatchesPrefix(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
 
 	matches, hasRemaining := eng.checkTypingMatchesPrediction()
 	assert.True(t, matches, "match when buffer is prefix of target")
@@ -45,12 +103,16 @@ func TestCheckTypingMatchesPrediction_FullyTyped(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
 
 	matches, hasRemaining := eng.checkTypingMatchesPrediction()
 	assert.True(t, matches, "match when buffer matches target")
@@ -64,12 +126,16 @@ func TestCheckTypingMatchesPrediction_NoMatch(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"hello world"},
-	}}
-	eng.completionOriginalLines = []string{"hello "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 1,
+			Lines:      []string{"hello world"},
+		},
+		[]string{"hello "},
+		nil,
+	)
 
 	matches, _ := eng.checkTypingMatchesPrediction()
 	assert.False(t, matches, "match when buffer diverges from target")
@@ -82,12 +148,16 @@ func TestCheckTypingMatchesPrediction_MultiLine(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 2,
-		Lines:      []string{"line 1", "line 2 complete"},
-	}}
-	eng.completionOriginalLines = []string{"line 1", "line 2 "}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 2,
+			Lines:      []string{"line 1", "line 2 complete"},
+		},
+		[]string{"line 1", "line 2 "},
+		nil,
+	)
 
 	matches, hasRemaining := eng.checkTypingMatchesPrediction()
 	assert.True(t, matches, "match for multi-line partial completion")
@@ -101,12 +171,16 @@ func TestCheckTypingMatchesPrediction_DeletionNotSupported(t *testing.T) {
 	clock := newMockClock()
 	eng := createTestEngine(buf, prov, clock)
 
-	eng.completions = []*types.Completion{{
-		StartLine:  1,
-		EndLineInc: 2,
-		Lines:      []string{"combined line"},
-	}}
-	eng.completionOriginalLines = []string{"line 1", "line 2"}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine:  1,
+			EndLineInc: 2,
+			Lines:      []string{"combined line"},
+		},
+		[]string{"line 1", "line 2"},
+		nil,
+	)
 
 	matches, _ := eng.checkTypingMatchesPrediction()
 	assert.False(t, matches, "match when completion deletes lines")
@@ -198,7 +272,7 @@ func TestHandleCursorTarget_StageNeedsNavigationCapturesRejectedCompletionCandid
 
 	assert.Equal(t, stateHasCursorTarget, eng.state, "state when next stage still needs navigation")
 	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line for next stage")
-	assert.NotNil(t, eng.currentRejectedCompletion, "stage cursor target should capture rejection candidate")
+	assert.NotNil(t, eng.display.rejectionCandidate(), "stage cursor target should capture rejection candidate")
 }
 
 // TestProcessCompletion_TailTrimModelOverrun tests that when the model generates
@@ -247,7 +321,7 @@ func TestProcessCompletion_TailTrimModelOverrun(t *testing.T) {
 		},
 	}
 
-	eng.processCompletion(comp)
+	eng.processCompletion(completionResponse(comp))
 
 	// After tail-trim, lines 7-10 should be trimmed (they match buffer[7:10]).
 	// The completion should only produce changes within/near the editable range,
@@ -309,7 +383,7 @@ func TestProcessCompletion_NoSpuriousAdditions(t *testing.T) {
 		},
 	}
 
-	result := eng.processCompletion(comp) == completionShown
+	result := eng.processCompletion(completionResponse(comp)) == completionShown
 	assert.True(t, result, "processCompletion should show remaining changes")
 
 	if eng.stagedCompletion != nil && len(eng.stagedCompletion.Stages) > 0 {

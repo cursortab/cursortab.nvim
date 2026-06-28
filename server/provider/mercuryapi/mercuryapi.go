@@ -1,53 +1,4 @@
-// Package mercuryapi implements the Mercury API provider (Inception Labs hosted).
-//
-// Prompt format (sent as a single user message to /v1/edit/completions):
-//
-//	<|recently_viewed_code_snippets|>
-//	<|recently_viewed_code_snippet|>
-//	code_snippet_file_path: helper.go
-//	func helper() string { ... }
-//	<|/recently_viewed_code_snippet|>
-//
-//	<|recently_viewed_code_snippet|>           (omitted if no diagnostics)
-//	code_snippet_file_path: diagnostics
-//	line 12: [error] undefined: foo (source: gopls)
-//	<|/recently_viewed_code_snippet|>
-//
-//	<|recently_viewed_code_snippet|>           (omitted if no treesitter context)
-//	code_snippet_file_path: treesitter_context
-//	Enclosing scope: func process(items []string) []string {
-//	Sibling: line 15: func main() {
-//	Import: import "fmt"
-//	<|/recently_viewed_code_snippet|>
-//
-//	<|recently_viewed_code_snippet|>           (omitted if no staged changes)
-//	code_snippet_file_path: staged_git_diff
-//	+func newHelper() {}
-//	-func oldHelper() {}
-//	<|/recently_viewed_code_snippet|>
-//	<|/recently_viewed_code_snippets|>
-//
-//	<|current_file_content|>
-//	current_file_path: main.go
-//	...context lines above editable region...
-//	<|code_to_edit|>
-//	...before cursor...<|cursor|>...after cursor...
-//	...more editable lines...
-//	<|/code_to_edit|>
-//	...context lines below editable region...
-//	<|/current_file_content|>
-//
-//	<|edit_diff_history|>
-//	--- main.go
-//	+++ main.go
-//	@@ -6,1 +6,1 @@
-//	-old line
-//	+new line
-//	<|/edit_diff_history|>
-//
-// The editable region is expanded to syntax boundaries (AST nodes) when
-// treesitter data is available. Context defaults to the entire file, trimmed
-// only for files exceeding 150KB.
+// Package mercuryapi implements CursorTab-hosted edit prediction.
 package mercuryapi
 
 import (
@@ -58,6 +9,7 @@ import (
 	"strings"
 
 	"cursortab/client/mercuryapi"
+	sourcectx "cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
@@ -89,23 +41,24 @@ const (
 	CurrentFilePathPrefix       = "current_file_path: "
 )
 
-// Provider implements the Mercury API provider
 type Provider struct {
+	provider.Base
 	config *types.ProviderConfig
 	client *mercuryapi.Client
 }
 
-// NewProvider creates a new Mercury API provider
+var _ engine.Provider = (*Provider)(nil)
+var _ provider.CompletionFlow[*mercuryapi.Request, *mercuryapi.Response] = (*Provider)(nil)
+
 func NewProvider(config *types.ProviderConfig) *Provider {
 	return &Provider{
+		Base: provider.NewBase(engine.CompletionEdit, sourcectx.Materials{
+			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
+		}),
 		config: config,
 		client: mercuryapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
 	}
-}
-
-// GetContextLimits implements engine.Provider
-func (p *Provider) GetContextLimits() engine.ContextLimits {
-	return engine.DefaultContextLimits()
 }
 
 // SetHTTPTransport forwards the transport override to the underlying client.
@@ -114,7 +67,6 @@ func (p *Provider) SetHTTPTransport(rt http.RoundTripper) {
 	p.client.SetHTTPTransport(rt)
 }
 
-// SendMetric implements metrics.Sender
 func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	var action mercuryapi.FeedbackAction
 	switch event.Type {
@@ -142,36 +94,57 @@ func (p *Provider) SendMetric(ctx context.Context, event metrics.Event) {
 	}
 }
 
-// GetCompletion implements engine.Provider
-func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionRequest) (*types.CompletionResponse, error) {
-	defer logger.Trace("mercuryapi.GetCompletion")()
+func (p *Provider) Complete(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
+	if len(input.Current.File.Lines) == 0 {
+		return provider.EmptyResponse(), nil
+	}
+	return provider.StartBatch(ctx, input, nil, p)
+}
 
-	if len(req.Lines) == 0 {
-		return &types.CompletionResponse{}, nil
+func (p *Provider) Build(state *provider.RequestState) (*mercuryapi.Request, error) {
+	current := state.Input.Current
+	lines := current.File.Lines
+
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("mercuryapi: empty current file")
 	}
 
-	// Calculate editable and context regions
-	var syntaxRanges []*types.LineRange
-	if ts := req.GetTreesitter(); ts != nil {
-		syntaxRanges = ts.SyntaxRanges
-	}
-	editableStart, editableEnd, contextStart, contextEnd := computeRegions(req.Lines, req.CursorRow, syntaxRanges)
+	editableStart, editableEnd, contextStart, contextEnd := computeRegionsForState(state)
 
-	// Build the prompt
+	var diffHistories []*types.FileDiffHistory
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](state.Input.Materials); ok {
+		diffHistories = editHistory.Files
+	}
+	var recentSnapshots []*types.RecentBufferSnapshot
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](state.Input.Materials); ok {
+		recentSnapshots = recentFiles.Files
+	}
+	var diagnostics *types.Diagnostics
+	if diagnosticsMaterial, ok := sourcectx.Find[sourcectx.Diagnostics](state.Input.Materials); ok {
+		diagnostics = diagnosticsMaterial.Data
+	}
+	var treesitter *types.TreesitterContext
+	if treesitterMaterial, ok := sourcectx.Find[sourcectx.Treesitter](state.Input.Materials); ok {
+		treesitter = treesitterMaterial.Data
+	}
+	var gitDiff *types.GitDiffContext
+	if gitDiffMaterial, ok := sourcectx.Find[sourcectx.GitDiff](state.Input.Materials); ok {
+		gitDiff = gitDiffMaterial.Data
+	}
+
 	prompt := buildPrompt(
-		req.FilePath,
-		req.Lines,
+		current.File.Path,
+		lines,
 		editableStart, editableEnd,
 		contextStart, contextEnd,
-		req.CursorRow, req.CursorCol,
-		req.FileDiffHistories,
-		req.RecentBufferSnapshots,
-		req.GetDiagnostics(),
-		req.GetTreesitter(),
-		req.GetGitDiff(),
+		current.Cursor.Row, current.Cursor.Col,
+		diffHistories,
+		recentSnapshots,
+		diagnostics,
+		treesitter,
+		gitDiff,
 	)
 
-	// Build API request
 	model := p.config.ProviderModel
 	if model == "" {
 		model = mercuryapi.Model
@@ -186,42 +159,64 @@ func (p *Provider) GetCompletion(ctx context.Context, req *types.CompletionReque
 	}
 
 	p.logRequest(apiReq, editableStart, editableEnd, contextStart, contextEnd)
+	return apiReq, nil
+}
 
-	apiResp, err := p.client.DoCompletion(ctx, apiReq)
+func (p *Provider) Call(ctx context.Context, req *mercuryapi.Request) (*mercuryapi.Response, error) {
+	if req == nil {
+		return nil, fmt.Errorf("mercuryapi: nil request")
+	}
+	apiResp, err := p.client.DoCompletion(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	return apiResp, nil
+}
 
-	completionText := mercuryapi.ExtractCompletion(apiResp)
+func (p *Provider) Parse(state *provider.RequestState, response *mercuryapi.Response) (*types.CompletionResponse, error) {
+	if response == nil {
+		return nil, fmt.Errorf("mercuryapi: nil response")
+	}
+	completionText := mercuryapi.ExtractCompletion(response)
 
-	p.logResponse(apiResp, completionText)
+	p.logResponse(response, completionText)
 
 	if completionText == "" {
 		return &types.CompletionResponse{}, nil
 	}
 
 	newLines := strings.Split(completionText, "\n")
+	editableStart, editableEnd, _, _ := computeRegionsForState(state)
+	lines := state.Input.Current.File.Lines
 
-	originalEditable := req.Lines[editableStart-1 : editableEnd]
+	originalEditable := lines[editableStart-1 : editableEnd]
 	if slices.Equal(newLines, originalEditable) {
 		return &types.CompletionResponse{}, nil
 	}
 
-	// Calculate metrics info for the engine
 	additions, deletions := countChanges(editableEnd-editableStart+1, len(newLines))
 
 	return &types.CompletionResponse{
-		Completions: []*types.Completion{{
+		Completion: &types.Completion{
 			StartLine:  editableStart,
 			EndLineInc: editableEnd,
 			Lines:      newLines,
-		}},
+		},
 		MetricsInfo: &types.MetricsInfo{
-			ID:        apiResp.ID,
+			ID:        response.ID,
 			Additions: additions,
 			Deletions: deletions,
 		},
 	}, nil
+}
+
+func computeRegionsForState(state *provider.RequestState) (editableStart, editableEnd, contextStart, contextEnd int) {
+	var syntaxRanges []*types.LineRange
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](state.Input.Materials); ok && treesitter.Data != nil {
+		syntaxRanges = treesitter.Data.SyntaxRanges
+	}
+	current := state.Input.Current
+	return computeRegions(current.File.Lines, current.Cursor.Row, syntaxRanges)
 }
 
 func (p *Provider) logRequest(req *mercuryapi.Request, editableStart, editableEnd, contextStart, contextEnd int) {
@@ -250,7 +245,6 @@ func (p *Provider) logResponse(resp *mercuryapi.Response, completionText string)
 		completionText)
 }
 
-// countChanges calculates additions and deletions based on line counts.
 func countChanges(oldLineCount, newLineCount int) (additions, deletions int) {
 	return max(newLineCount, 1), max(oldLineCount, 1)
 }
@@ -274,7 +268,6 @@ func computeRegions(lines []string, cursorRow int, syntaxRanges []*types.LineRan
 
 	cursorIdx := cursorRow - 1 // 0-indexed
 
-	// Calculate editable region (expand around cursor within char budget)
 	editableStart, editableEnd := expandRegion(lines, cursorIdx, MaxRewriteChars)
 
 	// Snap editable region to syntax boundaries if available
@@ -350,7 +343,6 @@ func expandRegionAround(lines []string, regionStart, regionEnd int, maxChars int
 	start := regionStart
 	end := regionEnd
 
-	// Calculate chars in region
 	chars := 0
 	for i := start; i <= end && i < len(lines); i++ {
 		chars += len(lines[i]) + 1
@@ -501,7 +493,6 @@ func buildPrompt(
 	return sb.String()
 }
 
-// formatDiffHistories formats diff histories in unified diff format.
 func formatDiffHistories(histories []*types.FileDiffHistory) string {
 	if len(histories) == 0 {
 		return ""
@@ -509,53 +500,21 @@ func formatDiffHistories(histories []*types.FileDiffHistory) string {
 
 	var sb strings.Builder
 	for _, h := range histories {
-		if len(h.DiffHistory) == 0 {
-			continue
-		}
-
 		for _, entry := range h.DiffHistory {
-			// Write in unified diff format
+			diff := provider.DiffEntryToUnifiedDiff(entry)
+			if diff == "" {
+				continue
+			}
 			sb.WriteString("--- ")
 			sb.WriteString(h.FileName)
 			sb.WriteString("\n")
 			sb.WriteString("+++ ")
 			sb.WriteString(h.FileName)
 			sb.WriteString("\n")
-
-			oldLines := countNonEmptyLines(entry.Original)
-			newLines := countNonEmptyLines(entry.Updated)
-			fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n", 1, oldLines, 1, newLines)
-
-			// Write old lines with - prefix
-			for line := range strings.SplitSeq(entry.Original, "\n") {
-				if line != "" {
-					sb.WriteString("-")
-					sb.WriteString(line)
-					sb.WriteString("\n")
-				}
-			}
-
-			// Write new lines with + prefix
-			for line := range strings.SplitSeq(entry.Updated, "\n") {
-				if line != "" {
-					sb.WriteString("+")
-					sb.WriteString(line)
-					sb.WriteString("\n")
-				}
-			}
+			sb.WriteString(diff)
+			sb.WriteString("\n")
 			sb.WriteString("\n")
 		}
 	}
 	return sb.String()
-}
-
-// countNonEmptyLines counts the non-empty lines in a string.
-func countNonEmptyLines(s string) int {
-	n := 0
-	for line := range strings.SplitSeq(s, "\n") {
-		if line != "" {
-			n++
-		}
-	}
-	return n
 }

@@ -1,147 +1,111 @@
-// Package zeta implements the Zeta provider (Zed's native model).
-//
-// Prompt format (sent as a single text prompt to /v1/completions):
-//
-//	### Instruction:
-//	You are a code completion assistant and your task is to analyze user edits
-//	and then rewrite an excerpt that the user provides, suggesting the appropriate
-//	edits within the excerpt, taking into account the cursor location.
-//
-//	### User Edits:
-//	User edited "file.go":
-//	```diff
-//	-old line
-//	+new line
-//	```
-//
-//	### Diagnostics:                       (omitted if no diagnostics)
-//	Diagnostics in "file.go":
-//	```diagnostics
-//	line 10: [ERROR] undefined: foo (source: gopls)
-//	```
-//
-//	### Code Context:                      (omitted if no treesitter context)
-//	Enclosing scope: func handleRequest(w http.ResponseWriter, r *http.Request) {
-//	Sibling symbols:
-//	  line 5: func otherFunc() {
-//	Imports:
-//	  import "net/http"
-//
-//	### Staged Changes:                    (omitted if not COMMIT_EDITMSG)
-//	(full unified diff if ≤4KB, or extracted symbols in git diff format:)
-//	+func newHelper(ctx context.Context) error {
-//	-func oldHelper() error {
-//
-//	### Recent Files:                      (omitted if no recent snapshots)
-//	```other.go
-//	... first N lines of a recently viewed file ...
-//	```
-//
-//	### User Excerpt:
-//	```file.go
-//	<|start_of_file|>
-//	... context lines ...
-//	<|editable_region_start|>
-//	... before cursor ...<|user_cursor_is_here|>... after cursor ...
-//	... more lines ...
-//	<|editable_region_end|>
-//	... context lines ...
-//	```
-//
-//	### Response:
+// Package zeta implements Zed-style edit prediction prompts.
 package zeta
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
+	"cursortab/engine"
 	"cursortab/provider"
 	"cursortab/types"
 )
 
-// NewProvider creates a new Zeta provider (Zed's native model)
-func NewProvider(config *types.ProviderConfig) *provider.Provider {
-	return &provider.Provider{
-		Name:          "zeta",
-		Config:        config,
-		Client:        openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
-		StreamingType: provider.StreamingLines,
-		Preprocessors: []provider.Preprocessor{
-			provider.TrimContent(),
-		},
-		DiffBuilder: provider.FormatDiffHistory(provider.DiffHistoryOptions{
+var stopTokens = []string{"\n<|editable_region_end|>"}
+
+const providerName = "zeta"
+
+type Provider struct {
+	provider.Base
+	provider.OpenAI
+}
+
+var _ engine.Provider = (*Provider)(nil)
+var _ engine.StreamingProvider = (*Provider)(nil)
+var _ provider.OpenAIStreamFlow = (*Provider)(nil)
+
+func NewProvider(config *types.ProviderConfig) *Provider {
+	return &Provider{
+		Base: provider.NewBase(engine.CompletionEdit, sourcectx.Materials{
+			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
+			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
+		}),
+		OpenAI: provider.NewOpenAI(providerName, config),
+	}
+}
+
+func (p *Provider) Complete(ctx context.Context, input sourcectx.CompletionInput) (*types.CompletionResponse, error) {
+	return provider.StartBatch(ctx, input, p.ProviderConfig(), p)
+}
+
+func (p *Provider) StreamCompletion(ctx context.Context, input sourcectx.CompletionInput) (engine.CompletionStream, error) {
+	return p.OpenAI.StartStream(ctx, input, p.ProviderConfig(), p)
+}
+
+func (p *Provider) Build(ctx *provider.RequestState) (*openai.CompletionRequest, error) {
+	input := ctx.Input
+
+	userExcerpt := buildUserExcerpt(input.Current, ctx)
+	userEdits := ""
+	if editHistory, ok := sourcectx.Find[sourcectx.EditHistory](input.Materials); ok {
+		userEdits = provider.FormatDiffHistory(editHistory.Files, provider.DiffHistoryOptions{
 			HeaderTemplate: "User edited %q:\n",
 			Prefix:         "```diff\n",
 			Suffix:         "\n```",
 			Separator:      "\n\n",
-		}),
-		PromptBuilder: buildPrompt,
-		Postprocessors: []provider.Postprocessor{
-			provider.RejectEmpty(),
-			provider.StripRepetition(),
-			provider.ValidateAnchorPosition(0.25),
-			provider.AnchorTruncation(0.75),
-			parseCompletion,
-		},
-		Validators: []provider.Validator{
-			provider.ValidateFirstLineAnchor(0.25),
-		},
-		StopTokens: []string{"\n<|editable_region_end|>"},
+		})
 	}
-}
-
-func buildPrompt(p *provider.Provider, ctx *provider.Context) *openai.CompletionRequest {
-	req := ctx.Request
-
-	userExcerpt := buildUserExcerpt(req, ctx)
-	userEdits := ""
-	if p.DiffBuilder != nil {
-		userEdits = p.DiffBuilder(req.FileDiffHistories)
+	diagnosticsText := ""
+	if diagnostics, ok := sourcectx.Find[sourcectx.Diagnostics](input.Materials); ok {
+		diagnosticsText = formatDiagnosticsForPrompt(diagnostics.Data)
 	}
-	diagnosticsText := formatDiagnosticsForPrompt(req)
-	treesitterText := formatTreesitterForPrompt(req)
-	gitDiffText := formatGitDiffForPrompt(req)
-	recentFilesText := formatRecentFilesForPrompt(req)
+	treesitterText := ""
+	if treesitter, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok {
+		treesitterText = formatTreesitterForPrompt(treesitter.Data)
+	}
+	gitDiffText := ""
+	if gitDiff, ok := sourcectx.Find[sourcectx.GitDiff](input.Materials); ok {
+		gitDiffText = formatGitDiffForPrompt(gitDiff.Data)
+	}
+	recentFilesText := ""
+	if recentFiles, ok := sourcectx.Find[sourcectx.RecentFiles](input.Materials); ok {
+		recentFilesText = formatRecentFilesForPrompt(recentFiles.Files)
+	}
 	prompt := buildInstructionPrompt(userEdits, diagnosticsText, treesitterText, gitDiffText, recentFilesText, userExcerpt)
 
-	return &openai.CompletionRequest{
-		Model:       p.Config.ProviderModel,
-		Prompt:      prompt,
-		Temperature: p.Config.ProviderTemperature,
-		MaxTokens:   p.Config.ProviderMaxTokens,
-		TopK:        p.Config.ProviderTopK,
-		Stop:        []string{"\n<|editable_region_end|>"},
-		N:           1,
-		Echo:        false,
-	}
+	req := p.Request(prompt, stopTokens)
+	p.LogRequest(req, ctx.Window.MaxLines)
+	return req, nil
 }
 
-func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) string {
+func buildUserExcerpt(current sourcectx.CurrentSnapshot, ctx *provider.RequestState) string {
 	var promptBuilder strings.Builder
+	lines := current.File.Lines
 
-	if len(req.Lines) == 0 {
+	if len(lines) == 0 {
 		promptBuilder.WriteString("```")
-		promptBuilder.WriteString(req.FilePath)
+		promptBuilder.WriteString(current.File.Path)
 		promptBuilder.WriteString("\n<|start_of_file|>\n<|editable_region_start|>\n<|user_cursor_is_here|>\n<|editable_region_end|>\n```")
 		return promptBuilder.String()
 	}
 
-	cursorRow := req.CursorRow
-	cursorCol := req.CursorCol
+	cursorRow := current.Cursor.Row
+	cursorCol := current.Cursor.Col
 	cursorLine := cursorRow - 1
 
-	editableStart := ctx.WindowStart
-	editableEnd := ctx.WindowEnd
+	editableStart := ctx.Window.Start
+	editableEnd := ctx.Window.Start + len(ctx.Window.Lines)
 
 	contextLinesBefore := 5
 	contextLinesAfter := 5
 
 	contextStart := max(0, editableStart-contextLinesBefore)
-	contextEnd := min(len(req.Lines), editableEnd+contextLinesAfter)
+	contextEnd := min(len(lines), editableEnd+contextLinesAfter)
 
 	promptBuilder.WriteString("```")
-	promptBuilder.WriteString(req.FilePath)
+	promptBuilder.WriteString(current.File.Path)
 	promptBuilder.WriteString("\n")
 
 	if contextStart == 0 {
@@ -149,19 +113,19 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 	}
 
 	for i := contextStart; i < editableStart; i++ {
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 		promptBuilder.WriteString("\n")
 	}
 
 	promptBuilder.WriteString("<|editable_region_start|>\n")
 
 	for i := editableStart; i < cursorLine; i++ {
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 		promptBuilder.WriteString("\n")
 	}
 
-	if cursorLine < len(req.Lines) {
-		currentLine := req.Lines[cursorLine]
+	if cursorLine < len(lines) {
+		currentLine := lines[cursorLine]
 		if cursorCol <= len(currentLine) {
 			beforeCursor := currentLine[:cursorCol]
 			afterCursor := currentLine[cursorCol:]
@@ -179,14 +143,14 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 
 	for i := cursorLine + 1; i < editableEnd; i++ {
 		promptBuilder.WriteString("\n")
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 	}
 
 	promptBuilder.WriteString("\n<|editable_region_end|>")
 
 	for i := editableEnd; i < contextEnd; i++ {
 		promptBuilder.WriteString("\n")
-		promptBuilder.WriteString(req.Lines[i])
+		promptBuilder.WriteString(lines[i])
 	}
 
 	promptBuilder.WriteString("\n```")
@@ -194,8 +158,7 @@ func buildUserExcerpt(req *types.CompletionRequest, ctx *provider.Context) strin
 	return promptBuilder.String()
 }
 
-func formatDiagnosticsForPrompt(req *types.CompletionRequest) string {
-	diag := req.GetDiagnostics()
+func formatDiagnosticsForPrompt(diag *types.Diagnostics) string {
 	text := provider.FormatDiagnosticsText(diag)
 	if text == "" {
 		return ""
@@ -210,8 +173,7 @@ func formatDiagnosticsForPrompt(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatTreesitterForPrompt(req *types.CompletionRequest) string {
-	ts := req.GetTreesitter()
+func formatTreesitterForPrompt(ts *types.TreesitterContext) string {
 	if ts == nil {
 		return ""
 	}
@@ -239,21 +201,20 @@ func formatTreesitterForPrompt(req *types.CompletionRequest) string {
 	return b.String()
 }
 
-func formatGitDiffForPrompt(req *types.CompletionRequest) string {
-	gd := req.GetGitDiff()
+func formatGitDiffForPrompt(gd *types.GitDiffContext) string {
 	if gd == nil || gd.Diff == "" {
 		return ""
 	}
 	return gd.Diff
 }
 
-// formatRecentFilesForPrompt renders RecentBufferSnapshots as fenced code blocks.
-func formatRecentFilesForPrompt(req *types.CompletionRequest) string {
-	if len(req.RecentBufferSnapshots) == 0 {
+// formatRecentFilesForPrompt renders recent files as fenced code blocks.
+func formatRecentFilesForPrompt(snapshots []*types.RecentBufferSnapshot) string {
+	if len(snapshots) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	for i, snap := range req.RecentBufferSnapshots {
+	for i, snap := range snapshots {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
@@ -312,9 +273,45 @@ func buildInstructionPrompt(userEdits, diagnostics, treesitterCtx, gitDiffCtx, r
 	return promptBuilder.String()
 }
 
-func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+func (p *Provider) Parse(ctx *provider.RequestState, result *openai.CompletionResult) (*types.CompletionResponse, error) {
+	text := result.Text
+	if resp, done := provider.RejectEmptyText(providerName, text); done {
+		return resp, nil
+	}
+	if stripped, resp, done := provider.StripRepetitionText(text); done {
+		return resp, nil
+	} else {
+		text = stripped
+	}
+	if resp, done := provider.ValidateAnchorPositionText(providerName, ctx, text, 0.25); done {
+		return resp, nil
+	}
+	text, endLineInc, resp, done := provider.AnchorTruncationText(providerName, ctx, text, result.FinishReason, result.StoppedEarly, 0.75)
+	if done {
+		return resp, nil
+	}
+	return parseCompletion(ctx, text, endLineInc), nil
+}
+
+func (p *Provider) StreamArgs(state *provider.RequestState) provider.OpenAIStreamArgs {
+	windowStart, oldLines := defaultStreamWindow(state)
+	return provider.OpenAIStreamArgs{
+		WindowStart:        windowStart,
+		OldLines:           oldLines,
+		FirstLineValidator: provider.FirstLineAnchorChecker(0.25),
+	}
+}
+
+func defaultStreamWindow(state *provider.RequestState) (int, []string) {
+	oldLines := state.Window.Lines
+	if len(oldLines) == 0 {
+		oldLines = state.Input.Current.File.Lines
+	}
+	return state.Window.Start, oldLines
+}
+
+func parseCompletion(ctx *provider.RequestState, completionText string, endLineInc int) *types.CompletionResponse {
+	lines := ctx.Input.Current.File.Lines
 
 	content := strings.ReplaceAll(completionText, "<|user_cursor_is_here|>", "")
 
@@ -323,14 +320,14 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 
 	startIdx := strings.Index(content, startMarker)
 	if startIdx == -1 {
-		return parseSimpleCompletion(p, ctx)
+		return parseSimpleCompletion(ctx, completionText, endLineInc)
 	}
 
 	content = content[startIdx:]
 
 	newlineIdx := strings.Index(content, "\n")
 	if newlineIdx == -1 {
-		return p.EmptyResponse(), true
+		return provider.EmptyResponse()
 	}
 	content = content[newlineIdx+1:]
 
@@ -342,41 +339,39 @@ func parseCompletion(p *provider.Provider, ctx *provider.Context) (*types.Comple
 		newText = content[:endIdx]
 	}
 
-	editableStart := ctx.WindowStart
-	editableEnd := ctx.WindowEnd
-	oldLines := req.Lines[editableStart:editableEnd]
+	editableStart := ctx.Window.Start
+	editableEnd := ctx.Window.Start + len(ctx.Window.Lines)
+	oldLines := lines[editableStart:editableEnd]
 	oldText := strings.Join(oldLines, "\n")
 
 	if newText == oldText {
-		return p.EmptyResponse(), true
+		return provider.EmptyResponse()
 	}
 
 	newLines := strings.Split(newText, "\n")
 
-	endLineInc := ctx.EndLineInc
 	if endLineInc == 0 {
 		endLineInc = min(editableStart+len(newLines), editableEnd)
 	}
 
-	return p.BuildCompletion(ctx, editableStart+1, endLineInc, newLines)
+	return provider.BuildCompletion(ctx, editableStart+1, endLineInc, newLines)
 }
 
-func parseSimpleCompletion(p *provider.Provider, ctx *provider.Context) (*types.CompletionResponse, bool) {
-	completionText := ctx.Result.Text
-	req := ctx.Request
+func parseSimpleCompletion(ctx *provider.RequestState, completionText string, endLineInc int) *types.CompletionResponse {
+	current := ctx.Input.Current
 
 	completionLines := strings.Split(completionText, "\n")
 	if len(completionLines) == 0 {
-		return p.EmptyResponse(), true
+		return provider.EmptyResponse()
 	}
 
-	cursorRow := req.CursorRow
-	cursorCol := req.CursorCol
+	cursorRow := current.Cursor.Row
+	cursorCol := current.Cursor.Col
 
 	var resultLines []string
 
-	if cursorRow <= len(req.Lines) {
-		currentLine := req.Lines[cursorRow-1]
+	if cursorRow <= len(current.File.Lines) {
+		currentLine := current.File.Lines[cursorRow-1]
 		beforeCursor := ""
 		if cursorCol <= len(currentLine) {
 			beforeCursor = currentLine[:cursorCol]
@@ -391,9 +386,9 @@ func parseSimpleCompletion(p *provider.Provider, ctx *provider.Context) (*types.
 	resultLines = append(resultLines, completionLines[1:]...)
 
 	endLine := cursorRow + len(completionLines) - 1
-	if ctx.EndLineInc > 0 {
-		endLine = ctx.EndLineInc
+	if endLineInc > 0 {
+		endLine = endLineInc
 	}
 
-	return p.BuildCompletion(ctx, cursorRow, endLine, resultLines)
+	return provider.BuildCompletion(ctx, cursorRow, endLine, resultLines)
 }

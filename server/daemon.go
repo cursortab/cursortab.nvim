@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"cursortab/buffer"
-	"cursortab/ctx"
 	"cursortab/engine"
 	"cursortab/logger"
 	"cursortab/metrics"
@@ -40,6 +39,10 @@ type Daemon struct {
 	shutdown    chan bool
 	ctx         context.Context
 	cancel      context.CancelFunc
+}
+
+func newDaemonContext() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
 }
 
 func NewDaemon(config Config) (*Daemon, error) {
@@ -126,18 +129,17 @@ func NewDaemon(config Config) (*Daemon, error) {
 			AutoAdvance:        config.Behavior.CursorPrediction.AutoAdvance,
 			ProximityThreshold: config.Behavior.CursorPrediction.ProximityThreshold,
 		},
-		MaxDiffTokens:          config.Provider.MaxDiffHistoryTokens,
-		MaxVisibleLines:        config.Behavior.MaxVisibleLines,
-		DisabledIn:             config.Behavior.DisabledIn,
-		CompleteInInsert:       config.Behavior.CompleteInInsert,
-		CompleteInNormal:       config.Behavior.CompleteInNormal,
-		EditCompletionProvider: types.ProviderType(config.Provider.Type).IsEditCompletion(),
-	}, engine.SystemClock, ctx.NewGatherer(buf), datasetSender)
+		MaxDiffTokens:    config.Provider.MaxDiffHistoryTokens,
+		MaxVisibleLines:  config.Behavior.MaxVisibleLines,
+		DisabledIn:       config.Behavior.DisabledIn,
+		CompleteInInsert: config.Behavior.CompleteInInsert,
+		CompleteInNormal: config.Behavior.CompleteInNormal,
+	}, engine.SystemClock, datasetSender)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := newDaemonContext()
 
 	return &Daemon{
 		config:   config,

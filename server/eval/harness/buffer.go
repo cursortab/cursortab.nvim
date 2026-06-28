@@ -167,6 +167,14 @@ func (b *EvalBuffer) DiskLines() []string {
 	return b.diskLines
 }
 
+// Diagnostics implements engine.Buffer.
+func (b *EvalBuffer) Diagnostics() *types.Diagnostics { return nil }
+
+// TreesitterSymbols implements engine.Buffer.
+func (b *EvalBuffer) TreesitterSymbols(row int, col int, maxSiblings int) *types.TreesitterContext {
+	return nil
+}
+
 // SetFileContext implements engine.Buffer.
 func (b *EvalBuffer) SetFileContext(ctx buffer.FileContext) {
 	b.mu.Lock()

@@ -2,11 +2,26 @@ package provider
 
 import (
 	"cursortab/assert"
-	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/types"
 	"strings"
 	"testing"
 )
+
+func stateForLines(lines []string, cursorRow int, cursorCol int) *RequestState {
+	input := sourcectx.CompletionInput{
+		Current: sourcectx.CurrentSnapshot{
+			File: sourcectx.FileSnapshot{
+				Lines: lines,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: cursorRow,
+				Col: cursorCol,
+			},
+		},
+	}
+	return prepareRequestState(input, nil)
+}
 
 // --- Diff History Processor Tests ---
 
@@ -47,13 +62,6 @@ func TestDiffEntryToUnifiedDiff(t *testing.T) {
 }
 
 func TestFormatDiffHistory_Unified(t *testing.T) {
-	processor := FormatDiffHistory(DiffHistoryOptions{
-		HeaderTemplate: "User edited %q:\n",
-		Prefix:         "```diff\n",
-		Suffix:         "\n```",
-		Separator:      "\n\n",
-	})
-
 	history := []*types.FileDiffHistory{
 		{
 			FileName: "test.go",
@@ -63,7 +71,12 @@ func TestFormatDiffHistory_Unified(t *testing.T) {
 		},
 	}
 
-	result := processor(history)
+	result := FormatDiffHistory(history, DiffHistoryOptions{
+		HeaderTemplate: "User edited %q:\n",
+		Prefix:         "```diff\n",
+		Suffix:         "\n```",
+		Separator:      "\n\n",
+	})
 	assert.True(t, strings.Contains(result, "User edited \"test.go\""), "should have file name")
 	assert.True(t, strings.Contains(result, "```diff"), "should have diff block")
 	assert.True(t, strings.Contains(result, "-old line"), "should have removed line")
@@ -71,183 +84,27 @@ func TestFormatDiffHistory_Unified(t *testing.T) {
 }
 
 func TestFormatDiffHistory_NoPrefix(t *testing.T) {
-	processor := FormatDiffHistory(DiffHistoryOptions{
+	history := []*types.FileDiffHistory{
+		{
+			FileName: "test.go",
+			DiffHistory: []*types.DiffEntry{
+				{Original: "old line", Updated: "new line"},
+			},
+		},
+	}
+
+	result := FormatDiffHistory(history, DiffHistoryOptions{
 		HeaderTemplate: "<|file_sep|>%s.diff\n",
 		Prefix:         "",
 		Suffix:         "\n",
 		Separator:      "",
 	})
-
-	history := []*types.FileDiffHistory{
-		{
-			FileName: "test.go",
-			DiffHistory: []*types.DiffEntry{
-				{Original: "old line", Updated: "new line"},
-			},
-		},
-	}
-
-	result := processor(history)
 	assert.True(t, strings.Contains(result, "<|file_sep|>test.go.diff"), "should have file separator")
 	assert.True(t, strings.Contains(result, "-old line"), "should have removed line")
 	assert.True(t, strings.Contains(result, "+new line"), "should have added line")
 }
 
-func TestFormatDiffHistoryOriginalUpdated(t *testing.T) {
-	processor := FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n")
-
-	history := []*types.FileDiffHistory{
-		{
-			FileName: "test.go",
-			DiffHistory: []*types.DiffEntry{
-				{Original: "old line", Updated: "new line"},
-			},
-		},
-	}
-
-	result := processor(history)
-	assert.True(t, strings.Contains(result, "<|file_sep|>test.go.diff"), "should have file separator")
-	assert.True(t, strings.Contains(result, "original:\nold line"), "should have original section")
-	assert.True(t, strings.Contains(result, "updated:\nnew line"), "should have updated section")
-}
-
-func TestFormatDiffHistoryOriginalUpdated_NoChange(t *testing.T) {
-	processor := FormatDiffHistoryOriginalUpdated("<|file_sep|>%s.diff\n")
-
-	history := []*types.FileDiffHistory{
-		{
-			FileName: "test.go",
-			DiffHistory: []*types.DiffEntry{
-				{Original: "same content", Updated: "same content"},
-			},
-		},
-	}
-
-	result := processor(history)
-	assert.Equal(t, "", result, "should be empty when original equals updated")
-}
-
-// --- Preprocessor Tests ---
-
-func TestTrimContent_SmallFile(t *testing.T) {
-	prov := &Provider{
-		Config: &types.ProviderConfig{
-			ProviderMaxTokens: 1000,
-		},
-	}
-
-	ctx := &Context{
-		Request: &types.CompletionRequest{
-			Lines:     []string{"line 1", "line 2", "line 3"},
-			CursorRow: 2,
-			CursorCol: 5,
-		},
-	}
-
-	preprocessor := TrimContent()
-	err := preprocessor(prov, ctx)
-
-	assert.NoError(t, err, "TrimContent should not return error")
-
-	// Small file shouldn't be trimmed
-	assert.Equal(t, 3, len(ctx.TrimmedLines), "TrimmedLines length")
-	assert.Equal(t, 1, ctx.CursorLine, "CursorLine")
-}
-
-func TestTrimContent_LargeFile(t *testing.T) {
-	prov := &Provider{
-		Config: &types.ProviderConfig{
-			ProviderMaxTokens: 50, // Small token limit to force trimming
-		},
-	}
-
-	// Create a large file
-	lines := make([]string, 100)
-	for i := range lines {
-		lines[i] = "this is a long line with some content"
-	}
-
-	ctx := &Context{
-		Request: &types.CompletionRequest{
-			Lines:     lines,
-			CursorRow: 50,
-			CursorCol: 0,
-		},
-	}
-
-	preprocessor := TrimContent()
-	err := preprocessor(prov, ctx)
-
-	assert.NoError(t, err, "TrimContent should not return error")
-
-	// Should be trimmed
-	assert.True(t, len(ctx.TrimmedLines) < 100, "TrimmedLines should be trimmed")
-}
-
-func TestSkipIfTextAfterCursor(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
-	tests := []struct {
-		name      string
-		lines     []string
-		cursorRow int
-		cursorCol int
-		wantSkip  bool
-	}{
-		{
-			name:      "text after cursor",
-			lines:     []string{"hello world"},
-			cursorRow: 1,
-			cursorCol: 5, // cursor at "hello|world"
-			wantSkip:  true,
-		},
-		{
-			name:      "cursor at end of line",
-			lines:     []string{"hello"},
-			cursorRow: 1,
-			cursorCol: 5, // cursor at "hello|"
-			wantSkip:  false,
-		},
-		{
-			name:      "cursor beyond line length",
-			lines:     []string{"hi"},
-			cursorRow: 1,
-			cursorCol: 10, // cursor beyond line
-			wantSkip:  false,
-		},
-		{
-			name:      "empty line",
-			lines:     []string{""},
-			cursorRow: 1,
-			cursorCol: 0,
-			wantSkip:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				Request: &types.CompletionRequest{
-					Lines:     tt.lines,
-					CursorRow: tt.cursorRow,
-					CursorCol: tt.cursorCol,
-				},
-			}
-
-			preprocessor := SkipIfTextAfterCursor()
-			err := preprocessor(prov, ctx)
-
-			gotSkip := err == ErrSkipCompletion
-			assert.Equal(t, tt.wantSkip, gotSkip, "SkipIfTextAfterCursor skip status")
-		})
-	}
-}
-
-// --- Postprocessor Tests ---
-
 func TestRejectEmpty(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
 	tests := []struct {
 		name     string
 		text     string
@@ -261,167 +118,9 @@ func TestRejectEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				Result: &openai.StreamResult{Text: tt.text},
-			}
-
-			postprocessor := RejectEmpty()
-			_, done := postprocessor(prov, ctx)
+			_, done := RejectEmptyText("test", tt.text)
 
 			assert.Equal(t, tt.wantDone, done, "RejectEmpty done status")
-		})
-	}
-}
-
-func TestRejectTruncated(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
-	tests := []struct {
-		name         string
-		finishReason string
-		wantDone     bool
-	}{
-		{"finish_reason=length", "length", true},
-		{"finish_reason=stop", "stop", false},
-		{"finish_reason=empty", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				Result: &openai.StreamResult{
-					Text:         "some content",
-					FinishReason: tt.finishReason,
-				},
-			}
-
-			postprocessor := RejectTruncated()
-			_, done := postprocessor(prov, ctx)
-
-			assert.Equal(t, tt.wantDone, done, "RejectTruncated done status")
-		})
-	}
-}
-
-func TestDropLastLineIfTruncated(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
-	tests := []struct {
-		name           string
-		text           string
-		finishReason   string
-		stoppedEarly   bool
-		wantDone       bool
-		wantTextAfter  string
-		wantEndLineInc int
-	}{
-		{
-			name:          "not truncated",
-			text:          "line 1\nline 2",
-			finishReason:  "stop",
-			stoppedEarly:  false,
-			wantDone:      false,
-			wantTextAfter: "line 1\nline 2", // unchanged
-		},
-		{
-			name:           "truncated multi-line",
-			text:           "line 1\nline 2\nincomplete",
-			finishReason:   "length",
-			stoppedEarly:   false,
-			wantDone:       false,
-			wantTextAfter:  "line 1\nline 2",
-			wantEndLineInc: 2, // WindowStart(0) + 2 lines
-		},
-		{
-			name:         "truncated single line - reject",
-			text:         "incomplete line",
-			finishReason: "length",
-			stoppedEarly: false,
-			wantDone:     true,
-		},
-		{
-			name:           "stopped early multi-line",
-			text:           "line 1\nline 2\nincomplete",
-			finishReason:   "",
-			stoppedEarly:   true,
-			wantDone:       false,
-			wantTextAfter:  "line 1\nline 2",
-			wantEndLineInc: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				WindowStart: 0,
-				Result: &openai.StreamResult{
-					Text:         tt.text,
-					FinishReason: tt.finishReason,
-					StoppedEarly: tt.stoppedEarly,
-				},
-			}
-
-			postprocessor := DropLastLineIfTruncated()
-			_, done := postprocessor(prov, ctx)
-
-			assert.Equal(t, tt.wantDone, done, "DropLastLineIfTruncated done status")
-
-			if !done && tt.wantTextAfter != "" {
-				assert.Equal(t, tt.wantTextAfter, ctx.Result.Text, "Result.Text")
-			}
-
-			if !done && tt.wantEndLineInc > 0 {
-				assert.Equal(t, tt.wantEndLineInc, ctx.EndLineInc, "EndLineInc")
-			}
-		})
-	}
-}
-
-// --- Helper Function Tests ---
-
-func TestIsNoOpReplacement(t *testing.T) {
-	tests := []struct {
-		name     string
-		newLines []string
-		oldLines []string
-		want     bool
-	}{
-		{
-			name:     "identical",
-			newLines: []string{"line 1", "line 2"},
-			oldLines: []string{"line 1", "line 2"},
-			want:     true,
-		},
-		{
-			name:     "different content",
-			newLines: []string{"line 1", "modified"},
-			oldLines: []string{"line 1", "line 2"},
-			want:     false,
-		},
-		{
-			name:     "trailing whitespace new",
-			newLines: []string{"line 1  "},
-			oldLines: []string{"line 1"},
-			want:     true, // trimmed before comparison
-		},
-		{
-			name:     "trailing newlines",
-			newLines: []string{"line 1", ""},
-			oldLines: []string{"line 1"},
-			want:     true, // trimmed before comparison
-		},
-		{
-			name:     "different line count",
-			newLines: []string{"line 1", "line 2", "line 3"},
-			oldLines: []string{"line 1", "line 2"},
-			want:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := IsNoOpReplacement(tt.newLines, tt.oldLines)
-			assert.Equal(t, tt.want, got, "IsNoOpReplacement")
 		})
 	}
 }
@@ -504,8 +203,6 @@ func TestFindAnchorLineFullSearch(t *testing.T) {
 }
 
 func TestAnchorTruncation(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
 	// Create context with enough lines to trigger validation
 	oldLines := make([]string, 20)
 	for i := range oldLines {
@@ -518,6 +215,7 @@ func TestAnchorTruncation(t *testing.T) {
 		finishReason string
 		threshold    float64
 		wantDone     bool
+		wantEndLine  int
 	}{
 		{
 			name:         "not truncated",
@@ -532,34 +230,22 @@ func TestAnchorTruncation(t *testing.T) {
 			finishReason: "length",
 			threshold:    0.75,
 			wantDone:     false,
+			wantEndLine:  15,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				WindowStart: 0,
-				WindowEnd:   len(oldLines),
-				Request: &types.CompletionRequest{
-					Lines: oldLines,
-				},
-				Result: &openai.StreamResult{
-					Text:         tt.text,
-					FinishReason: tt.finishReason,
-				},
-			}
-
-			postprocessor := AnchorTruncation(tt.threshold)
-			_, done := postprocessor(prov, ctx)
+			state := stateForLines(oldLines, 1, 0)
+			_, endLineInc, _, done := AnchorTruncationText("test", state, tt.text, tt.finishReason, false, tt.threshold)
 
 			assert.Equal(t, tt.wantDone, done, "AnchorTruncation done status")
+			assert.Equal(t, tt.wantEndLine, endLineInc, "AnchorTruncation end line")
 		})
 	}
 }
 
 func TestValidateAnchorPosition(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
 	// Create 20 unique lines
 	oldLines := make([]string, 20)
 	for i := 0; i < len(oldLines); i++ {
@@ -588,28 +274,15 @@ func TestValidateAnchorPosition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				WindowStart: 0,
-				WindowEnd:   len(oldLines),
-				Request: &types.CompletionRequest{
-					Lines: oldLines,
-				},
-				Result: &openai.StreamResult{
-					Text: tt.firstLine + "\nmore content",
-				},
-			}
-
-			postprocessor := ValidateAnchorPosition(tt.maxAnchorRatio)
-			_, done := postprocessor(prov, ctx)
+			state := stateForLines(oldLines, 1, 0)
+			_, done := ValidateAnchorPositionText("test", state, tt.firstLine+"\nmore content", tt.maxAnchorRatio)
 
 			assert.Equal(t, tt.wantDone, done, "ValidateAnchorPosition done status")
 		})
 	}
 }
 
-func TestValidateFirstLineAnchor(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
+func TestFirstLineAnchorChecker(t *testing.T) {
 	// Create 20 unique lines
 	oldLines := make([]string, 20)
 	for i := 0; i < len(oldLines); i++ {
@@ -638,40 +311,26 @@ func TestValidateFirstLineAnchor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{
-				WindowStart: 0,
-				WindowEnd:   len(oldLines),
-				Request: &types.CompletionRequest{
-					Lines: oldLines,
-				},
-			}
+			ctx := stateForLines(oldLines, 1, 0)
 
-			validator := ValidateFirstLineAnchor(tt.maxAnchorRatio)
-			err := validator(prov, ctx, tt.firstLine)
+			checker := FirstLineAnchorChecker(tt.maxAnchorRatio)
+			err := checker(ctx, tt.firstLine)
 
 			gotErr := err != nil
-			assert.Equal(t, tt.wantErr, gotErr, "ValidateFirstLineAnchor error status")
+			assert.Equal(t, tt.wantErr, gotErr, "FirstLineAnchorChecker error status")
 		})
 	}
 }
 
-func TestValidateFirstLineAnchor_SmallFile(t *testing.T) {
-	prov := &Provider{Name: "test"}
-
+func TestFirstLineAnchorChecker_SmallFile(t *testing.T) {
 	// Small file (< 10 lines) should skip validation
 	oldLines := []string{"line 1", "line 2", "line 3"}
 
-	ctx := &Context{
-		WindowStart: 0,
-		WindowEnd:   len(oldLines),
-		Request: &types.CompletionRequest{
-			Lines: oldLines,
-		},
-	}
+	ctx := stateForLines(oldLines, 1, 0)
 
-	validator := ValidateFirstLineAnchor(0.25)
-	err := validator(prov, ctx, "completely different")
+	checker := FirstLineAnchorChecker(0.25)
+	err := checker(ctx, "completely different")
 
 	// Should not error for small files
-	assert.NoError(t, err, "ValidateFirstLineAnchor for small files")
+	assert.NoError(t, err, "FirstLineAnchorChecker for small files")
 }

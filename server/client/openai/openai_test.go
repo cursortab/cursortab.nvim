@@ -53,6 +53,29 @@ func TestDoCompletion_Success(t *testing.T) {
 	assert.Equal(t, "completion text", resp.Choices[0].Text, "Text")
 }
 
+func TestDoCompletion_DoesNotMutateRequestStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := CompletionResponse{
+			Choices: []struct {
+				Index        int    `json:"index"`
+				Text         string `json:"text"`
+				Logprobs     any    `json:"logprobs"`
+				FinishReason string `json:"finish_reason"`
+			}{{Index: 0, Text: "completion text", FinishReason: "stop"}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "")
+	req := &CompletionRequest{Model: "test-model", Prompt: "hello", Stream: true}
+
+	_, err := client.DoCompletion(context.Background(), req)
+
+	assert.NoError(t, err, "DoCompletion")
+	assert.True(t, req.Stream, "caller request stream flag should stay unchanged")
+}
+
 func TestDoCompletion_HTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -181,7 +204,7 @@ func TestDoLineStream_Basic(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -218,7 +241,7 @@ func TestDoLineStream_MaxLines(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 3, nil) // maxLines = 3
+	}, 3) // maxLines = 3
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -254,7 +277,8 @@ func TestDoLineStream_StopToken(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, []string{"<STOP>"})
+		Stop:   []string{"<STOP>"},
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -266,6 +290,67 @@ func TestDoLineStream_StopToken(t *testing.T) {
 	// Should stop at <STOP> token
 	assert.Equal(t, "stop", result.FinishReason, "FinishReason")
 	assert.Equal(t, "hello", result.Text, "Text")
+}
+
+func TestDoLineStream_StopTokenAcrossChunks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		events := []string{
+			`{"id":"1","choices":[{"text":"hello<ST","index":0}]}`,
+			`{"id":"2","choices":[{"text":"OP>more","index":0}]}`,
+		}
+		for _, evt := range events {
+			w.Write([]byte("data: " + evt + "\n\n"))
+			flusher.Flush()
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "")
+	stream := client.DoLineStream(context.Background(), &CompletionRequest{
+		Model:  "test-model",
+		Prompt: "hello",
+		Stop:   []string{"<STOP>"},
+	}, 0)
+
+	var lines []string
+	for line := range stream.LinesChan() {
+		lines = append(lines, line)
+	}
+
+	result := <-stream.DoneChan()
+
+	assert.Equal(t, 1, len(lines), "lines length")
+	assert.Equal(t, "hello", lines[0], "line before split stop token")
+	assert.Equal(t, "stop", result.FinishReason, "FinishReason")
+	assert.Equal(t, "hello", result.Text, "Text")
+}
+
+func TestDoLineStream_DoesNotMutateRequestStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, _ := w.(http.Flusher)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		w.Write([]byte("data: {\"id\":\"1\",\"choices\":[{\"text\":\"line\\n\",\"index\":0}]}\n\n"))
+		flusher.Flush()
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "")
+	req := &CompletionRequest{Model: "test-model", Prompt: "hello", Stream: false}
+
+	stream := client.DoLineStream(context.Background(), req, 0)
+	for range stream.LinesChan() {
+	}
+	<-stream.DoneChan()
+
+	assert.False(t, req.Stream, "caller request stream flag should stay unchanged")
 }
 
 func TestDoLineStream_Cancel(t *testing.T) {
@@ -291,7 +376,7 @@ func TestDoLineStream_Cancel(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	// Wait for server to start sending data
 	<-started
@@ -302,111 +387,6 @@ func TestDoLineStream_Cancel(t *testing.T) {
 
 	// Result should indicate the stream was stopped (either cancelled or incomplete)
 	assert.True(t, result.FinishReason == "cancelled" || result.FinishReason == "", "FinishReason should be cancelled or empty")
-}
-
-func TestDoTokenStream_Basic(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, _ := w.(http.Flusher)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-
-		tokens := []string{"hello", " ", "world"}
-		for _, tok := range tokens {
-			evt := `{"id":"1","choices":[{"text":"` + tok + `","index":0}]}`
-			w.Write([]byte("data: " + evt + "\n\n"))
-			flusher.Flush()
-		}
-		w.Write([]byte("data: [DONE]\n\n"))
-		flusher.Flush()
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "", "")
-	ctx := context.Background()
-
-	stream := client.DoTokenStream(ctx, &CompletionRequest{
-		Model:  "test-model",
-		Prompt: "hello",
-	}, 0, nil)
-
-	var texts []string
-	for text := range stream.LinesChan() {
-		texts = append(texts, text)
-	}
-
-	result := <-stream.DoneChan()
-
-	// Token stream sends cumulative text
-	assert.GreaterOrEqual(t, len(texts), 3, "emissions count")
-	assert.Equal(t, "hello world", result.Text, "final text")
-}
-
-func TestDoTokenStream_MaxChars(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, _ := w.(http.Flusher)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-
-		// Send lots of tokens
-		for range 50 {
-			evt := `{"id":"1","choices":[{"text":"word ","index":0}]}`
-			w.Write([]byte("data: " + evt + "\n\n"))
-			flusher.Flush()
-		}
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "", "")
-	ctx := context.Background()
-
-	stream := client.DoTokenStream(ctx, &CompletionRequest{
-		Model:  "test-model",
-		Prompt: "hello",
-	}, 20, nil) // maxChars = 20
-
-	for range stream.LinesChan() {
-		// Drain channel
-	}
-
-	result := <-stream.DoneChan()
-
-	assert.True(t, result.StoppedEarly, "StoppedEarly")
-	assert.GreaterOrEqual(t, len(result.Text), 20, "text length")
-}
-
-func TestDoTokenStream_StopToken(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, _ := w.(http.Flusher)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-
-		events := []string{
-			`{"id":"1","choices":[{"text":"hello","index":0}]}`,
-			`{"id":"2","choices":[{"text":"\nmore","index":0}]}`,
-		}
-		for _, evt := range events {
-			w.Write([]byte("data: " + evt + "\n\n"))
-			flusher.Flush()
-		}
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "", "")
-	ctx := context.Background()
-
-	stream := client.DoTokenStream(ctx, &CompletionRequest{
-		Model:  "test-model",
-		Prompt: "hello",
-	}, 0, []string{"\n"})
-
-	for range stream.LinesChan() {
-		// Drain
-	}
-
-	result := <-stream.DoneChan()
-
-	assert.Equal(t, "stop", result.FinishReason, "FinishReason")
-	assert.Equal(t, "hello", result.Text, "Text")
 }
 
 func TestDoLineStream_HTTPError(t *testing.T) {
@@ -422,7 +402,7 @@ func TestDoLineStream_HTTPError(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	for range stream.LinesChan() {
 		// Should be empty
@@ -431,15 +411,15 @@ func TestDoLineStream_HTTPError(t *testing.T) {
 	result := <-stream.DoneChan()
 
 	assert.Equal(t, "error", result.FinishReason, "FinishReason")
+	assert.Error(t, result.Err, "stream HTTP error should be returned")
 }
 
-func TestDoLineStream_SkipsInvalidJSON(t *testing.T) {
+func TestDoLineStream_ReturnsInvalidJSONError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 
-		// Send invalid JSON followed by valid
 		w.Write([]byte("data: not json\n\n"))
 		flusher.Flush()
 		w.Write([]byte("data: {\"id\":\"1\",\"choices\":[{\"text\":\"valid\\n\",\"index\":0}]}\n\n"))
@@ -455,16 +435,17 @@ func TestDoLineStream_SkipsInvalidJSON(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
 		lines = append(lines, line)
 	}
 
-	<-stream.DoneChan()
+	result := <-stream.DoneChan()
 
-	assert.Equal(t, 1, len(lines), "lines length (invalid JSON skip)")
+	assert.Equal(t, 0, len(lines), "lines length")
+	assert.Error(t, result.Err, "invalid JSON error")
 }
 
 func TestDoLineStream_SkipsComments(t *testing.T) {
@@ -488,7 +469,7 @@ func TestDoLineStream_SkipsComments(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	var lines []string
 	for line := range stream.LinesChan() {
@@ -521,41 +502,11 @@ func TestDoLineStream_WithAPIKey(t *testing.T) {
 	stream := client.DoLineStream(ctx, &CompletionRequest{
 		Model:  "test-model",
 		Prompt: "hello",
-	}, 0, nil)
+	}, 0)
 
 	for range stream.LinesChan() {
 	}
 	<-stream.DoneChan()
 
 	assert.Equal(t, "Bearer sk-line-stream-key", capturedAuth, "Authorization header")
-}
-
-func TestDoTokenStream_WithAPIKey(t *testing.T) {
-	var capturedAuth string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedAuth = r.Header.Get("Authorization")
-		flusher, _ := w.(http.Flusher)
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-
-		w.Write([]byte("data: {\"id\":\"1\",\"choices\":[{\"text\":\"token\",\"index\":0}]}\n\n"))
-		flusher.Flush()
-		w.Write([]byte("data: [DONE]\n\n"))
-		flusher.Flush()
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, "", "sk-token-stream-key")
-	ctx := context.Background()
-
-	stream := client.DoTokenStream(ctx, &CompletionRequest{
-		Model:  "test-model",
-		Prompt: "hello",
-	}, 0, nil)
-
-	for range stream.LinesChan() {
-	}
-	<-stream.DoneChan()
-
-	assert.Equal(t, "Bearer sk-token-stream-key", capturedAuth, "Authorization header")
 }

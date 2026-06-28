@@ -30,17 +30,15 @@ const (
 	EventCompletionError   EventType = "completion_error"
 	EventPrefetchReady     EventType = "prefetch_ready"
 	EventPrefetchError     EventType = "prefetch_error"
-
-	// Streaming events (handled directly via channel selection, not through eventChan)
-	EventStreamLine     EventType = "stream_line"     // A line was received from the stream
-	EventStreamComplete EventType = "stream_complete" // Stream completed
-	EventStreamError    EventType = "stream_error"    // Stream error
 )
 
-// Event represents an event in the engine
 type Event struct {
-	Type EventType
-	Data any
+	Type      EventType
+	RequestID uint64
+	Manual    bool
+	Response  *types.CompletionResponse
+	Stream    CompletionStream
+	Err       error
 }
 
 func init() {
@@ -56,10 +54,7 @@ func EventTypeFromString(s string) EventType {
 	switch EventType(s) {
 	case EventEsc, EventTextChanged, EventTextChangeTimeout, EventTrigger,
 		EventCursorMoved, EventInsertEnter, EventInsertLeave, EventAccept,
-		EventPartialAccept, EventFileSaved, EventIdleTimeout,
-		EventCompletionReady, EventCompletionError,
-		EventPrefetchReady, EventPrefetchError,
-		EventStreamLine, EventStreamComplete, EventStreamError:
+		EventPartialAccept, EventFileSaved, EventIdleTimeout:
 		return EventType(s)
 	}
 	return ""
@@ -213,7 +208,6 @@ func (e *Engine) eventLoop(ctx context.Context) {
 		// Get current stream channels (nil when not streaming)
 		e.mu.RLock()
 		linesChan := e.streamLinesChan
-		tokenChan := e.tokenStreamChan
 		e.mu.RUnlock()
 
 		select {
@@ -235,26 +229,7 @@ func (e *Engine) eventLoop(ctx context.Context) {
 				e.mu.Unlock()
 				continue
 			}
-			e.streamLineNum++
 			e.handleStreamLine(line)
-			e.mu.Unlock()
-
-		case text, ok := <-tokenChan:
-			e.mu.Lock()
-			if e.stopped {
-				e.mu.Unlock()
-				return
-			}
-			if e.tokenStreamChan != tokenChan {
-				e.mu.Unlock()
-				continue
-			}
-			if !ok {
-				e.handleTokenStreamComplete()
-				e.mu.Unlock()
-				continue
-			}
-			e.handleTokenChunk(text)
 			e.mu.Unlock()
 
 		case event, ok := <-e.eventChan:
@@ -313,7 +288,7 @@ func (e *Engine) handleEvent(event Event) {
 
 	// Cancel completions when entering a disabled mode
 	// (handles transitions not in the table, e.g. InsertEnter from PendingCompletion)
-	if !e.isModeEnabled() && e.state != stateIdle {
+	if !e.isModeEnabled(false) && e.state != stateIdle {
 		e.cancelStreaming()
 		e.reject()
 	}
@@ -323,42 +298,48 @@ func (e *Engine) handleEvent(event Event) {
 func (e *Engine) handleBackgroundEvent(event Event) bool {
 	switch event.Type {
 	case EventCompletionReady:
+		if event.RequestID == 0 || event.RequestID != e.completionRequestID {
+			return true
+		}
 		if e.state != statePendingCompletion {
 			return true
 		}
-		if !e.isModeEnabled() {
+		if !e.isModeEnabled(event.Manual) {
 			e.reject()
 			return true
 		}
-		e.handleCompletionReadyImpl(event.Data.(*types.CompletionResponse))
+		if event.Stream != nil {
+			e.startCompletionStream(event.Stream, event.Manual)
+			return true
+		}
+		e.handleCompletionReadyImpl(event.Response, event.Manual)
 		return true
 
 	case EventCompletionError:
-		if err, ok := event.Data.(error); !ok || !errors.Is(err, context.Canceled) {
-			logger.Error("completion error: %v", event.Data)
+		if event.RequestID == 0 || event.RequestID != e.completionRequestID {
+			return true
+		}
+		if !errors.Is(event.Err, context.Canceled) {
+			logger.Error("completion error: %v", event.Err)
+		}
+		if e.state == statePendingCompletion {
+			e.state = stateIdle
+			e.cancelCurrentRequest()
 		}
 		return true
 
 	case EventPrefetchReady:
-		if e.prefetchState != prefetchInFlight &&
-			e.prefetchState != prefetchWaitingForTab &&
-			e.prefetchState != prefetchWaitingForCursorPrediction {
+		if event.RequestID == 0 || event.RequestID != e.currentPrefetchRequestID() {
 			return true
 		}
-		e.handlePrefetchReady(event.Data.(*types.CompletionResponse))
+		e.handlePrefetchReady(event.Response)
 		return true
 
 	case EventPrefetchError:
-		if e.prefetchState != prefetchInFlight &&
-			e.prefetchState != prefetchWaitingForTab &&
-			e.prefetchState != prefetchWaitingForCursorPrediction {
+		if event.RequestID == 0 || event.RequestID != e.currentPrefetchRequestID() {
 			return true
 		}
-		if err, ok := event.Data.(error); ok {
-			e.handlePrefetchError(err)
-		} else {
-			e.handlePrefetchError(nil)
-		}
+		e.handlePrefetchError(event.Err)
 		return true
 	}
 	return false
@@ -367,17 +348,16 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 // Action functions for state transitions
 
 func (e *Engine) doRequestCompletion() {
-	e.requestCompletion(types.CompletionSourceTyping)
+	e.requestCompletion(types.CompletionSourceTyping, false)
 }
 
 func (e *Engine) doManualTrigger() {
-	e.manuallyTriggered = true
-	e.requestCompletion(types.CompletionSourceTyping)
+	e.requestCompletion(types.CompletionSourceTyping, true)
 }
 
 func (e *Engine) doRequestIdleCompletion() {
 	if e.state == stateIdle {
-		e.requestCompletion(types.CompletionSourceIdle)
+		e.requestCompletion(types.CompletionSourceIdle, false)
 	}
 }
 
@@ -415,7 +395,7 @@ func (e *Engine) doRejectAndStartIdleTimer() {
 
 func (e *Engine) doPartialAcceptStreaming() {
 	if e.streamingState != nil && e.streamingState.FirstStageRendered {
-		e.cancelLineStreamingKeepPartial()
+		e.cancelStreamingKeepPartial()
 		e.partialAcceptCompletion()
 	}
 }
@@ -428,35 +408,26 @@ func (e *Engine) doRejectStreaming() {
 	e.stopIdleTimer()
 }
 
-// cancelStreamAndCheckTyping cancels the given streaming mode, preserving partial state,
-// then checks if user typing matches the prediction.
-// Returns true if the event was handled (match or mismatch), false if no partial results.
-func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) bool {
+func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) {
 	cancelFn()
 	e.syncBuffer()
 	matches, hasRemaining := e.checkTypingMatchesPrediction()
 	if matches && hasRemaining {
 		e.state = stateHasCompletion
-		return true
+		return
 	}
 	if matches {
 		e.reject()
 		e.startTextChangeTimer()
-		return true
+		return
 	}
 	e.rejectAndRemember()
 	e.startTextChangeTimer()
-	return true
 }
 
 func (e *Engine) doRejectStreamingAndDebounce() {
-	if e.tokenStreamingState != nil && len(e.completions) > 0 {
-		e.cancelStreamAndCheckTyping(e.cancelTokenStreamingKeepPartial)
-		return
-	}
-
-	if e.streamingState != nil && len(e.completions) > 0 {
-		e.cancelStreamAndCheckTyping(e.cancelLineStreamingKeepPartial)
+	if e.streamingState != nil && e.display.hasCompletion() {
+		e.cancelStreamAndCheckTyping(e.cancelStreamingKeepPartial)
 		return
 	}
 
@@ -472,26 +443,18 @@ func (e *Engine) doRejectStreamingAndStartIdleTimer() {
 }
 
 func (e *Engine) doAcceptStreamingCompletion() {
-	// For token streaming, cancel and keep partial (no continuation support)
-	if e.tokenStreamingState != nil {
-		e.cancelTokenStreamingKeepPartial()
-	}
+	hasStreaming := e.streamingState != nil
 
-	// For line streaming, keep streaming running to show cursor prediction when done
-	hasLineStreaming := e.streamingState != nil
-
-	// If we have completions, accept them
-	if len(e.completions) > 0 {
+	if e.display.hasCompletion() {
 		// Mark that we accepted during streaming so handleStreamCompleteSimple
 		// knows to compute cursor prediction from accumulated text
-		if hasLineStreaming {
+		if hasStreaming {
 			e.acceptedDuringStreaming = true
 		}
 		e.state = stateHasCompletion
 		e.acceptCompletion()
 	} else {
-		// No completions to accept
-		if hasLineStreaming {
+		if hasStreaming {
 			// Keep streaming, will show result when complete
 			e.acceptedDuringStreaming = true
 		} else {

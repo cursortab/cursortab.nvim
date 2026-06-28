@@ -3,22 +3,56 @@ package zeta
 import (
 	"cursortab/assert"
 	"cursortab/client/openai"
+	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
 	"strings"
 	"testing"
 )
 
-func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
-	req := &types.CompletionRequest{
-		FilePath: "main.go",
-		Lines:    []string{},
+func completionInput(lines []string, cursorRow int, cursorCol int) sourcectx.CompletionInput {
+	return sourcectx.CompletionInput{
+		Current: sourcectx.CurrentSnapshot{
+			File: sourcectx.FileSnapshot{
+				Lines: lines,
+			},
+			Cursor: sourcectx.CursorPosition{
+				Row: cursorRow,
+				Col: cursorCol,
+			},
+		},
 	}
-	ctx := &provider.Context{
-		Request: req,
-	}
+}
 
-	result := buildUserExcerpt(req, ctx)
+func stateForInput(input sourcectx.CompletionInput, config *types.ProviderConfig) *provider.RequestState {
+	return &provider.RequestState{
+		Input:  input,
+		Window: provider.RequestWindow{Lines: input.Current.File.Lines, CursorLine: input.Current.Cursor.Row - 1},
+	}
+}
+
+func stateForCurrent(current sourcectx.CurrentSnapshot, config *types.ProviderConfig) *provider.RequestState {
+	return stateForInput(sourcectx.CompletionInput{Current: current}, config)
+}
+
+func parseCompletionForTest(p *Provider, ctx *provider.RequestState, result *openai.CompletionResult) *types.CompletionResponse {
+	resp, err := p.Parse(ctx, result)
+	if err != nil {
+		panic(err)
+	}
+	return resp
+}
+
+func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
+	current := sourcectx.CurrentSnapshot{
+		File: sourcectx.FileSnapshot{
+			Path:  "main.go",
+			Lines: []string{},
+		},
+	}
+	ctx := stateForCurrent(current, nil)
+
+	result := buildUserExcerpt(current, ctx)
 
 	assert.True(t, strings.Contains(result, "```main.go"), "should have file path")
 	assert.True(t, strings.Contains(result, "<|start_of_file|>"), "should have start marker")
@@ -28,19 +62,16 @@ func TestBuildUserExcerpt_EmptyFile(t *testing.T) {
 }
 
 func TestBuildUserExcerpt_WithContent(t *testing.T) {
-	req := &types.CompletionRequest{
-		FilePath:  "main.go",
-		Lines:     []string{"func main() {", "  println()", "}"},
-		CursorRow: 2,
-		CursorCol: 2,
+	current := sourcectx.CurrentSnapshot{
+		File: sourcectx.FileSnapshot{
+			Path:  "main.go",
+			Lines: []string{"func main() {", "  println()", "}"},
+		},
+		Cursor: sourcectx.CursorPosition{Row: 2, Col: 2},
 	}
-	ctx := &provider.Context{
-		Request:     req,
-		WindowStart: 0,
-		WindowEnd:   3,
-	}
+	ctx := stateForCurrent(current, nil)
 
-	result := buildUserExcerpt(req, ctx)
+	result := buildUserExcerpt(current, ctx)
 
 	assert.True(t, strings.Contains(result, "func main() {"), "should have first line")
 	assert.True(t, strings.Contains(result, "<|user_cursor_is_here|>"), "should have cursor marker")
@@ -48,49 +79,41 @@ func TestBuildUserExcerpt_WithContent(t *testing.T) {
 }
 
 func TestBuildUserExcerpt_CursorAtEndOfLine(t *testing.T) {
-	req := &types.CompletionRequest{
-		FilePath:  "main.go",
-		Lines:     []string{"hello"},
-		CursorRow: 1,
-		CursorCol: 100, // Beyond line length
+	current := sourcectx.CurrentSnapshot{
+		File: sourcectx.FileSnapshot{
+			Path:  "main.go",
+			Lines: []string{"hello"},
+		},
+		Cursor: sourcectx.CursorPosition{Row: 1, Col: 100}, // Beyond line length
 	}
-	ctx := &provider.Context{
-		Request:     req,
-		WindowStart: 0,
-		WindowEnd:   1,
-	}
+	ctx := stateForCurrent(current, nil)
 
-	result := buildUserExcerpt(req, ctx)
+	result := buildUserExcerpt(current, ctx)
 
 	assert.True(t, strings.Contains(result, "hello<|user_cursor_is_here|>"), "cursor at line end")
 }
 
 func TestFormatDiagnosticsForPrompt_Empty(t *testing.T) {
-	req := &types.CompletionRequest{}
-	result := formatDiagnosticsForPrompt(req)
+	result := formatDiagnosticsForPrompt(nil)
 	assert.Equal(t, "", result, "empty for no diagnostics")
 }
 
 func TestFormatDiagnosticsForPrompt_WithErrors(t *testing.T) {
-	req := &types.CompletionRequest{
-		AdditionalContext: &types.ContextResult{
-			Diagnostics: &types.Diagnostics{
-				FilePath: "src/main.go",
-				Items: []*types.Diagnostic{
-					{
-						Severity: types.SeverityError,
-						Message:  "undefined: foo",
-						Source:   "gopls",
-						Range: &types.CursorRange{
-							StartLine: 10,
-						},
-					},
+	diagnostics := &types.Diagnostics{
+		FilePath: "src/main.go",
+		Items: []*types.Diagnostic{
+			{
+				Severity: types.SeverityError,
+				Message:  "undefined: foo",
+				Source:   "gopls",
+				Range: &types.CursorRange{
+					StartLine: 10,
 				},
 			},
 		},
 	}
 
-	result := formatDiagnosticsForPrompt(req)
+	result := formatDiagnosticsForPrompt(diagnostics)
 
 	assert.True(t, strings.Contains(result, "src/main.go"), "should have file path")
 	assert.True(t, strings.Contains(result, "line 10"), "should have line number")
@@ -128,20 +151,11 @@ func TestParseCompletion_WithEditableRegion(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines: []string{"line 1", "line 2"},
-		},
-		Result: &openai.StreamResult{
-			Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
-		},
-		WindowStart: 0,
-		WindowEnd:   2,
-	}
+	ctx := stateForInput(completionInput([]string{"line 1", "line 2"}, 1, 0), config)
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
+		Text: "<|editable_region_start|>\nmodified line 1\nmodified line 2\n<|editable_region_end|>",
+	})
 	assert.NotNil(t, resp, "should have response")
 }
 
@@ -151,22 +165,11 @@ func TestParseCompletion_NoEditableMarker(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     []string{"line 1"},
-			CursorRow: 1,
-			CursorCol: 6,
-		},
-		Result: &openai.StreamResult{
-			Text: " completion",
-		},
-		WindowStart: 0,
-		WindowEnd:   1,
-	}
+	ctx := stateForInput(completionInput([]string{"line 1"}, 1, 6), config)
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
+		Text: " completion",
+	})
 	assert.NotNil(t, resp, "should have response")
 }
 
@@ -176,25 +179,14 @@ func TestParseCompletion_StripsMarkers(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     []string{"original"},
-			CursorRow: 1,
-			CursorCol: 0,
-		},
-		Result: &openai.StreamResult{
-			Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
-		},
-		WindowStart: 0,
-		WindowEnd:   1,
-	}
+	ctx := stateForInput(completionInput([]string{"original"}, 1, 0), config)
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
+		Text: "<|editable_region_start|>\nmodified<|user_cursor_is_here|> text\n<|editable_region_end|>",
+	})
 	// The cursor marker should be stripped
-	if len(resp.Completions) > 0 {
-		assert.False(t, strings.Contains(resp.Completions[0].Lines[0], "<|user_cursor_is_here|>"), "cursor marker stripped")
+	if resp.Completion != nil {
+		assert.False(t, strings.Contains(resp.Completion.Lines[0], "<|user_cursor_is_here|>"), "cursor marker stripped")
 	}
 }
 
@@ -204,68 +196,27 @@ func TestParseCompletion_IdenticalContent(t *testing.T) {
 	}
 	p := NewProvider(config)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines: []string{"line 1", "line 2"},
-		},
-		Result: &openai.StreamResult{
-			Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
-		},
-		WindowStart: 0,
-		WindowEnd:   2,
-	}
+	ctx := stateForInput(completionInput([]string{"line 1", "line 2"}, 1, 0), config)
 
-	resp, ok := parseCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
-	assert.Nil(t, resp.Completions, "no completions for identical content")
+	resp := parseCompletionForTest(p, ctx, &openai.CompletionResult{
+		Text: "<|editable_region_start|>\nline 1\nline 2\n<|editable_region_end|>",
+	})
+	assert.Nil(t, resp.Completion, "no completions for identical content")
 }
 
 func TestParseSimpleCompletion(t *testing.T) {
-	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-	}
-	p := NewProvider(config)
+	ctx := stateForInput(completionInput([]string{"hello"}, 1, 5), nil)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     []string{"hello"},
-			CursorRow: 1,
-			CursorCol: 5,
-		},
-		Result: &openai.StreamResult{
-			Text: " world",
-		},
-	}
-
-	resp, ok := parseSimpleCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
+	resp := parseSimpleCompletion(ctx, " world", 0)
 	assert.NotNil(t, resp, "should have response")
-	assert.True(t, len(resp.Completions) > 0, "should have completions")
-	assert.Equal(t, "hello world", resp.Completions[0].Lines[0], "completion merged")
+	assert.True(t, resp.Completion != nil, "should have completions")
+	assert.Equal(t, "hello world", resp.Completion.Lines[0], "completion merged")
 }
 
 func TestParseSimpleCompletion_MultiLine(t *testing.T) {
-	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-	}
-	p := NewProvider(config)
+	ctx := stateForInput(completionInput([]string{"start"}, 1, 5), nil)
 
-	ctx := &provider.Context{
-		Request: &types.CompletionRequest{
-			Lines:     []string{"start"},
-			CursorRow: 1,
-			CursorCol: 5,
-		},
-		Result: &openai.StreamResult{
-			Text: " middle\nend",
-		},
-	}
-
-	resp, ok := parseSimpleCompletion(p, ctx)
-
-	assert.True(t, ok, "should succeed")
-	assert.Len(t, 1, resp.Completions, "completions count")
-	assert.Equal(t, 2, len(resp.Completions[0].Lines), "should have 2 lines")
+	resp := parseSimpleCompletion(ctx, " middle\nend", 0)
+	assert.NotNil(t, resp.Completion, "completions count")
+	assert.Equal(t, 2, len(resp.Completion.Lines), "should have 2 lines")
 }

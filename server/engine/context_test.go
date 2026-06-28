@@ -78,11 +78,6 @@ func TestTrimFileStateStore(t *testing.T) {
 	assert.True(t, existsE, "should keep e.go (most recent)")
 }
 
-// TestHandleFileSwitch_DropsInFlightWork verifies that switching files cancels
-// in-flight prefetch/streaming/current requests and clears completion UI
-// state. Without this, late-arriving responses for the OLD file would be
-// applied to the NEW buffer using the old file's row indices, producing
-// either a wrong-file completion or a garbage diff.
 func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
@@ -90,34 +85,41 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	eng, cancel := createTestEngineWithContext(buf, prov, clock)
 	defer cancel()
 
-	prefetchCtx, prefetchCancel := context.WithCancel(context.Background())
+	prefetchCtx, cancelPrefetch := context.WithCancel(context.Background())
 	currentCtx, currentCancel := context.WithCancel(context.Background())
 	streamCtx, streamCancel := context.WithCancel(context.Background())
+	defer cancelPrefetch()
+	defer currentCancel()
+	defer streamCancel()
 
-	eng.prefetchCancel = prefetchCancel
-	eng.prefetchState = prefetchInFlight
-	eng.prefetchedCompletions = []*types.Completion{{
-		StartLine: 5, EndLineInc: 5, Lines: []string{"old file completion"},
-	}}
+	eng.prefetch = prefetchSlot{
+		inflight: &prefetchInflight{cancel: cancelPrefetch},
+		ready: &prefetchedCompletion{CompletionResponse: &types.CompletionResponse{Completion: &types.Completion{
+			StartLine: 5, EndLineInc: 5, Lines: []string{"old file completion"},
+		}}},
+	}
 	eng.currentCancel = currentCancel
-	eng.streamingCancel = streamCancel
-	eng.streamingState = &StreamingState{}
+	eng.completionStream = newMockCompletionStream(streamCancel)
+	eng.streamingState = &streamingState{}
 	eng.state = stateStreamingCompletion
-	eng.completions = []*types.Completion{{
-		StartLine: 1, EndLineInc: 1, Lines: []string{"old"},
-	}}
+	showDisplayedCompletionForTest(
+		eng,
+		&types.Completion{
+			StartLine: 1, EndLineInc: 1, Lines: []string{"old"},
+		},
+		nil,
+		nil,
+	)
 	eng.stagedCompletion = &text.StagedCompletion{CurrentIdx: 0}
 	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 5}
 
 	eng.handleFileSwitch("a.go", "b.go", []string{"new content"})
 
-	assert.Equal(t, prefetchNone, eng.prefetchState, "prefetch state reset")
-	assert.Nil(t, eng.prefetchedCompletions, "prefetched completions cleared")
-	assert.Nil(t, eng.prefetchCancel, "prefetch cancel func cleared")
+	assertNoPrefetch(t, eng, "prefetch cleared")
 	assert.Nil(t, eng.currentCancel, "current request cancel cleared")
-	assert.Nil(t, eng.streamingCancel, "streaming cancel cleared")
+	assert.Nil(t, eng.completionStream, "completion stream cleared")
 	assert.Nil(t, eng.streamingState, "streaming state cleared")
-	assert.Nil(t, eng.completions, "completions cleared")
+	assert.Nil(t, eng.display.current(), "completions cleared")
 	assert.Nil(t, eng.stagedCompletion, "staged completion cleared")
 	assert.Nil(t, eng.cursorTarget, "cursor target cleared")
 	assert.Equal(t, stateIdle, eng.state, "state reset to idle")

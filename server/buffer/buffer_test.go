@@ -169,6 +169,68 @@ func TestSetFileContext_Empty(t *testing.T) {
 	assert.Equal(t, 0, len(buf.diffHistories), "diffHistories empty")
 }
 
+func TestTextEditForCharGroupAppend(t *testing.T) {
+	edit, ok := textEditForCharGroup(&text.Group{
+		RenderHint: "append_chars",
+		StartLine:  1,
+		EndLine:    1,
+		BufferLine: 3,
+		OldLines:   []string{"hello"},
+		Lines:      []string{"hello world"},
+	})
+
+	assert.True(t, ok, "append should use text edit")
+	assert.Equal(t, 2, edit.row, "row")
+	assert.Equal(t, 5, edit.startCol, "start col")
+	assert.Equal(t, 5, edit.endCol, "end col")
+	assert.Equal(t, " world", string(edit.replacement), "replacement")
+}
+
+func TestTextEditForCharGroupReplace(t *testing.T) {
+	edit, ok := textEditForCharGroup(&text.Group{
+		RenderHint: "replace_chars",
+		StartLine:  1,
+		EndLine:    1,
+		BufferLine: 1,
+		OldLines:   []string{"hello world"},
+		Lines:      []string{"hello there"},
+	})
+
+	assert.True(t, ok, "replace should use text edit")
+	assert.Equal(t, 0, edit.row, "row")
+	assert.Equal(t, 6, edit.startCol, "start col")
+	assert.Equal(t, 11, edit.endCol, "end col")
+	assert.Equal(t, "there", string(edit.replacement), "replacement")
+}
+
+func TestTextEditForCharGroupDelete(t *testing.T) {
+	edit, ok := textEditForCharGroup(&text.Group{
+		RenderHint: "delete_chars",
+		StartLine:  1,
+		EndLine:    1,
+		BufferLine: 1,
+		OldLines:   []string{"hello world"},
+		Lines:      []string{"hello"},
+	})
+
+	assert.True(t, ok, "delete should use text edit")
+	assert.Equal(t, 0, edit.row, "row")
+	assert.Equal(t, 5, edit.startCol, "start col")
+	assert.Equal(t, 11, edit.endCol, "end col")
+	assert.Equal(t, "", string(edit.replacement), "replacement")
+}
+
+func TestCharLevelTextEditsRejectsStructuralGroups(t *testing.T) {
+	_, ok := charLevelTextEdits([]*text.Group{{
+		Type:      "addition",
+		StartLine: 1,
+		EndLine:   1,
+		Lines:     []string{"new line"},
+	}})
+
+	assert.False(t, ok, "structural groups should use line replacement")
+}
+
 // --- extractGranularDiffs Tests ---
 
 func TestExtractGranularDiffs_NoChanges(t *testing.T) {

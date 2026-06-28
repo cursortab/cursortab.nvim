@@ -186,14 +186,6 @@ func (e *Engine) forgetRejectedCompletions(filePath string) {
 	delete(e.rejectedCompletions, filePath)
 }
 
-func (e *Engine) currentRejectedCompletionCandidate() *rejectedCompletion {
-	completion := e.display.current()
-	if completion == nil {
-		return nil
-	}
-	return e.rejectedCompletionFor(completion)
-}
-
 // rejectedCompletionForStage builds a rejection-cache candidate from a stage.
 // Used for cursor-target-only render paths that did not show ghost text.
 func (e *Engine) rejectedCompletionForStage(stage *text.Stage) *rejectedCompletion {

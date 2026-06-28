@@ -25,7 +25,7 @@ var _ provider.CompletionFlow[*openai.CompletionRequest, *openai.CompletionResul
 
 func NewProvider(config *types.ProviderConfig) *Provider {
 	return &Provider{
-		Base:   provider.NewBase(engine.CompletionInline, sourcectx.Materials{sourcectx.Treesitter{}}),
+		Base:   provider.NewBase(engine.CompletionInline, sourcectx.Materials{sourcectx.Treesitter{}}, provider.SyntheticPrefetchDisabled),
 		OpenAI: provider.NewOpenAI(providerName, config),
 	}
 }

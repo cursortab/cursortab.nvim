@@ -16,19 +16,21 @@ import (
 
 // mockBuffer implements the Buffer interface for testing
 type mockBuffer struct {
-	mu             sync.Mutex
-	lines          []string
-	row            int
-	col            int
-	path           string
-	version        int
-	viewportTop    int
-	viewportBottom int
-	previousLines  []string
-	originalLines  []string
-	diffHistories  []*types.DiffEntry
-	diagnostics    *types.Diagnostics
-	treesitter     *types.TreesitterContext
+	mu               sync.Mutex
+	lines            []string
+	row              int
+	col              int
+	path             string
+	version          int
+	viewportTop      int
+	viewportBottom   int
+	previousLines    []string
+	originalLines    []string
+	diffHistories    []*types.DiffEntry
+	diagnostics      *types.Diagnostics
+	treesitter       *types.TreesitterContext
+	diagnosticsCalls int
+	treesitterCalls  int
 	// Track method calls
 	syncCalls              int
 	clearUICalls           int
@@ -135,12 +137,14 @@ func (b *mockBuffer) DiskLines() []string {
 func (b *mockBuffer) Diagnostics() *types.Diagnostics {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.diagnosticsCalls++
 	return b.diagnostics
 }
 
 func (b *mockBuffer) TreesitterSymbols(row int, col int, maxSiblings int) *types.TreesitterContext {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.treesitterCalls++
 	return b.treesitter
 }
 
@@ -285,6 +289,7 @@ type mockProvider struct {
 	canPrefetchFromSyntheticCurrent bool
 	completionResp                  *types.CompletionResponse
 	completionErr                   error
+	materials                       ctx.Materials
 	completionCalls                 int
 	lastInput                       ctx.CompletionInput
 }
@@ -378,7 +383,7 @@ func (p *mockProvider) CanPrefetchFromSyntheticCurrent() bool {
 }
 
 func (p *mockProvider) RequiredMaterials() ctx.Materials {
-	return nil
+	return p.materials
 }
 
 func (p *mockProvider) Complete(_ context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {

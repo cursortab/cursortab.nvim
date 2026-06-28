@@ -35,7 +35,7 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 	}
 
 	return &Provider{
-		Base:   provider.NewBase(engine.CompletionFIM, materials),
+		Base:   provider.NewBase(engine.CompletionFIM, materials, provider.SyntheticPrefetchDisabled),
 		OpenAI: provider.NewOpenAI(providerName, config),
 	}
 }

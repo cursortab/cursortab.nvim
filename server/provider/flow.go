@@ -34,21 +34,22 @@ type Base struct {
 	materials                       sourcectx.Materials
 }
 
+// SyntheticPrefetch declares whether an edit provider can consume
+// engine-created current snapshots for cursor-target prefetch.
+type SyntheticPrefetch bool
+
+const (
+	SyntheticPrefetchDisabled SyntheticPrefetch = false
+	SyntheticPrefetchEnabled  SyntheticPrefetch = true
+)
+
 // NewBase declares a provider whose Build stage uses the supplied
 // CompletionInput snapshot as its editor state.
-func NewBase(kind engine.CompletionKind, materials sourcectx.Materials) Base {
+func NewBase(kind engine.CompletionKind, materials sourcectx.Materials, syntheticPrefetch SyntheticPrefetch) Base {
 	return Base{
 		kind:                            kind,
-		canPrefetchFromSyntheticCurrent: kind == engine.CompletionEdit,
+		canPrefetchFromSyntheticCurrent: kind == engine.CompletionEdit && bool(syntheticPrefetch),
 		materials:                       materials,
-	}
-}
-
-// NewLiveBase declares an edit provider that cannot consume engine-created
-// synthetic current snapshots.
-func NewLiveBase(kind engine.CompletionKind) Base {
-	return Base{
-		kind: kind,
 	}
 }
 

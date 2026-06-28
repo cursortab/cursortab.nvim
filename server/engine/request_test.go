@@ -2,14 +2,16 @@ package engine
 
 import (
 	"context"
-	"cursortab/assert"
-	"cursortab/text"
-	"cursortab/types"
 	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"cursortab/assert"
+	"cursortab/ctx"
+	"cursortab/text"
+	"cursortab/types"
 )
 
 func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
@@ -86,6 +88,38 @@ func TestEvalRequestCompletion_UsesBatchProviderPath(t *testing.T) {
 	assert.NoError(t, err, "eval should use batch provider path")
 	assert.True(t, res.Shown, "batch completion should be shown")
 	assert.Equal(t, 1, prov.completionCalls, "eval should call Complete")
+}
+
+func TestRequestCompletion_CollectsOnlyRequiredMaterials(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"existing"}
+	buf.row = 1
+	buf.col = 0
+	buf.diagnostics = &types.Diagnostics{FilePath: "test.go"}
+	buf.treesitter = &types.TreesitterContext{EnclosingSignature: "func main()"}
+
+	prov := newMockProvider()
+	prov.materials = ctx.Materials{ctx.Diagnostics{}}
+	clock := newMockClock()
+	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	defer cancel()
+
+	eng.requestCompletion(types.CompletionSourceTyping, true)
+
+	select {
+	case event := <-eng.eventChan:
+		assert.Equal(t, EventCompletionReady, event.Type, "completion should be ready")
+	case <-time.After(time.Second):
+		t.Fatal("completion ready event timed out")
+	}
+
+	assert.Equal(t, 1, prov.completionCalls, "provider should be called")
+	assert.Equal(t, 1, buf.diagnosticsCalls, "diagnostics should be collected")
+	assert.Equal(t, 0, buf.treesitterCalls, "treesitter should not be collected")
+
+	diagnostics, ok := ctx.Find[ctx.Diagnostics](prov.lastInput.Materials)
+	assert.True(t, ok, "diagnostics material should be passed to provider")
+	assert.Equal(t, buf.diagnostics, diagnostics.Data, "diagnostics data")
 }
 
 func TestCompletionError_IgnoresStaleRequest(t *testing.T) {

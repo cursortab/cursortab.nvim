@@ -305,7 +305,7 @@ type windsurfRawResult struct {
 
 func NewProvider(buf InfoProvider) *Provider {
 	return &Provider{
-		Base:   provider.NewBase(engine.CompletionEdit, nil),
+		Base:   provider.NewBase(engine.CompletionEdit, nil, provider.SyntheticPrefetchEnabled),
 		buffer: buf,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,

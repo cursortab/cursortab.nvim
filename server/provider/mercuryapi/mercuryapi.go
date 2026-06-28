@@ -55,7 +55,7 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 		Base: provider.NewBase(engine.CompletionEdit, sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
-		}),
+		}, provider.SyntheticPrefetchEnabled),
 		config: config,
 		client: mercuryapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
 	}

@@ -37,7 +37,7 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 		Base: provider.NewBase(engine.CompletionEdit, sourcectx.Materials{
 			sourcectx.Diagnostics{}, sourcectx.Treesitter{}, sourcectx.GitDiff{},
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{}, sourcectx.UserActions{},
-		}),
+		}, provider.SyntheticPrefetchEnabled),
 		OpenAI: provider.NewOpenAI(providerName, config),
 	}
 }

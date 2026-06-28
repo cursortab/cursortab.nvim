@@ -102,7 +102,7 @@ type copilotRequest struct {
 
 func NewProvider(buf LSPBuffer) *Provider {
 	return &Provider{
-		Base:          provider.NewLiveBase(engine.CompletionEdit),
+		Base:          provider.NewBase(engine.CompletionEdit, nil, provider.SyntheticPrefetchDisabled),
 		buffer:        buf,
 		pendingResult: make(chan *copilotResult, 1),
 	}

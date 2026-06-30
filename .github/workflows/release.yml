@@ -56,12 +56,12 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           echo "Updating version to: $VERSION"
 
-          # Update version in daemon.go (match the AUTO-UPDATED marker line)
-          sed -i "/AUTO-UPDATED/s/\"[^\"]*\"/\"$VERSION\"/" server/daemon.go
+          # Update version in main.go (match the AUTO-UPDATED marker line)
+          sed -i "/AUTO-UPDATED/s/\"[^\"]*\"/\"$VERSION\"/" server/main.go
 
           # Re-format and verify
-          gofmt -w server/daemon.go
-          grep "AUTO-UPDATED" server/daemon.go
+          gofmt -w server/main.go
+          grep "AUTO-UPDATED" server/main.go
 
       - name: Commit and push version update
         run: |

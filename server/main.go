@@ -61,6 +61,9 @@ type DebugConfig struct {
 	ImmediateShutdown bool `json:"immediate_shutdown"`
 }
 
+// Version is the cursortab server version. It is updated automatically by the release workflow.
+var Version = "0.8.0" // AUTO-UPDATED by release workflow
+
 // Config is the main configuration structure
 type Config struct {
 	NsID           int            `json:"ns_id"`
@@ -230,6 +233,11 @@ func runClient() {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println(Version)
+		return
+	}
+
 	var mode ServerMode = ModeClient
 
 	// Check command line arguments

@@ -67,6 +67,15 @@ local function read_daemon_pid(pid_path)
 	return pid, is_process_running(pid)
 end
 
+local function get_binary_path()
+	local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
+	local binary_name = "cursortab"
+	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
+		binary_name = binary_name .. ".exe"
+	end
+	return plugin_dir .. "/server/" .. binary_name
+end
+
 -- Start the daemon process
 local function start_daemon()
 	local cfg = config.get()
@@ -75,12 +84,7 @@ local function start_daemon()
 	-- Ensure state directory exists
 	vim.fn.mkdir(state_dir, "p")
 
-	local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
-	local binary_name = "cursortab"
-	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
-		binary_name = binary_name .. ".exe"
-	end
-	local binary_path = plugin_dir .. "/server/" .. binary_name
+	local binary_path = get_binary_path()
 	local ipc_path = get_ipc_path(state_dir)
 	local pid_path = state_dir .. "/cursortab.pid"
 
@@ -293,6 +297,21 @@ function daemon.get_channel_status()
 		connected = chan and chan > 0,
 		channel_id = chan,
 	}
+end
+
+-- Get the installed Go binary version, if available
+function daemon.get_binary_version()
+	local binary_path = get_binary_path()
+	if vim.fn.executable(binary_path) == 0 then
+		return nil
+	end
+
+	local output = vim.fn.system({ binary_path, "--version" })
+	if vim.v.shell_error ~= 0 then
+		return nil
+	end
+
+	return vim.trim(output)
 end
 
 -- Clean up stale socket and pid files

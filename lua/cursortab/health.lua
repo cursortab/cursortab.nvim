@@ -29,6 +29,12 @@ function M.check()
 
 	-- Daemon
 	vim.health.start("Daemon")
+	local binary_version = daemon.get_binary_version()
+	if binary_version then
+		vim.health.info("binary_version: " .. binary_version)
+	else
+		vim.health.warn("binary_version: unknown")
+	end
 	if not daemon.is_enabled() then
 		vim.health.warn("Plugin is disabled")
 	elseif daemon_status.daemon_running and channel_status.connected then

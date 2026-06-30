@@ -8,7 +8,7 @@ Hello 🎉 world
 Hello 🚀 world
 -- expected --
 stage @1 cursor=1:10
-  modification @1 1-1 replace_chars 8:10
+  modification @1 1-1 replace_chars 6:10
     + "Hello 🚀 world"
     - "Hello 🎉 world"
 

@@ -468,6 +468,33 @@ func TestLineChangeClassification(t *testing.T) {
 	}
 }
 
+func TestChangedByteSpanUsesUTF8Boundaries(t *testing.T) {
+	start, oldEnd, newEnd := ChangedByteSpan("Hello 🎉 world", "Hello 🚀 world")
+
+	assert.Equal(t, len("Hello "), start, "start")
+	assert.Equal(t, len("Hello 🎉"), oldEnd, "old end")
+	assert.Equal(t, len("Hello 🚀"), newEnd, "new end")
+}
+
+func TestChangedByteSpanHandlesInvalidUTF8Bytes(t *testing.T) {
+	oldLine := "a\xffb"
+	newLine := "a\xfeb"
+
+	start, oldEnd, newEnd := ChangedByteSpan(oldLine, newLine)
+
+	assert.Equal(t, 1, start, "start")
+	assert.Equal(t, 2, oldEnd, "old end")
+	assert.Equal(t, 2, newEnd, "new end")
+}
+
+func TestCategorizeLineChangeUsesUTF8Boundaries(t *testing.T) {
+	changeType, colStart, colEnd := categorizeLineChangeWithColumns("Hello 🎉 world", "Hello 🚀 world")
+
+	assert.Equal(t, ChangeReplaceChars, changeType, "change type")
+	assert.Equal(t, len("Hello "), colStart, "start col")
+	assert.Equal(t, len("Hello 🚀"), colEnd, "end col")
+}
+
 func TestEmptyOldText(t *testing.T) {
 	text1 := ""
 	text2 := "line 1\nline 2\nline 3"

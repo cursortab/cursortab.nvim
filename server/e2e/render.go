@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"strings"
+	"unicode/utf8"
 )
 
 // --- Types ---
@@ -137,22 +138,36 @@ func StageFinalCursor(stages []StageInfo, oldRow, oldCol int) (row, col int) {
 // --- Tab expansion ---
 
 func expandTabsWithMap(text string) (string, []int) {
-	runes := []rune(text)
-	mapping := make([]int, len(runes)+1)
+	mapping := make([]int, len(text)+1)
 	var out strings.Builder
 	visual := 0
-	for i, ch := range runes {
-		mapping[i] = visual
+	lastByte := 0
+	for start, ch := range text {
+		for i := lastByte; i < start; i++ {
+			mapping[i] = visual
+		}
+		mapping[start] = visual
+
+		nextVisual := visual + 1
 		if ch == '\t' {
 			spaces := TabSize - (visual % TabSize)
 			out.WriteString(strings.Repeat(" ", spaces))
-			visual += spaces
+			nextVisual = visual + spaces
 		} else {
 			out.WriteRune(ch)
-			visual++
 		}
+
+		_, size := utf8.DecodeRuneInString(text[start:])
+		end := start + size
+		for i := start + 1; i < end; i++ {
+			mapping[i] = visual
+		}
+		visual = nextVisual
+		lastByte = end
 	}
-	mapping[len(runes)] = visual
+	for i := lastByte; i <= len(text); i++ {
+		mapping[i] = visual
+	}
 	return out.String(), mapping
 }
 

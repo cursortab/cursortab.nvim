@@ -232,6 +232,41 @@ end
 ---@field row integer absolute screen row
 ---@field col integer absolute screen column
 
+local function utf8_char_start_byte_col(text, byte_col)
+	local col = math.max(0, math.min(byte_col, #text))
+	while col > 0 do
+		local byte = string.byte(text, col + 1)
+		if not byte or byte < 0x80 or byte >= 0xc0 then
+			break
+		end
+		col = col - 1
+	end
+	return col
+end
+
+local function previous_utf8_byte_col(text, byte_col)
+	return utf8_char_start_byte_col(text, math.min(byte_col, #text) - 1)
+end
+
+local function valid_screenpos(pos)
+	return pos and pos.row and pos.row > 0 and pos.col and pos.col > 0
+end
+
+local function screen_anchor_at_byte_col(win, line, line_text, byte_col)
+	local target_col = math.max(0, math.min(byte_col, #line_text))
+
+	if target_col >= #line_text then
+		return nil
+	end
+
+	local char_start_col = utf8_char_start_byte_col(line_text, target_col)
+	local pos = vim.fn.screenpos(win, line + 1, char_start_col + 1)
+	if valid_screenpos(pos) then
+		return { row = pos.row, col = pos.col }
+	end
+	return nil
+end
+
 -- Get the absolute screen position for an insertion byte offset.
 ---@param win integer
 ---@param line integer 0-indexed buffer line
@@ -240,19 +275,14 @@ end
 local function screen_anchor_at_insertion(win, line, byte_col)
 	local buf = vim.api.nvim_win_get_buf(win)
 	local line_text = vim.api.nvim_buf_get_lines(buf, line, line + 1, false)[1] or ""
-	local target_col = math.max(0, math.min(byte_col, #line_text))
-
-	if target_col < #line_text then
-		local pos = vim.fn.screenpos(win, line + 1, target_col + 1)
-		if pos and pos.row and pos.row > 0 and pos.col and pos.col > 0 then
-			return { row = pos.row, col = pos.col }
-		end
-		return nil
+	local anchor = screen_anchor_at_byte_col(win, line, line_text, byte_col)
+	if anchor then
+		return anchor
 	end
 
-	local prefix_chars = vim.fn.strchars(string.sub(line_text, 1, target_col))
-	if prefix_chars > 0 then
-		local previous_byte_col = vim.str_byteindex(line_text, "utf-8", prefix_chars - 1)
+	local target_col = math.max(0, math.min(byte_col, #line_text))
+	if target_col > 0 then
+		local previous_byte_col = previous_utf8_byte_col(line_text, target_col)
 		local pos = vim.fn.screenpos(win, line + 1, previous_byte_col + 1)
 		if pos and pos.row and pos.row > 0 and pos.endcol and pos.endcol > 0 then
 			return { row = pos.row, col = pos.endcol + 1 }

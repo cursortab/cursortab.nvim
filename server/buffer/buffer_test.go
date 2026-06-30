@@ -220,6 +220,22 @@ func TestTextEditForCharGroupDelete(t *testing.T) {
 	assert.Equal(t, "", string(edit.replacement), "replacement")
 }
 
+func TestTextEditForCharGroupReplaceUsesUTF8Boundaries(t *testing.T) {
+	edit, ok := textEditForCharGroup(&text.Group{
+		RenderHint: "replace_chars",
+		StartLine:  1,
+		EndLine:    1,
+		BufferLine: 1,
+		OldLines:   []string{"Hello 🎉 world"},
+		Lines:      []string{"Hello 🚀 world"},
+	})
+
+	assert.True(t, ok, "replace should use text edit")
+	assert.Equal(t, len("Hello "), edit.startCol, "start col")
+	assert.Equal(t, len("Hello 🎉"), edit.endCol, "end col")
+	assert.Equal(t, "🚀", string(edit.replacement), "replacement")
+}
+
 func TestCharLevelTextEditsRejectsStructuralGroups(t *testing.T) {
 	_, ok := charLevelTextEdits([]*text.Group{{
 		Type:      "addition",

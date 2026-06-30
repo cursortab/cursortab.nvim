@@ -4,6 +4,7 @@ import (
 	"cursortab/logger"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -551,6 +552,33 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 	}
 }
 
+// ChangedByteSpan returns the changed byte ranges without splitting UTF-8 characters.
+func ChangedByteSpan(oldLine, newLine string) (start, oldEnd, newEnd int) {
+	start = 0
+	for start < len(oldLine) && start < len(newLine) {
+		oldRune, oldSize := utf8.DecodeRuneInString(oldLine[start:])
+		newRune, newSize := utf8.DecodeRuneInString(newLine[start:])
+		if oldRune != newRune || oldSize != newSize || oldLine[start:start+oldSize] != newLine[start:start+newSize] {
+			break
+		}
+		start += oldSize
+	}
+
+	oldEnd = len(oldLine)
+	newEnd = len(newLine)
+	for oldEnd > start && newEnd > start {
+		oldRune, oldSize := utf8.DecodeLastRuneInString(oldLine[:oldEnd])
+		newRune, newSize := utf8.DecodeLastRuneInString(newLine[:newEnd])
+		if oldRune != newRune || oldSize != newSize || oldLine[oldEnd-oldSize:oldEnd] != newLine[newEnd-newSize:newEnd] {
+			break
+		}
+		oldEnd -= oldSize
+		newEnd -= newSize
+	}
+
+	return start, oldEnd, newEnd
+}
+
 // categorizeLineChangeWithColumns determines the type of change between two lines
 // using common prefix/suffix analysis to find the single contiguous changed span.
 func categorizeLineChangeWithColumns(oldLine, newLine string) (ChangeType, int, int) {
@@ -558,34 +586,24 @@ func categorizeLineChangeWithColumns(oldLine, newLine string) (ChangeType, int, 
 		return ChangeAppendChars, len(oldLine), len(newLine)
 	}
 
-	prefixLen := 0
-	minLen := min(len(oldLine), len(newLine))
-	for prefixLen < minLen && oldLine[prefixLen] == newLine[prefixLen] {
-		prefixLen++
-	}
+	changeStart, oldEnd, newEnd := ChangedByteSpan(oldLine, newLine)
 
-	suffixLen := 0
-	for suffixLen < minLen-prefixLen &&
-		oldLine[len(oldLine)-1-suffixLen] == newLine[len(newLine)-1-suffixLen] {
-		suffixLen++
-	}
+	oldMiddle := oldEnd - changeStart
+	newMiddle := newEnd - changeStart
 
-	oldMiddle := len(oldLine) - prefixLen - suffixLen
-	newMiddle := len(newLine) - prefixLen - suffixLen
-
-	if prefixLen == 0 && suffixLen == 0 {
+	if changeStart == 0 && oldEnd == len(oldLine) && newEnd == len(newLine) {
 		return ChangeModification, 0, 0
 	}
 
 	if newMiddle == 0 && oldMiddle > 0 {
-		return ChangeDeleteChars, prefixLen, prefixLen + oldMiddle
+		return ChangeDeleteChars, changeStart, oldEnd
 	}
 
 	// ReplaceChars for localized changes within the line.
 	if newMiddle > 0 {
 		changed := max(oldMiddle, newMiddle)
 		if changed <= MaxReplaceCharsSpan {
-			return ChangeReplaceChars, prefixLen, prefixLen + newMiddle
+			return ChangeReplaceChars, changeStart, newEnd
 		}
 		return ChangeModification, 0, 0
 	}

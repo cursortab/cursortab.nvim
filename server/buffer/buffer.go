@@ -852,28 +852,16 @@ func textEditForCharGroup(group *text.Group) (bufferTextEdit, bool) {
 		return bufferTextEdit{}, false
 	}
 
-	prefixLen := 0
-	minLen := min(len(oldLine), len(newLine))
-	for prefixLen < minLen && oldLine[prefixLen] == newLine[prefixLen] {
-		prefixLen++
-	}
-
-	suffixLen := 0
-	for suffixLen < minLen-prefixLen && oldLine[len(oldLine)-1-suffixLen] == newLine[len(newLine)-1-suffixLen] {
-		suffixLen++
-	}
-
-	oldEnd := len(oldLine) - suffixLen
-	newEnd := len(newLine) - suffixLen
-	if oldEnd < prefixLen || newEnd < prefixLen {
+	startCol, oldEnd, newEnd := text.ChangedByteSpan(oldLine, newLine)
+	if oldEnd < startCol || newEnd < startCol {
 		return bufferTextEdit{}, false
 	}
 
 	return bufferTextEdit{
 		row:         group.BufferLine - 1,
-		startCol:    prefixLen,
+		startCol:    startCol,
 		endCol:      oldEnd,
-		replacement: []byte(newLine[prefixLen:newEnd]),
+		replacement: []byte(newLine[startCol:newEnd]),
 	}, true
 }
 

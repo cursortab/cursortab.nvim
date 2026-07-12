@@ -336,11 +336,11 @@ local function create_overlay_window(parent_win, buffer_line, col, content, synt
 	local content_lines = type(content) == "table" and content or { content }
 
 	-- Query parent window state once: topline, leftcol, winrow, cursor, cursorline
-	---@type {topline: integer, leftcol: integer, winrow: integer, wincol: integer, textoff: integer}
+	---@type {topline: integer, leftcol: integer, winrow: integer, wincol: integer, textoff: integer, winbar: integer}
 	local wininfo = vim.fn.getwininfo(parent_win)[1]
 	local leftcol = wininfo.leftcol or 0
 	local first_visible_line = wininfo.topline
-	local winrow = wininfo.winrow or 1
+	local winrow = (wininfo.winrow or 1) + (wininfo.winbar or 0)
 	local cursor_line = vim.api.nvim_win_get_cursor(parent_win)[1] - 1
 	local cursorline_enabled = vim.api.nvim_get_option_value("cursorline", { win = parent_win })
 

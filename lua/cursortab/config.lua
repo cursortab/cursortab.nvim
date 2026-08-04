@@ -136,7 +136,7 @@ local default_config = {
 	},
 
 	provider = {
-		type = "inline", -- "inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi"
+		type = "inline", -- "inline", "fim", "sweep", "zeta-2.1", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi"
 		url = "http://localhost:8000", -- URL of the provider server
 		api_key_env = "", -- Environment variable name for API key (e.g., "OPENAI_API_KEY")
 		model = "", -- Model name
@@ -279,7 +279,17 @@ local function migrate_deprecated_config(user_config)
 end
 
 -- Valid values for enum-like config options
-local valid_provider_types = { inline = true, fim = true, sweep = true, ["zeta-2"] = true, zeta = true, copilot = true, windsurf = true, mercuryapi = true }
+local valid_provider_types = {
+	inline = true,
+	fim = true,
+	sweep = true,
+	["zeta-2.1"] = true,
+	["zeta-2"] = true,
+	zeta = true,
+	copilot = true,
+	windsurf = true,
+	mercuryapi = true,
+}
 local valid_log_levels = { trace = true, debug = true, info = true, warn = true, error = true }
 local valid_addition_styles = { dimmed = true, highlight = true }
 
@@ -319,7 +329,7 @@ local function validate_config(cfg)
 	if cfg.provider and cfg.provider.type then
 		if not valid_provider_types[cfg.provider.type] then
 			error(string.format(
-				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, zeta-2, zeta, copilot, windsurf, mercuryapi",
+				"[cursortab.nvim] Invalid provider.type '%s'. Must be one of: inline, fim, sweep, zeta-2.1, zeta-2, zeta, copilot, windsurf, mercuryapi",
 				cfg.provider.type
 			))
 		end

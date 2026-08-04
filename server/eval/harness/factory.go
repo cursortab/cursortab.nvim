@@ -50,6 +50,10 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 		p := zeta2.NewProvider(cfg)
 		p.SetHTTPTransport(transport)
 		return p, nil
+	case "zeta-2.1":
+		p := zeta2.NewProvider21(cfg)
+		p.SetHTTPTransport(transport)
+		return p, nil
 	case "fim":
 		if cfg.ProviderContextSize == 0 {
 			cfg.ProviderContextSize = 1024

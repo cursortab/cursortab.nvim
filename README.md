@@ -18,7 +18,7 @@ A Neovim plugin that provides edit completions and cursor predictions.
 * [Requirements](#requirements)
 * [Installation](#installation)
   * [Mercury API (hosted, no local GPU needed)](#mercury-api-hosted-no-local-gpu-needed)
-  * [Zeta-2 (local next-edit prediction)](#zeta-2-local-next-edit-prediction)
+  * [Zeta-2.1 (local next-edit prediction)](#zeta-21-local-next-edit-prediction)
   * [Qwen3.5-0.8B/Sweep (fastest local)](#qwen35-08bsweep-fastest-local)
   * [Using lazy.nvim](#using-lazynvim)
   * [Using packer.nvim](#using-packernvim)
@@ -29,6 +29,7 @@ A Neovim plugin that provides edit completions and cursor predictions.
     * [Inline Provider (Default)](#inline-provider-default)
     * [FIM Provider](#fim-provider)
     * [Sweep Provider](#sweep-provider)
+    * [Zeta-2.1 Provider](#zeta-21-provider)
     * [Zeta-2 Provider](#zeta-2-provider)
     * [Zeta Provider (legacy)](#zeta-provider-legacy)
     * [Copilot Provider](#copilot-provider)
@@ -54,7 +55,7 @@ A Neovim plugin that provides edit completions and cursor predictions.
 Recommended starting points:
 
 - **Best hosted:** Mercury API
-- **Best local next-edit:** Zeta-2
+- **Best local next-edit:** Zeta-2.1
 - **Fastest local:** Qwen3.5-0.8B with the `inline` provider, or Sweep 1.5B/0.5B
   with the `sweep` provider
 
@@ -70,12 +71,12 @@ config. See [Providers](#providers) for all available options.
    export MERCURY_AI_TOKEN="your-api-key-here"
    ```
 
-### Zeta-2 (local next-edit prediction)
+### Zeta-2.1 (local next-edit prediction)
 
 Run [llama.cpp](https://github.com/ggml-org/llama.cpp):
 
 ```bash
-llama-server -hf bartowski/zed-industries_zeta-2-GGUF:Q8_0 --port 8000
+llama-server -hf mradermacher/zeta-2.1-GGUF --ctx-size 16384 --port 8000
 ```
 
 ### Qwen3.5-0.8B/Sweep (fastest local)
@@ -103,8 +104,8 @@ llama-server -hf unsloth/Qwen3.5-0.8B-GGUF:Q8_0 --port 8000
         type = "mercuryapi",
         api_key_env = "MERCURY_AI_TOKEN",
 
-        -- Zeta-2 (best local)
-        -- type = "zeta-2",
+        -- Zeta-2.1 (best local)
+        -- type = "zeta-2.1",
         -- url = "http://localhost:8000",
 
         -- Qwen3.5-0.8B (fastest local, defaults to "inline")
@@ -202,7 +203,7 @@ require("cursortab").setup({
   },
 
   provider = {
-    type = "inline",                      -- Provider: "inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi"
+    type = "inline",                      -- Provider: "inline", "fim", "sweep", "zeta-2.1", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi"
     url = "http://localhost:8000",        -- URL of the provider server
     api_key_env = "",                     -- Env var name for API key (e.g., "OPENAI_API_KEY")
     model = "",                           -- Model name
@@ -262,32 +263,33 @@ vim.api.nvim_set_hl(0, "CursorTabAddition", { bg = "#1a3a1a" })
 
 ### Providers
 
-The plugin supports eight AI provider backends: Inline, FIM, Sweep, Zeta-2, Zeta
-(legacy), Copilot, Windsurf, and Mercury API.
+The plugin supports nine AI provider backends: Inline, FIM, Sweep, Zeta-2.1,
+Zeta-2, Zeta (legacy), Copilot, Windsurf, and Mercury API.
 
-| Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                   |
-| ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ----------------------- |
-| `inline`     |        |            |            |                   |           | Any base model          |
-| `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable         |
-| `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family  |
-| `zeta-2`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta-2` (SeedCoder-8B) |
-| `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta` (Qwen2.5-Coder)  |
-| `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot          |
-| `windsurf`   |   ✓    |     ✓      |            |                   |           | Windsurf AI             |
-| `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-edit-2`        |
+| Provider     | Hosted | Multi-line | Multi-edit | Cursor Prediction | Streaming | Model                     |
+| ------------ | :----: | :--------: | :--------: | :---------------: | :-------: | ------------------------- |
+| `inline`     |        |            |            |                   |           | Any base model            |
+| `fim`        |        |     ✓      |            |                   |     ✓     | Any FIM-capable           |
+| `sweep`      |        |     ✓      |     ✓      |         ✓         |     ✓     | Sweep Next-Edit family    |
+| `zeta-2.1`   |        |     ✓      |     ✓      |         ✓         |           | `zeta-2.1` (SeedCoder-8B) |
+| `zeta-2`     |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta-2` (SeedCoder-8B)   |
+| `zeta`       |        |     ✓      |     ✓      |         ✓         |     ✓     | `zeta` (Qwen2.5-Coder)    |
+| `copilot`    |   ✓    |     ✓      |     ✓      |         ✓         |           | GitHub Copilot            |
+| `windsurf`   |   ✓    |     ✓      |            |                   |           | Windsurf AI               |
+| `mercuryapi` |   ✓    |     ✓      |     ✓      |         ✓         |           | `mercury-edit-2`          |
 
 **Context Per Provider:**
 
-| Context             | inline | fim | sweep | zeta-2 | zeta | copilot | windsurf | mercuryapi |
-| ------------------- | :----: | :-: | :---: | :----: | :--: | :-----: | :------: | :--------: |
-| Buffer content      |   ✓    |  ✓  |   ✓   |   ✓    |  ✓   |         |    ✓     |     ✓      |
-| Edit history        |        | ✓°  |   ✓   |   ✓    |  ✓   |         |          |     ✓      |
-| Previous file state |        |     |   ✓   |        |      |         |          |            |
-| LSP diagnostics     |        | ✓°  |   ✓   |   ✓    |  ✓   |         |          |     ✓      |
-| Treesitter context  |        | ✓°  |   ✓   |   ✓    |  ✓   |         |          |     ✓      |
-| Git diff context    |        | ✓°  |   ✓   |   ✓    |  ✓   |         |          |     ✓      |
-| Recent files        |        | ✓°  |   ✓   |   ✓    |  ✓   |         |          |     ✓      |
-| User actions        |        |     |   ✓   |        |      |         |          |            |
+| Context             | inline | fim | sweep | zeta-2.1 | zeta-2 | zeta | copilot | windsurf | mercuryapi |
+| ------------------- | :----: | :-: | :---: | :------: | :----: | :--: | :-----: | :------: | :--------: |
+| Buffer content      |   ✓    |  ✓  |   ✓   |    ✓     |   ✓    |  ✓   |         |    ✓     |     ✓      |
+| Edit history        |        | ✓°  |   ✓   |    ✓     |   ✓    |  ✓   |         |          |     ✓      |
+| Previous file state |        |     |   ✓   |          |        |      |         |          |            |
+| LSP diagnostics     |        | ✓°  |   ✓   |    ✓     |   ✓    |  ✓   |         |          |     ✓      |
+| Treesitter context  |        | ✓°  |   ✓   |    ✓     |   ✓    |  ✓   |         |          |     ✓      |
+| Git diff context    |        | ✓°  |   ✓   |    ✓     |   ✓    |  ✓   |         |          |     ✓      |
+| Recent files        |        | ✓°  |   ✓   |    ✓     |   ✓    |  ✓   |         |          |     ✓      |
+| User actions        |        |     |   ✓   |          |        |      |         |          |            |
 
 ° FIM cross-file context requires repo-level tokens (`repo_name`, `file_sep`).
 Auto-detected for Qwen models; set manually for other models that support them.
@@ -394,13 +396,41 @@ llama-server -hf sweepai/sweep-next-edit-1.5b --port 8000
 
 </details>
 
+#### Zeta-2.1 Provider
+
+<details>
+<summary>Details</summary>
+
+Zed's [Zeta-2.1](https://huggingface.co/zed-industries/zeta-2.1)
+(SeedCoder-8B) uses the V0318 multi-region prompt. The model selects the exact
+rewrite span through numbered boundaries, reducing generated output compared
+with Zeta-2. Diagnostics are limited to ranged entries that intersect the
+editable excerpt. Run it locally with
+[llama.cpp](https://github.com/ggml-org/llama.cpp).
+
+```lua
+require("cursortab").setup({
+  provider = {
+    type = "zeta-2.1",
+    url = "http://localhost:8000",
+  },
+})
+```
+
+```bash
+llama-server -hf mradermacher/zeta-2.1-GGUF --ctx-size 16384 --port 8000
+```
+
+</details>
+
 #### Zeta-2 Provider
 
 <details>
 <summary>Details</summary>
 
-Zed's [Zeta-2](https://huggingface.co/zed-industries/zeta-2) (SeedCoder-8B). Run
-it locally with [llama.cpp](https://github.com/ggml-org/llama.cpp).
+Zed's [Zeta-2](https://huggingface.co/zed-industries/zeta-2) (SeedCoder-8B)
+uses the earlier single-region prompt. Run it locally with
+[llama.cpp](https://github.com/ggml-org/llama.cpp).
 
 ```lua
 require("cursortab").setup({
@@ -423,7 +453,7 @@ llama-server -hf bartowski/zed-industries_zeta-2-GGUF:Q8_0 --port 8000
 <summary>Details</summary>
 
 Zed's original [Zeta](https://huggingface.co/zed-industries/zeta) model
-(Qwen2.5-Coder-7B). Superseded by [Zeta-2](#zeta-2-provider).
+(Qwen2.5-Coder-7B). Superseded by [Zeta-2.1](#zeta-21-provider).
 
 ```lua
 require("cursortab").setup({

@@ -80,7 +80,7 @@ type Scenario struct {
 // type can appear multiple times (e.g. sweep-v1 vs sweep-v2).
 type Target struct {
 	Name  string // "sweep-v1", "mercuryapi", etc.
-	Type  string // "mercuryapi", "zeta", "zeta-2"
+	Type  string // "mercuryapi", "zeta", "zeta-2", "zeta-2.1"
 	Model string // model version id
 	URL   string // provider endpoint; empty = default
 }

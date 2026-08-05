@@ -102,7 +102,7 @@ Full configuration with defaults: >lua
     },
 
     provider = {
-      type = "inline",              -- "inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "windsurf", "mercuryapi"
+      type = "inline",              -- "inline", "fim", "sweep", "zeta-2.1", "zeta-2", "zeta", "copilot", "windsurf", "mercuryapi"
       url = "http://localhost:8000",
       api_key_env = "",             -- Env var name for API key
       model = "",
@@ -281,10 +281,12 @@ behavior.ignore_gitignored      *cursortab-config-behavior-ignore-gitignored*
 PROVIDER OPTIONS                                    *cursortab-config-provider*
 
   `type`
-      Provider type: "inline", "fim", "sweep", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi".
+      Provider type: "inline", "fim", "sweep", "zeta-2.1", "zeta-2", "zeta", "copilot", "windsurf", or "mercuryapi".
       - inline: End-of-line completion, stops at newline
       - fim: Fill-in-the-middle, multi-line with prefix/suffix context
       - sweep: SweepAI Next-Edit model for multi-line edits (local)
+      - zeta-2.1: Zed's Zeta-2.1 model (SeedCoder-8B, multi-region). Includes
+        ranged diagnostics intersecting the editable excerpt.
       - zeta-2: Zed's Zeta-2 model (SeedCoder-8B)
       - zeta: Zed's original Zeta model (Qwen2.5-Coder-7B, legacy)
       - copilot: GitHub Copilot completions
@@ -307,8 +309,8 @@ PROVIDER OPTIONS                                    *cursortab-config-provider*
       Sampling temperature for generation.
 
   `max_tokens`
-      Maximum tokens to generate. For sweep/zeta/zeta-2 providers, this also
-      determines the input context size (trimmed to fit within output budget).
+      Maximum tokens to generate. For sweep/zeta/zeta-2/zeta-2.1 providers,
+      this also determines the input context size when `context_size` is 0.
 
   `top_k`
       Top-k sampling parameter.

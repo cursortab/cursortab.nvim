@@ -183,6 +183,7 @@ const (
 	ProviderTypeSweep      ProviderType = "sweep"
 	ProviderTypeZeta       ProviderType = "zeta"
 	ProviderTypeZeta2      ProviderType = "zeta-2"
+	ProviderTypeZeta21     ProviderType = "zeta-2.1"
 	ProviderTypeCopilot    ProviderType = "copilot"
 	ProviderTypeMercuryAPI ProviderType = "mercuryapi"
 	ProviderTypeWindsurf   ProviderType = "windsurf"

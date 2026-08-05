@@ -98,6 +98,8 @@ func NewDaemon(config Config) (*Daemon, error) {
 		prov = zeta.NewProvider(providerConfig)
 	case types.ProviderTypeZeta2:
 		prov = zeta2.NewProvider(providerConfig)
+	case types.ProviderTypeZeta21:
+		prov = zeta2.NewProvider21(providerConfig)
 	case types.ProviderTypeCopilot:
 		prov = copilot.NewProvider(buf)
 	case types.ProviderTypeWindsurf:

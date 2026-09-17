@@ -48,7 +48,8 @@ jobs:
 
       - name: Check for dead code
         run: |
-          go install golang.org/x/tools/cmd/deadcode@latest
+          # pin: deadcode@latest (v0.50.0+) requires go >= 1.26, workflow pins go 1.25
+          go install golang.org/x/tools/cmd/deadcode@v0.49.0
           cd server && deadcode .
 
       - name: Eval baseline check

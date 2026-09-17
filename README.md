@@ -311,6 +311,7 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 | Target               | Type       |    Score | deltaChrF | Show rate | Quiet rate | p50 (ms) | p90 (ms) |
 | -------------------- | ---------- | -------: | --------: | --------: | ---------: | -------: | -------: |
 | zeta-2               | zeta-2     | **0.61** |  **65.4** |   **92%** |    **96%** |      551 |      833 |
+| zeta-2.1 †           | zeta-2.1   |     0.57 |      60.6 |       88% |   **100%** |     1504 |     4073 |
 | zeta                 | zeta       |     0.56 |      62.4 |       88% |        92% |      413 |      662 |
 | mercuryapi           | mercuryapi |     0.49 |      61.8 |   **92%** |        69% |      332 |      393 |
 | qwen3.6-27B          | fim        |     0.23 |      32.0 |       60% |        92% |      214 |      455 |
@@ -323,6 +324,10 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 | copilot              | copilot    |     0.13 |      22.3 |       40% |   **100%** |      351 |      915 |
 | sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |  **207** |
 | qwen3.6-35B-A3B      | fim        |     0.10 |      19.2 |       40% |        80% |  **113** |      411 |
+
+† zeta-2.1 measured against a local llama.cpp server (Q4_K_M quant) over a
+tailnet link; latency is not comparable to the other rows. Quality metrics
+(deltaChrF / show / quiet) are environment-independent.
 
 #### Inline Provider (Default)
 

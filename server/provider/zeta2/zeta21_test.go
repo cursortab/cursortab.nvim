@@ -326,7 +326,19 @@ func TestZeta21Complete_ImplementsBatchFlow(t *testing.T) {
 	var _ provider.CompletionFlow[*openai.CompletionRequest, *openai.CompletionResult] = newZeta21TestProvider()
 }
 
-func TestZeta21Complete_DoesNotImplementStreaming(t *testing.T) {
-	_, streams := any(newZeta21TestProvider()).(engine.StreamingProvider)
-	assert.False(t, streams, "Zeta 2.1 uses only the batch completion flow")
+func TestZeta21Complete_ImplementsStreaming(t *testing.T) {
+	var _ engine.StreamingProvider = newZeta21TestProvider()
+}
+
+func TestZeta21StreamArgs_SuppressesAllPreviewLines(t *testing.T) {
+	p := newZeta21TestProvider()
+	transform := p.StreamArgs(&provider.RequestState{}).LineTransform
+	assert.True(t, transform != nil, "stream must suppress raw lines instead of leaking them into preview")
+	if transform == nil {
+		return
+	}
+	for _, line := range []string{"<|marker_1|>", "new code", "<|marker_2|>"} {
+		_, emit := transform(line)
+		assert.False(t, emit, "no zeta-2.1 stream line may be previewed")
+	}
 }

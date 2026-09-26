@@ -395,8 +395,9 @@ func (p *mockProvider) Complete(_ context.Context, input ctx.CompletionInput) (*
 
 type mockStreamingProvider struct {
 	*mockProvider
-	stream    CompletionStream
-	streamErr error
+	stream      CompletionStream
+	streamErr   error
+	streamCalls int
 }
 
 func newMockStreamingProvider(stream CompletionStream) *mockStreamingProvider {
@@ -407,6 +408,9 @@ func newMockStreamingProvider(stream CompletionStream) *mockStreamingProvider {
 }
 
 func (p *mockStreamingProvider) StreamCompletion(_ context.Context, _ ctx.CompletionInput) (CompletionStream, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.streamCalls++
 	if p.streamErr != nil {
 		return nil, p.streamErr
 	}

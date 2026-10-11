@@ -595,18 +595,23 @@ require("blink.cmp").setup({
 
 ### Statusline integration
 
-The daemon broadcasts engine state transitions as a `User` autocmd. Consumers
-(e.g. statuslines) can subscribe to display whether a prediction request is in
-flight:
+The daemon sends a `User` autocmd named `CursortabStateChanged` when engine state
+or request activity changes, and when the editor connects. Its `data` is a table:
+
+- `state`: `"Idle"`, `"PendingCompletion"`, `"HasCompletion"`, `"HasCursorTarget"`,
+  or `"StreamingCompletion"`.
+- `pending`: `true` while any foreground request, prefetch request, or stream is
+  active. It stays true if you accept a prediction while its stream continues,
+  and clears when all work finishes or is canceled. Ready suggestions alone do
+  not count as pending.
+
+Subscribe before Cursortab starts to receive the initial status. For example:
 
 ```lua
 vim.api.nvim_create_autocmd("User", {
   pattern = "CursortabStateChanged",
   callback = function(args)
-    -- args.data: "Idle" | "PendingCompletion" | "HasCompletion" |
-    --             "HasCursorTarget" | "StreamingCompletion"
-    vim.g.cursortab_pending = args.data == "PendingCompletion"
-      or args.data == "StreamingCompletion"
+    vim.g.cursortab_pending = args.data.pending
     require("lualine").refresh({})
   end,
 })

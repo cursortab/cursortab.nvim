@@ -219,7 +219,7 @@ func (e *Engine) handleCursorTarget() {
 		return
 	}
 
-	e.setState(stateHasCursorTarget)
+	e.state = stateHasCursorTarget
 	e.buffer.ShowCursorTarget(int(e.cursorTarget.LineNumber))
 }
 
@@ -230,7 +230,7 @@ func (e *Engine) clearCompletionUIOnly() {
 	e.cancelCurrentRequest()
 	e.stagedCompletion = nil
 	e.resetCompletionFields()
-	e.setState(stateIdle)
+	e.state = stateIdle
 	e.cursorTarget = nil
 }
 
@@ -239,7 +239,7 @@ func (e *Engine) showCursorTargetWithCandidate(target *types.CursorPredictionTar
 		return
 	}
 	e.cursorTarget = target
-	e.setState(stateHasCursorTarget)
+	e.state = stateHasCursorTarget
 	e.display.setRejectionCandidate(candidate)
 	e.buffer.ShowCursorTarget(int(target.LineNumber))
 }
@@ -266,7 +266,7 @@ func (e *Engine) showCurrentStage() {
 	}
 
 	e.cursorTarget = stage.CursorTarget
-	e.setState(stateHasCompletion)
+	e.state = stateHasCompletion
 
 	// Deep copy groups so that partial accept mutations (advanceGroupsAfterAccept)
 	// don't corrupt the stage's original Groups, which advanceStagedCompletion
@@ -433,7 +433,7 @@ func (e *Engine) processCompletionCandidate(completion *types.Completion, cursor
 		if e.suppressRejectedCompletionForStage(firstStage, manual) {
 			e.pendingMetricsInfo = nil
 			e.stagedCompletion = nil
-			e.setState(stateIdle)
+			e.state = stateIdle
 			return completionSuppressed
 		}
 

@@ -225,10 +225,6 @@ func (b *mockBuffer) MoveCursor(line int, center, mark bool) error {
 	return nil
 }
 
-func (b *mockBuffer) RegisterEventHandler(handler func(event string)) error {
-	return nil
-}
-
 func (b *mockBuffer) InsertText(line, col int, text string, keepUI bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

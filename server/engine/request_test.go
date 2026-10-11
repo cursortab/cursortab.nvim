@@ -14,6 +14,23 @@ import (
 	"cursortab/types"
 )
 
+func TestDeferredCursorTargetRequest(t *testing.T) {
+	buf := newMockBuffer()
+	buf.col = len(buf.lines[0])
+	eng, cancel := createTestEngineWithContext(buf, newMockProvider(), newMockClock())
+	defer cancel()
+	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 1, ShouldRetrigger: true}
+	eng.handleDeferredCursorTarget()
+	assert.Equal(t, statePendingCompletion, eng.state, "fallback request is pending")
+	select {
+	case event := <-eng.eventChan:
+		eng.handleEvent(event)
+	case <-time.After(time.Second):
+		t.Fatal("fallback completion did not return")
+	}
+	assert.Equal(t, stateHasCompletion, eng.state, "fallback response is displayed")
+}
+
 func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"existing"}

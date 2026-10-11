@@ -140,10 +140,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Announce engine state transitions to the connected editor (statusline).
-	eng.SetStateNotifier(func(s string) {
-		buf.NotifyState(s)
-	})
+	eng.SetStateNotifier(buf.NotifyState)
 
 	ctx, cancel := newDaemonContext()
 
@@ -232,16 +229,22 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		return
 	}
 
-	// Set nvim client on the buffer and register event handler
-	d.buffer.SetClient(n)
-	d.engine.RegisterEventHandler()
+	if err := n.RegisterHandler("cursortab_event", d.engine.HandleEditorEvent); err != nil {
+		logger.Error("error registering editor event handler: %v", err)
+		return
+	}
 
-	// Serve this connection until it closes or context is done
+	served := make(chan error, 1)
+	d.engine.ConnectEditor(func() {
+		go func() { served <- n.Serve() }()
+		d.buffer.SetClient(n)
+	})
+
 	select {
 	case <-d.ctx.Done():
 		return
-	default:
-		if err := n.Serve(); err != nil && err != io.EOF {
+	case err := <-served:
+		if err != nil && err != io.EOF {
 			logger.Error("error serving connection: %v", err)
 		}
 	}

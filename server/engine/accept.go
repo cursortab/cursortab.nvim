@@ -23,7 +23,7 @@ func (e *Engine) reject() {
 	e.cursorTarget = nil
 	e.stagedCompletion = nil
 	e.resetCompletionFields()
-	e.setState(stateIdle)
+	e.state = stateIdle
 }
 
 // rejectAndRemember clears all state and caches the current completion so
@@ -114,7 +114,7 @@ func (e *Engine) acceptCompletion() {
 		if e.hasInflightPrefetch() {
 			e.setInflightPrefetchWait(prefetchAfterTab)
 			e.buffer.ClearUI()
-			e.setState(stateIdle)
+			e.state = stateIdle
 			return
 		}
 		e.prefetchAtCursorTarget()
@@ -162,7 +162,7 @@ func (e *Engine) acceptCursorTarget() {
 
 	e.buffer.ClearUI()
 	e.cursorTarget = nil
-	e.setState(stateIdle)
+	e.state = stateIdle
 }
 
 func (e *Engine) advanceStagedCompletion() {
@@ -252,7 +252,7 @@ func (e *Engine) showOrNavigateToNextStage() {
 func (e *Engine) transitionAfterAccept() {
 	if e.cursorTarget == nil || !e.config.CursorPrediction.Enabled {
 		e.buffer.ClearUI()
-		e.setState(stateIdle)
+		e.state = stateIdle
 		return
 	}
 
@@ -262,12 +262,12 @@ func (e *Engine) transitionAfterAccept() {
 	if distance <= e.config.CursorPrediction.ProximityThreshold {
 		e.buffer.ClearUI()
 		e.cursorTarget = nil
-		e.setState(stateIdle)
+		e.state = stateIdle
 		return
 	}
 
 	e.buffer.ShowCursorTarget(targetLine)
-	e.setState(stateHasCursorTarget)
+	e.state = stateHasCursorTarget
 }
 
 func (e *Engine) partialAcceptCompletion() {

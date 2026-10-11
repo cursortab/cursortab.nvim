@@ -741,23 +741,11 @@ func (b *NvimBuffer) TreesitterSymbols(row, col, maxSiblings int) *types.Treesit
 	return ctx
 }
 
-// RegisterEventHandler registers a handler for nvim RPC events
-func (b *NvimBuffer) RegisterEventHandler(handler func(event string)) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-	return b.client.RegisterHandler("cursortab_event", func(_ *nvim.Nvim, event string) {
-		handler(event)
-	})
-}
-
 // Internal helper methods
 
-// NotifyState forwards an engine state transition to Neovim via Lua
-// (consumed by the lualine statusline integration). No-op when no editor
-// client is connected.
-func (b *NvimBuffer) NotifyState(state string) {
-	b.executeLuaFunction("require('cursortab').on_state_change(...)", state)
+// NotifyState forwards engine state and request activity to Neovim.
+func (b *NvimBuffer) NotifyState(status types.EngineStatus) {
+	b.executeLuaFunction("require('cursortab').on_state_change(...)", status)
 }
 
 func (b *NvimBuffer) executeLuaFunction(luaCode string, args ...any) {

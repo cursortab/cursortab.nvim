@@ -242,9 +242,6 @@ func (b *EvalBuffer) MoveCursor(line int, center, mark bool) error {
 	return nil
 }
 
-// RegisterEventHandler implements engine.Buffer.
-func (b *EvalBuffer) RegisterEventHandler(handler func(event string)) error { return nil }
-
 // InsertText implements engine.Buffer.
 func (b *EvalBuffer) InsertText(line, col int, txt string, keepUI bool) error {
 	b.mu.Lock()

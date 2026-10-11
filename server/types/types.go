@@ -1,5 +1,13 @@
 package types
 
+// EngineStatus is the editor-facing state and request activity snapshot.
+// Pending includes foreground requests, prefetch, and streams until completion
+// or cancellation, even when no suggestion is being displayed.
+type EngineStatus struct {
+	State   string `msgpack:"state"`
+	Pending bool   `msgpack:"pending"`
+}
+
 // Completion represents a code completion with line range and content
 type Completion struct {
 	StartLine  int // 1-indexed

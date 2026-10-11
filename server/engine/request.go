@@ -134,7 +134,7 @@ func (e *Engine) requestCompletion(source types.CompletionSource, manual bool) {
 		return
 	}
 	if !compatible {
-		e.setState(statePendingCompletion)
+		e.state = statePendingCompletion
 		select {
 		case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: &types.CompletionResponse{}}:
 		case <-e.mainCtx.Done():
@@ -142,7 +142,7 @@ func (e *Engine) requestCompletion(source types.CompletionSource, manual bool) {
 		return
 	}
 
-	e.setState(statePendingCompletion)
+	e.state = statePendingCompletion
 	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
 	e.currentCancel = cancel
 	go func() {
@@ -356,13 +356,13 @@ func (e *Engine) handleDeferredCursorTarget() {
 	}
 
 	if e.cursorTarget.ShouldRetrigger {
-		e.requestCompletion(types.CompletionSourceTyping, false)
-		e.setState(stateIdle)
+		e.state = stateIdle
 		e.cursorTarget = nil
+		e.requestCompletion(types.CompletionSourceTyping, false)
 		return
 	}
 
-	e.setState(stateIdle)
+	e.state = stateIdle
 	e.cursorTarget = nil
 }
 

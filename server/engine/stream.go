@@ -8,7 +8,7 @@ import (
 )
 
 func (e *Engine) startCompletionStream(stream CompletionStream, manual bool) {
-	e.state = stateStreamingCompletion
+	e.setState(stateStreamingCompletion)
 
 	viewportTop, viewportBottom := e.buffer.ViewportBounds()
 	windowStart, oldLines := stream.Window()
@@ -142,7 +142,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 	e.completionStream = nil
 
 	if stagingResult == nil || len(stagingResult.Stages) == 0 {
-		e.state = stateIdle
+		e.setState(stateIdle)
 		return
 	}
 
@@ -169,7 +169,7 @@ func (e *Engine) handleStreamCompleteSimple() {
 	// The accept path reconciles any boundary mismatch (accept.go:54-63).
 	if firstStageRendered {
 		e.cursorTarget = firstStage.CursorTarget
-		e.state = stateHasCompletion
+		e.setState(stateHasCompletion)
 		return
 	}
 

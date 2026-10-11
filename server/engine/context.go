@@ -63,7 +63,7 @@ func (e *Engine) handleFileSwitch(oldPath, newPath string, currentLines []string
 	e.cursorTarget = nil
 	e.stagedCompletion = nil
 	e.resetCompletionFields()
-	e.state = stateIdle
+	e.setState(stateIdle)
 	e.buffer.ClearUI()
 
 	if oldPath != "" {

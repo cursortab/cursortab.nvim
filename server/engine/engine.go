@@ -118,6 +118,26 @@ type Engine struct {
 	completionsSinceAccept int
 	pendingMetricsInfo     *types.MetricsInfo // stored from provider completion for showCurrentStage
 	rejectedCompletions    map[string][]*rejectedCompletion
+
+	// Optional hook invoked on every state transition (see setState).
+	// Set once via SetStateNotifier before Start; never mutated after.
+	stateNotifier func(string)
+}
+
+// setState assigns the engine state and announces the transition to an
+// optional notifier (wired by the daemon for statusline integration).
+func (e *Engine) setState(s state) {
+	e.state = s
+	if e.stateNotifier != nil {
+		e.stateNotifier(s.String())
+	}
+}
+
+// SetStateNotifier registers a callback invoked on every state transition.
+// MUST be called before Start; the callback may fire from any goroutine
+// that mutates engine state, so it must be goroutine-safe.
+func (e *Engine) SetStateNotifier(f func(string)) {
+	e.stateNotifier = f
 }
 
 // NewEngine creates a new Engine instance.
@@ -201,7 +221,7 @@ func (e *Engine) Stop() {
 		e.cancelPrefetch()
 		e.stopIdleTimer()
 		e.stopTextChangeTimer()
-		e.state = stateIdle
+		e.setState(stateIdle)
 		e.cursorTarget = nil
 		e.resetCompletionFields()
 		e.stagedCompletion = nil

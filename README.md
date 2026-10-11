@@ -593,6 +593,25 @@ require("blink.cmp").setup({
 - Visual indicators appear for additions, deletions, and completions
 - Off-screen jump targets show directional arrows with distance information
 
+### Statusline integration
+
+The daemon broadcasts engine state transitions as a `User` autocmd. Consumers
+(e.g. statuslines) can subscribe to display whether a prediction request is in
+flight:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "CursortabStateChanged",
+  callback = function(args)
+    -- args.data: "Idle" | "PendingCompletion" | "HasCompletion" |
+    --             "HasCursorTarget" | "StreamingCompletion"
+    vim.g.cursortab_pending = args.data == "PendingCompletion"
+      or args.data == "StreamingCompletion"
+    require("lualine").refresh({})
+  end,
+})
+```
+
 ### Commands
 
 - `:CursortabToggle`: Toggle the plugin on/off

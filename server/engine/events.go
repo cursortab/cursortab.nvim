@@ -323,7 +323,7 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 			logger.Error("completion error: %v", event.Err)
 		}
 		if e.state == statePendingCompletion {
-			e.state = stateIdle
+			e.setState(stateIdle)
 			e.cancelCurrentRequest()
 		}
 		return true
@@ -374,7 +374,7 @@ func (e *Engine) doFileSaved() {
 
 func (e *Engine) doTextChangePending() {
 	e.cancelCurrentRequest()
-	e.state = stateIdle
+	e.setState(stateIdle)
 	e.startTextChangeTimer()
 }
 
@@ -413,7 +413,7 @@ func (e *Engine) cancelStreamAndCheckTyping(cancelFn func()) {
 	e.syncBuffer()
 	matches, hasRemaining := e.checkTypingMatchesPrediction()
 	if matches && hasRemaining {
-		e.state = stateHasCompletion
+		e.setState(stateHasCompletion)
 		return
 	}
 	if matches {
@@ -451,7 +451,7 @@ func (e *Engine) doAcceptStreamingCompletion() {
 		if hasStreaming {
 			e.acceptedDuringStreaming = true
 		}
-		e.state = stateHasCompletion
+		e.setState(stateHasCompletion)
 		e.acceptCompletion()
 	} else {
 		if hasStreaming {

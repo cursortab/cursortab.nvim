@@ -753,6 +753,13 @@ func (b *NvimBuffer) RegisterEventHandler(handler func(event string)) error {
 
 // Internal helper methods
 
+// NotifyState forwards an engine state transition to Neovim via Lua
+// (consumed by the lualine statusline integration). No-op when no editor
+// client is connected.
+func (b *NvimBuffer) NotifyState(state string) {
+	b.executeLuaFunction("require('cursortab').on_state_change(...)", state)
+}
+
 func (b *NvimBuffer) executeLuaFunction(luaCode string, args ...any) {
 	if b.client == nil {
 		return

@@ -30,6 +30,18 @@ function M.is_completing()
 	return events.is_completing()
 end
 
+---Bridge for engine state transitions pushed from the Go daemon (invoked via
+---ExecLua on every transition). Fires a User autocmd so consumers such as
+---statuslines can subscribe to the request lifecycle without hooking this
+---module. Overridable for direct callbacks.
+---@param state string "Idle" | "PendingCompletion" | "HasCompletion" | "HasCursorTarget" | "StreamingCompletion"
+function M.on_state_change(state)
+	vim.api.nvim_exec_autocmds("User", {
+		pattern = "CursortabStateChanged",
+		data = state,
+	})
+end
+
 ---RPC callback: called when completion is ready
 ---@param diff_result DiffResult Completion diff result from Go daemon
 function M.on_completion_ready(diff_result)

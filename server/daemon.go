@@ -140,6 +140,10 @@ func NewDaemon(config Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Announce engine state transitions to the connected editor (statusline).
+	eng.SetStateNotifier(func(s string) {
+		buf.NotifyState(s)
+	})
 
 	ctx, cancel := newDaemonContext()
 

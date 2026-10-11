@@ -118,6 +118,33 @@ type Engine struct {
 	completionsSinceAccept int
 	pendingMetricsInfo     *types.MetricsInfo // stored from provider completion for showCurrentStage
 	rejectedCompletions    map[string][]*rejectedCompletion
+
+	stateNotifier func(types.EngineStatus)
+	lastNotified  types.EngineStatus
+}
+
+// notifyStateChange publishes a coherent snapshot after an event, rather than
+// intermediate states during cancellation, replacement, or acceptance.
+// Called with mu held. A new editor connection forces an initial snapshot.
+func (e *Engine) notifyStateChange(force bool) {
+	if e.stateNotifier == nil {
+		return
+	}
+	status := types.EngineStatus{
+		State:   e.state.String(),
+		Pending: e.currentCancel != nil || e.completionStream != nil || e.hasInflightPrefetch(),
+	}
+	if force || status != e.lastNotified {
+		e.lastNotified = status
+		e.stateNotifier(status)
+	}
+}
+
+// SetStateNotifier registers a synchronous callback for state or activity changes.
+// Call before Start. The callback runs with the engine lock held and must not
+// call back into the engine.
+func (e *Engine) SetStateNotifier(f func(types.EngineStatus)) {
+	e.stateNotifier = f
 }
 
 // NewEngine creates a new Engine instance.
@@ -193,11 +220,12 @@ func (e *Engine) Stop() {
 	e.stopOnce.Do(func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
+		defer e.notifyStateChange(false)
 
 		logger.Info("stopping engine...")
 
 		e.stopped = true
-		e.cancelCurrentRequest()
+		e.cancelStreaming()
 		e.cancelPrefetch()
 		e.stopIdleTimer()
 		e.stopTextChangeTimer()
@@ -291,35 +319,34 @@ func (e *Engine) readyPrefetchCompletion() *types.Completion {
 	return nil
 }
 
-// RegisterEventHandler registers the event handler for nvim RPC callbacks.
-func (e *Engine) RegisterEventHandler() {
+// HandleEditorEvent queues a known editor event for the engine.
+func (e *Engine) HandleEditorEvent(event string) {
+	eventType := EventTypeFromString(event)
+	if eventType == "" {
+		return
+	}
+	e.mu.RLock()
+	stopped, mainCtx := e.stopped, e.mainCtx
+	e.mu.RUnlock()
+	if stopped || mainCtx == nil {
+		return
+	}
+	select {
+	case e.eventChan <- Event{Type: eventType}:
+	case <-mainCtx.Done():
+	}
+}
+
+// ConnectEditor publishes an editor connection between events, then sends its
+// initial status. connect must start the RPC reader before publishing the client.
+func (e *Engine) ConnectEditor(connect func()) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
 	if e.stopped {
 		return
 	}
-
-	if err := e.buffer.RegisterEventHandler(func(event string) {
-		e.mu.RLock()
-		stopped := e.stopped
-		e.mu.RUnlock()
-
-		if stopped {
-			return
-		}
-
-		eventType := EventTypeFromString(event)
-		if eventType != "" {
-			select {
-			case e.eventChan <- Event{Type: eventType}:
-			case <-e.mainCtx.Done():
-				return
-			}
-		}
-	}); err != nil {
-		logger.Error("error registering event handler for new connection: %v", err)
-	}
+	connect()
+	e.notifyStateChange(true)
 }
 
 // Timer management

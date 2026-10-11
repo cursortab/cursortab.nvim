@@ -260,6 +260,7 @@ func (e *Engine) eventLoop(ctx context.Context) {
 func (e *Engine) handleEvent(event Event) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	defer e.notifyStateChange(false)
 
 	if e.stopped {
 		return
@@ -312,6 +313,7 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 			e.startCompletionStream(event.Stream, event.Manual)
 			return true
 		}
+		e.cancelCurrentRequest()
 		e.handleCompletionReadyImpl(event.Response, event.Manual)
 		return true
 
@@ -322,9 +324,9 @@ func (e *Engine) handleBackgroundEvent(event Event) bool {
 		if !errors.Is(event.Err, context.Canceled) {
 			logger.Error("completion error: %v", event.Err)
 		}
+		e.cancelCurrentRequest()
 		if e.state == statePendingCompletion {
 			e.state = stateIdle
-			e.cancelCurrentRequest()
 		}
 		return true
 

@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+func TestStateNotifierAcceptedStream(t *testing.T) {
+	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
+	var status types.EngineStatus
+	eng.SetStateNotifier(func(value types.EngineStatus) { status = value })
+	eng.state = stateStreamingCompletion
+	eng.streamingState = &streamingState{}
+	eng.completionStream = newMockCompletionStream(nil)
+	eng.currentCancel = func() {}
+	showDisplayedCompletionWithBatchForTest(eng, &types.Completion{
+		StartLine: 1, EndLineInc: 1, Lines: []string{"completed line 1"},
+	}, &mockBatch{}, nil, nil)
+
+	eng.handleEvent(Event{Type: EventAccept})
+	assert.Equal(t, types.EngineStatus{State: "Idle", Pending: true}, status, "stream continues after acceptance")
+	eng.handleStreamCompleteSimple()
+	assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "stream finishes without a state transition")
+}
+
 func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"hello world"} // User typed the full completion

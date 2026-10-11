@@ -593,6 +593,30 @@ require("blink.cmp").setup({
 - Visual indicators appear for additions, deletions, and completions
 - Off-screen jump targets show directional arrows with distance information
 
+### Statusline integration
+
+The daemon sends a `User` autocmd named `CursortabStateChanged` when engine state
+or request activity changes, and when the editor connects. Its `data` is a table:
+
+- `state`: `"Idle"`, `"PendingCompletion"`, `"HasCompletion"`, `"HasCursorTarget"`,
+  or `"StreamingCompletion"`.
+- `pending`: `true` while any foreground request, prefetch request, or stream is
+  active. It stays true if you accept a prediction while its stream continues,
+  and clears when all work finishes or is canceled. Ready suggestions alone do
+  not count as pending.
+
+Subscribe before Cursortab starts to receive the initial status. For example:
+
+```lua
+vim.api.nvim_create_autocmd("User", {
+  pattern = "CursortabStateChanged",
+  callback = function(args)
+    vim.g.cursortab_pending = args.data.pending
+    require("lualine").refresh({})
+  end,
+})
+```
+
 ### Commands
 
 - `:CursortabToggle`: Toggle the plugin on/off

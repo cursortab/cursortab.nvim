@@ -37,7 +37,6 @@ type Buffer interface {
 	ShowCursorTarget(line int) error
 	ClearUI() error
 	MoveCursor(line int, center, mark bool) error
-	RegisterEventHandler(handler func(event string)) error
 	InsertText(line, col int, text string, keepUI bool) error // Insert text at position (1-indexed line, 0-indexed col)
 	ReplaceLine(line int, content string, keepUI bool) error  // Replace a single line (1-indexed)
 	InsertLine(line int, content string, keepUI bool) error   // Insert a new line at position (1-indexed)

@@ -356,9 +356,9 @@ func (e *Engine) handleDeferredCursorTarget() {
 	}
 
 	if e.cursorTarget.ShouldRetrigger {
-		e.requestCompletion(types.CompletionSourceTyping, false)
 		e.state = stateIdle
 		e.cursorTarget = nil
+		e.requestCompletion(types.CompletionSourceTyping, false)
 		return
 	}
 

@@ -30,6 +30,23 @@ function M.is_completing()
 	return events.is_completing()
 end
 
+---@class CursortabEngineStatus
+---@field state "Idle"|"PendingCompletion"|"HasCompletion"|"HasCursorTarget"|"StreamingCompletion"
+---@field pending boolean Any active foreground request, prefetch, or stream
+
+---RPC callback: broadcasts changes to engine state or request activity.
+---@param status CursortabEngineStatus
+function M.on_state_change(status)
+	-- Return the RPC response before subscribers run, so a callback can restart
+	-- the daemon without waiting for the engine lock held by this notification.
+	vim.schedule(function()
+		vim.api.nvim_exec_autocmds("User", {
+			pattern = "CursortabStateChanged",
+			data = status,
+		})
+	end)
+end
+
 ---RPC callback: called when completion is ready
 ---@param diff_result DiffResult Completion diff result from Go daemon
 function M.on_completion_ready(diff_result)

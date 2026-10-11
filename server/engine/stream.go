@@ -54,6 +54,7 @@ func (e *Engine) cancelStreamingKeepPartial() {
 }
 
 func (e *Engine) handleStreamLine(line string) {
+	defer e.notifyStateChange(false)
 	ss := e.streamingState
 	if ss == nil {
 		return
@@ -87,6 +88,7 @@ func (e *Engine) handleStreamLine(line string) {
 }
 
 func (e *Engine) handleStreamCompleteSimple() {
+	defer e.notifyStateChange(false)
 	e.streamLinesChan = nil
 
 	if e.streamingState == nil {

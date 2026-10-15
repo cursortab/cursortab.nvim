@@ -305,16 +305,16 @@ config_keys.provider.fim_tokens = {
 
 -- Validate that all keys in user config are recognized
 ---@param user_cfg table User configuration
----@param default_cfg table Default configuration
+---@param allowed_keys table Recognized configuration keys
 ---@param path string Current path for error messages
-local function validate_config_keys(user_cfg, default_cfg, path)
+local function validate_config_keys(user_cfg, allowed_keys, path)
 	for key, value in pairs(user_cfg) do
-		if default_cfg[key] == nil then
+		if allowed_keys[key] == nil then
 			error(string.format("[cursortab.nvim] Unknown config option: %s%s", path, key))
 		end
 		-- Recursively validate nested tables (skip lists with numeric keys)
-		if type(value) == "table" and type(default_cfg[key]) == "table" and next(value) ~= nil and type(next(value)) ~= "number" then
-			validate_config_keys(value, default_cfg[key], path .. key .. ".")
+		if type(value) == "table" and type(allowed_keys[key]) == "table" and next(value) ~= nil and type(next(value)) ~= "number" then
+			validate_config_keys(value, allowed_keys[key], path .. key .. ".")
 		end
 	end
 end

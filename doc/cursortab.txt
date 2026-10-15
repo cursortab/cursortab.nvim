@@ -183,6 +183,8 @@ ui.completions                            *cursortab-config-ui-completions*
 ui.jump                                              *cursortab-config-ui-jump*
 
   `symbol`        Symbol shown before jump indicator (default: "").
+                  U+E0B2, Powerline separator; requires a compatible font.
+                  Set to "" to hide it.
   `text`          Text shown in jump indicator (default: " TAB ").
   `show_distance` Show line distance for off-screen jumps (default: true).
 

@@ -293,7 +293,17 @@ local valid_provider_types = {
 local valid_log_levels = { trace = true, debug = true, info = true, warn = true, error = true }
 local valid_addition_styles = { dimmed = true, highlight = true }
 
--- Validate that all keys in user config exist in default config
+-- Optional tables have recognized keys without supplying default values.
+local config_keys = vim.deepcopy(default_config)
+config_keys.provider.fim_tokens = {
+	prefix = "",
+	suffix = "",
+	middle = "",
+	repo_name = "",
+	file_sep = "",
+}
+
+-- Validate that all keys in user config are recognized
 ---@param user_cfg table User configuration
 ---@param default_cfg table Default configuration
 ---@param path string Current path for error messages
@@ -313,7 +323,7 @@ end
 ---@param cfg table
 local function validate_config(cfg)
 	-- First, validate that all keys are recognized
-	validate_config_keys(cfg, default_config, "")
+	validate_config_keys(cfg, config_keys, "")
 	-- Validate keymaps.accept (must be string or false)
 	if cfg.keymaps and cfg.keymaps.accept ~= nil then
 		local accept = cfg.keymaps.accept

@@ -207,7 +207,7 @@ func (s *lineStreamSession) forward() {
 
 	if s.prefill != "" {
 		for _, line := range strings.Split(strings.TrimSuffix(s.prefill, "\n"), "\n") {
-			if !s.send(line) {
+			if !s.emit(line) {
 				return
 			}
 		}

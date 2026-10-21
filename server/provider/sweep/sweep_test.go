@@ -1,11 +1,14 @@
 package sweep
 
 import (
+	"context"
 	"cursortab/assert"
 	"cursortab/client/openai"
 	sourcectx "cursortab/ctx"
 	"cursortab/provider"
 	"cursortab/types"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -146,4 +149,47 @@ func TestParseCompletion_StripsStopMarkers(t *testing.T) {
 		Text: "modified line 1<|file_sep|>",
 	})
 	assert.NotNil(t, resp, "should have response")
+}
+
+func TestStreamCompletion_EditBelowPrefill(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`data: {"choices":[{"text":"func sub(a, b int) int {\n\treturn a - b\n}\n\nfunc main() {\n\tfmt.Println(add(1, 2))\n}\n"}]}` + "\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	lines := []string{
+		"package main",
+		"",
+		"import \"fmt\"",
+		"",
+		"func add(a, b int) int {",
+		"\treturn a + b",
+		"}",
+		"",
+		"func sub(a, )",
+		"",
+		"func main() {",
+		"\tfmt.Println(add(1, 2))",
+		"}",
+	}
+	p := NewProvider(&types.ProviderConfig{
+		ProviderURL:       server.URL,
+		ProviderMaxTokens: 512,
+		CompletionTimeout: 5000,
+	})
+
+	stream, err := p.StreamCompletion(context.Background(), completionInput("main.go", lines, 9, 12))
+	assert.NoError(t, err, "start stream")
+
+	var streamed []string
+	for line := range stream.Lines() {
+		streamed = append(streamed, line)
+	}
+	resp, err := stream.Finish()
+	assert.NoError(t, err, "finish stream")
+	assert.NotNil(t, resp.Completion, "completion")
+	assert.Equal(t, "func sub(a, b int) int {", streamed[8], "edited line")
 }

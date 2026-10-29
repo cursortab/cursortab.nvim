@@ -72,6 +72,8 @@ func (p *Provider) StreamCompletion(ctx context.Context, input sourcectx.Complet
 }
 
 func (p *Provider) Build(ctx *provider.RequestState) (*openai.CompletionRequest, error) {
+	// Entire editable-region replacements must not be clipped to viewport height.
+	ctx.Window.MaxLines = 0
 	prompt := assemblePrompt(p, ctx)
 
 	req := p.Request(prompt, stopTokens)
@@ -427,6 +429,10 @@ func buildEditHistory(history []*types.FileDiffHistory) string {
 }
 
 func (p *Provider) Parse(ctx *provider.RequestState, result *openai.CompletionResult) (*types.CompletionResponse, error) {
+	if result.StoppedEarly || result.FinishReason == "length" {
+		return nil, fmt.Errorf("zeta-2: incomplete editable region (%s)", result.FinishReason)
+	}
+
 	text := result.Text
 	if resp, done := provider.RejectEmptyText(providerName, text); done {
 		return resp, nil

@@ -55,7 +55,7 @@ A Neovim plugin that provides edit completions and cursor predictions.
 Recommended starting points:
 
 - **Best hosted:** Mercury API
-- **Best local next-edit:** Zeta-2.1
+- **Local next-edit:** Zeta-2.1 or Zeta-2
 - **Fastest local:** Qwen3.5-0.8B with the `inline` provider, or Sweep 1.5B/0.5B
   with the `sweep` provider
 
@@ -76,7 +76,7 @@ config. See [Providers](#providers) for all available options.
 Run [llama.cpp](https://github.com/ggml-org/llama.cpp):
 
 ```bash
-llama-server -hf mradermacher/zeta-2.1-GGUF --ctx-size 16384 --port 8000
+llama-server -hf mradermacher/zeta-2.1-GGUF:Q8_0 --ctx-size 16384 --port 8000
 ```
 
 ### Qwen3.5-0.8B/Sweep (fastest local)
@@ -104,7 +104,7 @@ llama-server -hf unsloth/Qwen3.5-0.8B-GGUF:Q8_0 --port 8000
         type = "mercuryapi",
         api_key_env = "MERCURY_AI_TOKEN",
 
-        -- Zeta-2.1 (best local)
+        -- Zeta-2.1 (local next-edit)
         -- type = "zeta-2.1",
         -- url = "http://localhost:8000",
 
@@ -311,7 +311,7 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 | Target               | Type       |    Score | deltaChrF | Show rate | Quiet rate | p50 (ms) | p90 (ms) |
 | -------------------- | ---------- | -------: | --------: | --------: | ---------: | -------: | -------: |
 | zeta-2               | zeta-2     | **0.61** |  **65.4** |   **92%** |    **96%** |      551 |      833 |
-| zeta-2.1 †           | zeta-2.1   |     0.57 |      60.6 |       88% |   **100%** |     1504 |     4073 |
+| zeta-2.1             | zeta-2.1   |     0.58 |      62.0 |       88% |   **100%** |      447 |      776 |
 | zeta                 | zeta       |     0.56 |      62.4 |       88% |        92% |      413 |      662 |
 | mercuryapi           | mercuryapi |     0.49 |      61.8 |   **92%** |        69% |      332 |      393 |
 | qwen3.6-27B          | fim        |     0.23 |      32.0 |       60% |        92% |      214 |      455 |
@@ -320,14 +320,14 @@ Measured on 50 scenarios (25 quality + 25 suppress) using the
 | sweep-next-edit-1.5B | sweep      |     0.21 |      43.7 |       68% |        36% |      157 |      258 |
 | qwen3.5-2B           | fim        |     0.20 |      35.1 |       80% |        44% |      185 |      429 |
 | qwen3.5-4B           | fim        |     0.18 |      28.7 |       64% |        64% |      357 |      730 |
-| windsurf             | windsurf   |     0.13 |      19.1 |       52% |   **100%** |      556 |      995 |
+| windsurf             | windsurf   |     0.13 |      19.1 |       52% |   **100%** |      682 |      995 |
 | copilot              | copilot    |     0.13 |      22.3 |       40% |   **100%** |      351 |      915 |
 | sweep-next-edit-0.5B | sweep      |     0.10 |      23.0 |       52% |        40% |      126 |  **207** |
 | qwen3.6-35B-A3B      | fim        |     0.10 |      19.2 |       40% |        80% |  **113** |      411 |
 
-† zeta-2.1 measured against a local llama.cpp server (Q4_K_M quant) over a
-tailnet link; latency is not comparable to the other rows. Quality metrics
-(deltaChrF / show / quiet) are environment-independent.
+Zeta-2.1 was measured with [mradermacher/zeta-2.1-GGUF](https://huggingface.co/mradermacher/zeta-2.1-GGUF),
+using `zeta-2.1.Q8_0.gguf` served by llama.cpp. Latency depends on the serving
+hardware, network, and load; model quantization can also affect quality.
 
 #### Inline Provider (Default)
 
@@ -423,7 +423,7 @@ require("cursortab").setup({
 ```
 
 ```bash
-llama-server -hf mradermacher/zeta-2.1-GGUF --ctx-size 16384 --port 8000
+llama-server -hf mradermacher/zeta-2.1-GGUF:Q8_0 --ctx-size 16384 --port 8000
 ```
 
 </details>

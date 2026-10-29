@@ -219,6 +219,23 @@ func TestDoLineStream_Basic(t *testing.T) {
 	assert.Equal(t, "line 1\nline 2\n", result.Text, "result text")
 }
 
+func TestDoLineStream_UnexpectedEOF(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"choices\":[{\"text\":\"first line\\npartial\"}]}\n\n")
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "")
+	stream := client.DoLineStream(context.Background(), &CompletionRequest{Prompt: "hello"}, 0)
+	for range stream.LinesChan() {
+	}
+	result := <-stream.DoneChan()
+	assert.Error(t, result.Err, "EOF without a completion signal")
+	assert.True(t, result.StoppedEarly, "incomplete stream")
+	assert.Equal(t, "error", result.FinishReason, "finish reason")
+}
+
 func TestDoLineStream_MaxLines(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, _ := w.(http.Flusher)

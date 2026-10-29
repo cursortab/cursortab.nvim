@@ -215,6 +215,7 @@ func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines ch
 	var lineBuffer strings.Builder
 	pending := ""
 	var finishReason string
+	receivedDone := false
 	lineCount := 0
 	stoppedEarly := false
 
@@ -307,6 +308,7 @@ func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines ch
 
 		// Check for end of stream
 		if line == "data: [DONE]" {
+			receivedDone = true
 			break
 		}
 
@@ -385,6 +387,15 @@ func (c *Client) processLineStream(ctx context.Context, body io.Reader, lines ch
 			FinishReason: "error",
 			StoppedEarly: true,
 			Err:          fmt.Errorf("read stream: %w", err),
+		}
+	}
+
+	if !receivedDone && finishReason == "" {
+		return CompletionResult{
+			Text:         textBuilder.String(),
+			FinishReason: "error",
+			StoppedEarly: true,
+			Err:          fmt.Errorf("stream ended without a completion signal: %w", io.ErrUnexpectedEOF),
 		}
 	}
 

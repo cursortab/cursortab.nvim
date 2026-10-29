@@ -62,7 +62,7 @@ type DebugConfig struct {
 }
 
 // Version is the cursortab server version. It is updated automatically by the release workflow.
-var Version = "0.8.0" // AUTO-UPDATED by release workflow
+var Version = "0.8.1" // AUTO-UPDATED by release workflow
 
 // Config is the main configuration structure
 type Config struct {

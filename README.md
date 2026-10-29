@@ -437,6 +437,11 @@ Zed's [Zeta-2](https://huggingface.co/zed-industries/zeta-2) (SeedCoder-8B)
 uses the earlier single-region prompt. Run it locally with
 [llama.cpp](https://github.com/ggml-org/llama.cpp).
 
+Responses replace the entire editable region, not just visible lines. Viewport
+height does not limit streamed output; `max_tokens` and `completion_timeout`
+still apply. Token-truncated or early-stopped responses are rejected rather
+than treating the missing tail as a deletion.
+
 ```lua
 require("cursortab").setup({
   provider = {

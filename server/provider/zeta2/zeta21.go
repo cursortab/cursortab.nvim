@@ -51,6 +51,8 @@ func (p *Provider21) StreamCompletion(ctx context.Context, input sourcectx.Compl
 }
 
 func (p *Provider21) Build(ctx *provider.RequestState) (*openai.CompletionRequest, error) {
+	// The trailing numbered marker is required to decode the replacement span.
+	ctx.Window.MaxLines = 0
 	prompt := assembleZeta21Prompt(ctx)
 	req := p.Request(prompt, zeta21StopTokens)
 	p.LogRequest(req, ctx.Window.MaxLines)

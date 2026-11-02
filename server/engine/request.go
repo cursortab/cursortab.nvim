@@ -256,16 +256,12 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 // computing after the client cancels, holding a slot the next visible request
 // then has to share. Providers without streaming fall back to Complete.
 func (e *Engine) completePrefetch(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
-	streamingProvider, ok := e.provider.(StreamingProvider)
-	if !ok {
-		return e.provider.Complete(reqCtx, input)
-	}
-	stream, err := streamingProvider.StreamCompletion(reqCtx, input)
+	result, stream, err := e.startProviderCompletion(reqCtx, input)
 	if err != nil {
 		return nil, err
 	}
 	if stream == nil {
-		return e.provider.Complete(reqCtx, input)
+		return result, nil
 	}
 	defer stream.Cancel()
 	// Drain: providers that emit preview lines block in forward() once the

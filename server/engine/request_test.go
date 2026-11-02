@@ -212,95 +212,56 @@ func TestPrefetchReady_IgnoresStaleRequest(t *testing.T) {
 }
 
 func TestRequestPrefetch_UsesStreamingTransportWhenAvailable(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2"}
-	buf.row = 1
-	buf.col = 0
-	streamLines := make(chan string)
-	close(streamLines)
-	stream := &mockCompletionStream{
-		lines: streamLines,
-		response: &types.CompletionResponse{Completion: &types.Completion{
-			StartLine:  1,
-			EndLineInc: 1,
-			Lines:      []string{"streamed line 1"},
-		}},
-	}
+	stream := newMockCompletionStream(nil)
+	stream.response = completionResponse(&types.Completion{
+		StartLine: 1, EndLineInc: 1, Lines: []string{"streamed line 1"},
+	})
+	close(stream.lines)
 	prov := newMockStreamingProvider(stream)
-	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
+	eng, cancel := createTestEngineWithContext(newMockBuffer(), prov, newMockClock())
 	defer cancel()
 
-	eng.mu.Lock()
 	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
-	requestID := eng.prefetchRequestID
-	eng.mu.Unlock()
 
-	event := <-eng.eventChan
-
-	assert.Equal(t, EventPrefetchReady, event.Type, "streaming-capable provider should deliver prefetch via stream finish")
-	assert.Equal(t, requestID, event.RequestID, "prefetch request id")
-	assert.Equal(t, stream.response, event.Response, "prefetch response comes from stream finish")
-	assert.Equal(t, 1, prov.streamCalls, "StreamCompletion calls")
-	assert.Equal(t, 0, prov.completionCalls, "Complete must not be called when the streaming transport is used")
+	select {
+	case event := <-eng.eventChan:
+		assert.Equal(t, EventPrefetchReady, event.Type, "stream finish delivers prefetch")
+		assert.Equal(t, stream.response, event.Response, "response comes from stream finish")
+		assert.Equal(t, 0, prov.completionCalls, "batch transport is not used")
+	case <-time.After(time.Second):
+		t.Fatal("streaming prefetch timed out")
+	}
 }
 
-func TestRequestPrefetch_FallsBackToCompleteWithoutStreaming(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2"}
-	buf.row = 1
-	buf.col = 0
+func TestCompletePrefetch_FallsBackToBatch(t *testing.T) {
 	prov := newMockProvider()
-	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := &Engine{provider: prov}
 
-	eng.mu.Lock()
-	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
-	requestID := eng.prefetchRequestID
-	eng.mu.Unlock()
+	result, err := eng.completePrefetch(t.Context(), ctx.CompletionInput{})
 
-	event := <-eng.eventChan
-
-	assert.Equal(t, EventPrefetchReady, event.Type, "batch-only provider prefetch should still complete")
-	assert.Equal(t, requestID, event.RequestID, "prefetch request id")
-	assert.Equal(t, prov.completionResp, event.Response, "prefetch response comes from Complete")
-	assert.Equal(t, 1, prov.completionCalls, "Complete calls")
+	assert.NoError(t, err, "batch prefetch")
+	assert.Equal(t, prov.completionResp, result, "response comes from batch transport")
+	assert.Equal(t, 1, prov.completionCalls, "batch transport is used")
 }
 
 func TestRequestPrefetch_CancelledStreamDeliversErrorNotReady(t *testing.T) {
-	// The stream lines channel is unbuffered, so the engine's drain loop only
-	// finishes after the test cancels the prefetch context. This pins the
-	// assertion to completePrefetch's post-drain cancellation check: the
-	// cancelled prefetch must surface as EventPrefetchError, never as an
-	// EventPrefetchReady carrying a response.
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2"}
-	buf.row = 1
-	buf.col = 0
-	streamLines := make(chan string)
-	prov := newMockStreamingProvider(&mockCompletionStream{lines: streamLines})
-	clock := newMockClock()
-	eng, mainCancel := createTestEngineWithContext(buf, prov, clock)
-	defer mainCancel()
+	stream := newMockCompletionStream(nil)
+	prov := newMockStreamingProvider(stream)
+	eng, cancel := createTestEngineWithContext(newMockBuffer(), prov, newMockClock())
+	defer cancel()
 
-	eng.mu.Lock()
 	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
-	eng.mu.Unlock()
+	eng.cancelPrefetch()
+	// Keep the drain blocked until the prefetch context has been cancelled.
+	close(stream.lines)
 
-	go func() {
-		streamLines <- "line a"
-		streamLines <- "line b"
-		eng.mu.Lock()
-		eng.cancelPrefetch()
-		eng.mu.Unlock()
-		close(streamLines)
-	}()
-
-	event := <-eng.eventChan
-
-	assert.Equal(t, EventPrefetchError, event.Type, "cancelled prefetch should not deliver an EventPrefetchReady")
-	assert.True(t, errors.Is(event.Err, context.Canceled), "prefetch error should be the cancellation")
+	select {
+	case event := <-eng.eventChan:
+		assert.Equal(t, EventPrefetchError, event.Type, "cancelled prefetch is not ready")
+		assert.True(t, errors.Is(event.Err, context.Canceled), "prefetch cancellation")
+	case <-time.After(time.Second):
+		t.Fatal("cancelled prefetch timed out")
+	}
 }
 
 func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {

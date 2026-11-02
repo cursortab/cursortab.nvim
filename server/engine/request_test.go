@@ -211,6 +211,59 @@ func TestPrefetchReady_IgnoresStaleRequest(t *testing.T) {
 	assert.Equal(t, current, eng.readyPrefetch().CompletionResponse, "ready response")
 }
 
+func TestRequestPrefetch_UsesStreamingTransportWhenAvailable(t *testing.T) {
+	stream := newMockCompletionStream(nil)
+	stream.response = completionResponse(&types.Completion{
+		StartLine: 1, EndLineInc: 1, Lines: []string{"streamed line 1"},
+	})
+	close(stream.lines)
+	prov := newMockStreamingProvider(stream)
+	eng, cancel := createTestEngineWithContext(newMockBuffer(), prov, newMockClock())
+	defer cancel()
+
+	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
+
+	select {
+	case event := <-eng.eventChan:
+		assert.Equal(t, EventPrefetchReady, event.Type, "stream finish delivers prefetch")
+		assert.Equal(t, stream.response, event.Response, "response comes from stream finish")
+		assert.Equal(t, 0, prov.completionCalls, "batch transport is not used")
+	case <-time.After(time.Second):
+		t.Fatal("streaming prefetch timed out")
+	}
+}
+
+func TestCompletePrefetch_FallsBackToBatch(t *testing.T) {
+	prov := newMockProvider()
+	eng := &Engine{provider: prov}
+
+	result, err := eng.completePrefetch(t.Context(), ctx.CompletionInput{})
+
+	assert.NoError(t, err, "batch prefetch")
+	assert.Equal(t, prov.completionResp, result, "response comes from batch transport")
+	assert.Equal(t, 1, prov.completionCalls, "batch transport is used")
+}
+
+func TestRequestPrefetch_CancelledStreamDeliversErrorNotReady(t *testing.T) {
+	stream := newMockCompletionStream(nil)
+	prov := newMockStreamingProvider(stream)
+	eng, cancel := createTestEngineWithContext(newMockBuffer(), prov, newMockClock())
+	defer cancel()
+
+	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
+	eng.cancelPrefetch()
+	// Keep the drain blocked until the prefetch context has been cancelled.
+	close(stream.lines)
+
+	select {
+	case event := <-eng.eventChan:
+		assert.Equal(t, EventPrefetchError, event.Type, "cancelled prefetch is not ready")
+		assert.True(t, errors.Is(event.Err, context.Canceled), "prefetch cancellation")
+	case <-time.After(time.Second):
+		t.Fatal("cancelled prefetch timed out")
+	}
+}
+
 func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	buf := newMockBuffer()
 	buf.lines = []string{"hello"}

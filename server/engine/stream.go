@@ -144,7 +144,14 @@ func (e *Engine) handleStreamCompleteSimple() {
 	e.completionStream = nil
 
 	if stagingResult == nil || len(stagingResult.Stages) == 0 {
+		// A stream may emit no preview lines and deliver its completion only
+		// via Finish (zeta-2.1: the rewritten span is chosen by the trailing
+		// marker's number, so nothing can be previewed mid-stream). Adopt the
+		// parsed batch result instead of dropping it.
 		e.state = stateIdle
+		if streamResponse != nil {
+			e.handleCompletionReadyImpl(streamResponse, ss.Manual)
+		}
 		return
 	}
 

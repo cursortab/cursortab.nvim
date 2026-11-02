@@ -236,7 +236,7 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 	}
 	go func() {
 		defer cancel()
-		result, err := e.provider.Complete(reqCtx, input)
+		result, err := e.completePrefetch(reqCtx, input)
 		if err != nil {
 			select {
 			case e.eventChan <- Event{Type: EventPrefetchError, RequestID: requestID, Err: err}:
@@ -249,6 +249,29 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 		case <-e.mainCtx.Done():
 		}
 	}()
+}
+
+// completePrefetch prefers the streaming transport so that a cancelled
+// prefetch request is aborted server-side: a non-streaming request keeps
+// computing after the client cancels, holding a slot the next visible request
+// then has to share. Providers without streaming fall back to Complete.
+func (e *Engine) completePrefetch(reqCtx context.Context, input ctx.CompletionInput) (*types.CompletionResponse, error) {
+	result, stream, err := e.startProviderCompletion(reqCtx, input)
+	if err != nil {
+		return nil, err
+	}
+	if stream == nil {
+		return result, nil
+	}
+	defer stream.Cancel()
+	// Drain: providers that emit preview lines block in forward() once the
+	// buffered channel fills.
+	for range stream.Lines() {
+	}
+	if err := reqCtx.Err(); err != nil {
+		return nil, err
+	}
+	return stream.Finish()
 }
 
 func (e *Engine) handlePrefetchReady(resp *types.CompletionResponse) {

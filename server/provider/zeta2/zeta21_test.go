@@ -1,14 +1,18 @@
 package zeta2
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"cursortab/assert"
 	"cursortab/client/openai"
 	sourcectx "cursortab/ctx"
-	"cursortab/engine"
 	"cursortab/provider"
 	"cursortab/types"
 )
@@ -322,11 +326,53 @@ func TestZeta21Parse_RejectsTruncatedGeneration(t *testing.T) {
 	assert.True(t, resp.Completion == nil, "truncated generation is rejected")
 }
 
-func TestZeta21Complete_ImplementsBatchFlow(t *testing.T) {
-	var _ provider.CompletionFlow[*openai.CompletionRequest, *openai.CompletionResult] = newZeta21TestProvider()
+func TestZeta21StreamCompletion_PreservesFullReplacement(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req openai.CompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			assert.NoError(t, err, "decode completion request")
+			return
+		}
+		const response = `{"choices":[{"text":"<|marker_1|>\nnew\ncode\n<|marker_2|>","finish_reason":"stop"}]}`
+		if req.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", response)
+		} else {
+			fmt.Fprint(w, response)
+		}
+	}))
+	defer server.Close()
+	p := NewProvider21(&types.ProviderConfig{
+		ProviderURL: server.URL, ProviderModel: "zeta-2.1", ProviderMaxTokens: 2048,
+	})
+	input := sourcectx.CompletionInput{Current: sourcectx.CurrentSnapshot{
+		File:           sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"old"}},
+		Cursor:         sourcectx.CursorPosition{Row: 1},
+		ViewportHeight: 1,
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	batch, err := p.Complete(ctx, input)
+	assert.NoError(t, err, "batch completion")
+	assert.Equal(t, &types.CompletionResponse{Completion: &types.Completion{
+		StartLine: 1, EndLineInc: 1, Lines: []string{"new", "code"},
+	}}, batch, "batch replacement")
+	stream, err := p.StreamCompletion(ctx, input)
+	assert.NoError(t, err, "start completion stream")
+	if err != nil {
+		return
+	}
+	defer stream.Cancel()
+	previews := 0
+	for range stream.Lines() {
+		previews++
+	}
+	result, err := stream.Finish()
+	assert.NoError(t, err, "finish completion stream")
+	assert.Equal(t, 0, previews, "numbered protocol is not previewed")
+	assert.Equal(t, batch, result, "stream preserves replacement beyond viewport")
 }
 
-func TestZeta21Complete_DoesNotImplementStreaming(t *testing.T) {
-	_, streams := any(newZeta21TestProvider()).(engine.StreamingProvider)
-	assert.False(t, streams, "Zeta 2.1 uses only the batch completion flow")
+func TestZeta21Complete_ImplementsBatchFlow(t *testing.T) {
+	var _ provider.CompletionFlow[*openai.CompletionRequest, *openai.CompletionResult] = newZeta21TestProvider()
 }

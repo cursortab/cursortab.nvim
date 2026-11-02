@@ -28,7 +28,9 @@ type Provider21 struct {
 }
 
 var _ engine.Provider = (*Provider21)(nil)
+var _ engine.StreamingProvider = (*Provider21)(nil)
 var _ provider.CompletionFlow[*openai.CompletionRequest, *openai.CompletionResult] = (*Provider21)(nil)
+var _ provider.OpenAIStreamFlow = (*Provider21)(nil)
 
 func NewProvider21(config *types.ProviderConfig) *Provider21 {
 	return &Provider21{
@@ -44,7 +46,13 @@ func (p *Provider21) Complete(ctx context.Context, input sourcectx.CompletionInp
 	return provider.StartBatch(ctx, input, p.ProviderConfig(), p)
 }
 
+func (p *Provider21) StreamCompletion(ctx context.Context, input sourcectx.CompletionInput) (engine.CompletionStream, error) {
+	return p.OpenAI.StartStream(ctx, input, p.ProviderConfig(), p)
+}
+
 func (p *Provider21) Build(ctx *provider.RequestState) (*openai.CompletionRequest, error) {
+	// The trailing numbered marker is required to decode the replacement span.
+	ctx.Window.MaxLines = 0
 	prompt := assembleZeta21Prompt(ctx)
 	req := p.Request(prompt, zeta21StopTokens)
 	p.LogRequest(req, ctx.Window.MaxLines)
@@ -53,6 +61,17 @@ func (p *Provider21) Build(ctx *provider.RequestState) (*openai.CompletionReques
 
 func (p *Provider21) Parse(ctx *provider.RequestState, result *openai.CompletionResult) (*types.CompletionResponse, error) {
 	return parseZeta21Result(ctx, result), nil
+}
+
+// StreamArgs opts out of stream preview entirely: zeta-2.1's rewritten span is
+// chosen by the trailing marker's number, so no window is correct before the
+// stream finishes. The stream exists for server-side abortability only — every
+// line is suppressed and Finish parses the full text exactly like the batch
+// path, with the engine adopting the result when no stages were built.
+func (p *Provider21) StreamArgs(state *provider.RequestState) provider.OpenAIStreamArgs {
+	return provider.OpenAIStreamArgs{
+		LineTransform: func(string) (string, bool) { return "", false },
+	}
 }
 
 // Zeta 2.1 uses the SeedCoder SPM envelope from Zeta-2 with V0318 numbered

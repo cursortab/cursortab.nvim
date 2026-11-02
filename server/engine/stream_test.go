@@ -297,3 +297,32 @@ func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamComplete_NoPreviewLines_AdoptsFinishResult(t *testing.T) {
+	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
+	stream := &mockCompletionStream{response: completionResponse(&types.Completion{
+		StartLine: 1, EndLineInc: 1, Lines: []string{"updated"},
+	})}
+
+	eng.startCompletionStream(stream, false)
+	eng.handleStreamCompleteSimple()
+
+	assert.Equal(t, stateHasCompletion, eng.state, "finish result is staged")
+	assert.NotNil(t, eng.stagedCompletion, "staged completion")
+	if eng.stagedCompletion != nil {
+		assert.Equal(t, []string{"updated"}, eng.stagedCompletion.Stages[0].Lines, "completion lines")
+	}
+	assert.Nil(t, eng.streamingState, "streaming state after finish")
+	assert.Nil(t, eng.completionStream, "stream after finish")
+}
+
+func TestStreamComplete_NoPreviewLines_EmptyResultStaysIdle(t *testing.T) {
+	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
+
+	eng.startCompletionStream(&mockCompletionStream{response: &types.CompletionResponse{}}, false)
+	eng.handleStreamCompleteSimple()
+
+	assert.Equal(t, stateIdle, eng.state, "stream that delivers nothing keeps the engine idle")
+	assert.Nil(t, eng.streamingState, "streaming state after finish")
+	assert.Nil(t, eng.completionStream, "stream after finish")
+}

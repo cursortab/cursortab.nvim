@@ -40,7 +40,10 @@ function M.get_context(bufnr, row, col, max_siblings)
 
 	local cursor_node = vim.treesitter.get_node({ bufnr = bufnr, pos = { row, col } })
 	if not cursor_node then
-		return {}
+		-- nil, not {}. The Go client decodes this into map[string]any; an empty
+		-- Lua table arrives as a msgpack array and fails to decode, which drops
+		-- the whole treesitter context and logs an error.
+		return nil
 	end
 
 	-- Walk up to find enclosing scope

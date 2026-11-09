@@ -45,6 +45,7 @@
 ---@field context_size integer Max input context size in tokens (used for input trimming; 0 = use max_tokens)
 ---@field max_tokens integer Max tokens to generate
 ---@field top_k integer
+---@field top_p number Top-p sampling in (0, 1]; 0 leaves the provider default
 ---@field completion_timeout integer
 ---@field max_diff_history_tokens integer
 ---@field completion_path string API endpoint path (e.g., "/v1/completions")
@@ -144,6 +145,7 @@ local default_config = {
 		context_size = 0, -- Max input context size in tokens (0 = use max_tokens)
 		max_tokens = 512, -- Max tokens to generate
 		top_k = 50, -- Top-k sampling
+		top_p = 0.0, -- Top-p sampling (0 = provider default)
 		completion_timeout = 5000, -- Timeout in ms for completion requests
 		max_diff_history_tokens = 512, -- Max tokens for diff history (0 = no limit)
 		completion_path = "/v1/completions", -- API endpoint path
@@ -434,6 +436,9 @@ local function validate_config(cfg)
 		end
 		if cfg.provider.max_diff_history_tokens and cfg.provider.max_diff_history_tokens < 0 then
 			error("[cursortab.nvim] provider.max_diff_history_tokens must be >= 0")
+		end
+		if cfg.provider.top_p and (cfg.provider.top_p < 0 or cfg.provider.top_p > 1) then
+			error("[cursortab.nvim] provider.top_p must be between 0 and 1 (0 = provider default)")
 		end
 		if cfg.provider.completion_path and not cfg.provider.completion_path:match("^/") then
 			error("[cursortab.nvim] provider.completion_path must start with '/'")

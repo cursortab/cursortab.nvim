@@ -134,6 +134,7 @@ local function start_daemon()
 			context_size = cfg.provider.context_size,
 			max_tokens = cfg.provider.max_tokens,
 			top_k = cfg.provider.top_k,
+			top_p = cfg.provider.top_p,
 			completion_timeout = cfg.provider.completion_timeout,
 			max_diff_history_tokens = cfg.provider.max_diff_history_tokens,
 			completion_path = cfg.provider.completion_path,

@@ -6,7 +6,7 @@ package text
 func calculateCursorFromGroups(groups []*Group, lines []string) (int, int) {
 	targetLine := -1
 	for _, g := range groups {
-		if g.Type != "deletion" && g.EndLine > targetLine {
+		if g.Type != GroupDeletion && g.EndLine > targetLine {
 			targetLine = g.EndLine
 		}
 	}
@@ -27,7 +27,7 @@ func ToLuaFormat(stage *Stage, startLine int) map[string]any {
 	var luaGroups []map[string]any
 	for _, g := range stage.Groups {
 		luaGroup := map[string]any{
-			"type":        g.Type,
+			"type":        string(g.Type),
 			"start_line":  g.StartLine,
 			"end_line":    g.EndLine,
 			"buffer_line": g.BufferLine,
@@ -35,8 +35,8 @@ func ToLuaFormat(stage *Stage, startLine int) map[string]any {
 			"old_lines":   g.OldLines,
 		}
 
-		if g.RenderHint != "" {
-			luaGroup["render_hint"] = g.RenderHint
+		if g.RenderHint != HintNone {
+			luaGroup["render_hint"] = string(g.RenderHint)
 			luaGroup["col_start"] = g.ColStart
 			luaGroup["col_end"] = g.ColEnd
 		}

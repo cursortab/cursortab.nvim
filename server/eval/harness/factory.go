@@ -55,17 +55,17 @@ func BuildProviderForTarget(t Target, baseCfg *types.ProviderConfig, transport h
 		p.SetHTTPTransport(transport)
 		return p, nil
 	case "fim":
-		if cfg.ProviderContextSize == 0 {
-			cfg.ProviderContextSize = 1024
+		if cfg.ContextSize == 0 {
+			cfg.ContextSize = 1024
 		}
-		if cfg.ProviderMaxTokens == 0 || cfg.ProviderMaxTokens > 128 {
-			cfg.ProviderMaxTokens = 128
+		if cfg.MaxTokens == 0 || cfg.MaxTokens > 128 {
+			cfg.MaxTokens = 128
 		}
 		// Qwen models (and Zeta, which is Qwen-based) use the standard FIM
 		// tokens; inject them when targets haven't configured FIMTokens. Without
 		// this, eval FIM falls back to prompt+suffix mode and Qwen completions
 		// regress.
-		isQwen := strings.Contains(strings.ToLower(cfg.ProviderModel), "qwen")
+		isQwen := strings.Contains(strings.ToLower(cfg.Model), "qwen")
 		if cfg.FIMTokens == nil && isQwen {
 			cfg.FIMTokens = &types.FIMTokenConfig{
 				Prefix: "<|fim_prefix|>",
@@ -110,16 +110,16 @@ func mergeConfig(base *types.ProviderConfig, t Target) *types.ProviderConfig {
 		*out = *base
 	}
 	if t.URL != "" {
-		out.ProviderURL = t.URL
+		out.URL = t.URL
 	}
 	if t.Model != "" {
-		out.ProviderModel = t.Model
+		out.Model = t.Model
 	}
 	if out.CompletionPath == "" {
 		out.CompletionPath = "/v1/completions"
 	}
-	if out.ProviderMaxTokens == 0 {
-		out.ProviderMaxTokens = 2048
+	if out.MaxTokens == 0 {
+		out.MaxTokens = 2048
 	}
 	if out.CompletionTimeout == 0 {
 		out.CompletionTimeout = 30_000

@@ -5,8 +5,11 @@ import (
 	"cursortab/assert"
 	"cursortab/buffer"
 	"cursortab/ctx"
+	"cursortab/history"
 	"cursortab/text"
 	"cursortab/types"
+	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -21,12 +24,11 @@ type mockBuffer struct {
 	row              int
 	col              int
 	path             string
-	version          int
 	viewportTop      int
 	viewportBottom   int
-	previousLines    []string
-	originalLines    []string
-	diffHistories    []*types.DiffEntry
+	unmodified       bool
+	switchOnSync     bool   // Next Sync reports a buffer switch
+	pathOnSync       string // Next Sync renames the buffer to this path
 	diagnostics      *types.Diagnostics
 	treesitter       *types.TreesitterContext
 	diagnosticsCalls int
@@ -34,7 +36,6 @@ type mockBuffer struct {
 	// Track method calls
 	syncCalls              int
 	clearUICalls           int
-	commitPendingCalls     int
 	showCursorTargetLine   int
 	prepareCompletionCalls int
 	lastPreparedCompletion struct {
@@ -44,11 +45,7 @@ type mockBuffer struct {
 	}
 
 	// Partial accept tracking
-	lastInsertedText    string
-	lastInsertLine      int
-	lastInsertCol       int
-	lastReplacedLine    int
-	lastReplacedContent string
+	lastInsertedText string
 }
 
 func newMockBuffer() *mockBuffer {
@@ -57,18 +54,27 @@ func newMockBuffer() *mockBuffer {
 		row:            1,
 		col:            0,
 		path:           "test.go",
-		version:        1,
 		viewportTop:    1,
 		viewportBottom: 50,
 	}
 }
 
-func (b *mockBuffer) Sync(workspacePath string) (*buffer.SyncResult, error) {
+func (b *mockBuffer) Sync() (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.syncCalls++
-	return &buffer.SyncResult{BufferChanged: false}, nil
+	switched := b.switchOnSync
+	b.switchOnSync = false
+	if b.pathOnSync != "" {
+		b.path, b.pathOnSync = b.pathOnSync, ""
+	}
+	return switched, nil
 }
+
+func (b *mockBuffer) WorkspacePath() string { return "/workspace" }
+
+// Modified defaults to true so completions are not suppressed in tests.
+func (b *mockBuffer) Modified() bool { return !b.unmodified }
 
 func (b *mockBuffer) Lines() []string {
 	b.mu.Lock()
@@ -94,12 +100,6 @@ func (b *mockBuffer) Path() string {
 	return b.path
 }
 
-func (b *mockBuffer) Version() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.version
-}
-
 func (b *mockBuffer) ViewportBounds() (top, bottom int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -108,30 +108,6 @@ func (b *mockBuffer) ViewportBounds() (top, bottom int) {
 
 func (b *mockBuffer) AvailableWidth() int {
 	return 120
-}
-
-func (b *mockBuffer) PreviousLines() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.previousLines
-}
-
-func (b *mockBuffer) OriginalLines() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.originalLines
-}
-
-func (b *mockBuffer) DiffHistories() []*types.DiffEntry {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.diffHistories
-}
-
-func (b *mockBuffer) DiskLines() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return nil
 }
 
 func (b *mockBuffer) Diagnostics() *types.Diagnostics {
@@ -148,29 +124,6 @@ func (b *mockBuffer) TreesitterSymbols(row int, col int, maxSiblings int) *types
 	return b.treesitter
 }
 
-func (b *mockBuffer) SetFileContext(ctx buffer.FileContext) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.previousLines = ctx.PreviousLines
-	b.originalLines = ctx.OriginalLines
-	b.diffHistories = ctx.DiffHistories
-}
-
-func (b *mockBuffer) HasChanges(startLine, endLineInc int, lines []string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	// Simple implementation: check if any line differs
-	for i := startLine; i <= endLineInc && i-1 < len(b.lines); i++ {
-		relIdx := i - startLine
-		if relIdx < len(lines) {
-			if i-1 < len(b.lines) && lines[relIdx] != b.lines[i-1] {
-				return true
-			}
-		}
-	}
-	return len(lines) != (endLineInc - startLine + 1)
-}
-
 func (b *mockBuffer) PrepareCompletion(startLine, endLineInc int, lines []string, groups []*text.Group) buffer.Batch {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -178,44 +131,47 @@ func (b *mockBuffer) PrepareCompletion(startLine, endLineInc int, lines []string
 	b.lastPreparedCompletion.startLine = startLine
 	b.lastPreparedCompletion.endLineInc = endLineInc
 	b.lastPreparedCompletion.lines = lines
-	return &mockBatch{}
+	return &mockApplyBatch{buf: b, edit: history.Edit{
+		StartLine:  startLine,
+		EndLineInc: endLineInc,
+		Lines:      slices.Clone(lines),
+	}}
 }
 
-func (b *mockBuffer) CommitPending() {
+// mockApplyBatch applies an edit the way nvim_buf_set_lines does: the range
+// must lie in the buffer and must not end before it starts.
+type mockApplyBatch struct {
+	buf  *mockBuffer
+	edit history.Edit
+}
+
+func (m *mockApplyBatch) Execute() error {
+	b := m.buf
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.commitPendingCalls++
-}
-
-func (b *mockBuffer) CommitUserEdits() bool {
-	return false
-}
-
-func (b *mockBuffer) ClearDiffHistory() {
-}
-
-func (b *mockBuffer) IsModified() bool {
-	return true // Default to modified so completions aren't suppressed in tests
+	start, end := m.edit.StartLine-1, m.edit.EndLineInc
+	if start < 0 || end > len(b.lines) {
+		return fmt.Errorf("index out of bounds: %d..%d of %d lines", start, end, len(b.lines))
+	}
+	if start > end {
+		return fmt.Errorf("'start' is higher than 'end': %d > %d", start, end)
+	}
+	b.lines = m.edit.Apply(b.lines)
+	return nil
 }
 
 func (b *mockBuffer) CursorScopes() []string { return nil }
 
-func (b *mockBuffer) SkipHistory() bool {
-	return false
-}
-
-func (b *mockBuffer) ShowCursorTarget(line int) error {
+func (b *mockBuffer) ShowCursorTarget(line int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.showCursorTargetLine = line
-	return nil
 }
 
-func (b *mockBuffer) ClearUI() error {
+func (b *mockBuffer) ClearUI() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.clearUICalls++
-	return nil
 }
 
 func (b *mockBuffer) MoveCursor(line int, center, mark bool) error {
@@ -225,46 +181,20 @@ func (b *mockBuffer) MoveCursor(line int, center, mark bool) error {
 	return nil
 }
 
-func (b *mockBuffer) InsertText(line, col int, text string, keepUI bool) error {
+func (b *mockBuffer) AppendText(line int, text string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.lastInsertLine = line
-	b.lastInsertCol = col
 	b.lastInsertedText = text
-	// Also update lines for state consistency
-	if line >= 1 && line <= len(b.lines) {
-		idx := line - 1
-		currentLine := b.lines[idx]
-		if col <= len(currentLine) {
-			b.lines[idx] = currentLine[:col] + text + currentLine[col:]
-		}
+	if line < 1 || line > len(b.lines) {
+		return fmt.Errorf("index out of bounds: line %d of %d", line, len(b.lines))
 	}
+	b.lines = slices.Clone(b.lines)
+	b.lines[line-1] += text
 	return nil
 }
 
-func (b *mockBuffer) ReplaceLine(line int, content string, keepUI bool) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.lastReplacedLine = line
-	b.lastReplacedContent = content
-	if line >= 1 && line <= len(b.lines) {
-		b.lines[line-1] = content
-	}
-	return nil
-}
-
-func (b *mockBuffer) InsertLine(line int, content string, keepUI bool) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	// Insert new line at position, pushing existing lines down
-	if line >= 1 && line <= len(b.lines)+1 {
-		newLines := make([]string, len(b.lines)+1)
-		copy(newLines[:line-1], b.lines[:line-1])
-		newLines[line-1] = content
-		copy(newLines[line:], b.lines[line-1:])
-		b.lines = newLines
-	}
-	return nil
+func (b *mockBuffer) SetLines(edit history.Edit) error {
+	return (&mockApplyBatch{buf: b, edit: edit}).Execute()
 }
 
 // mockBatch implements buffer.Batch
@@ -336,10 +266,22 @@ func showDisplayedCompletionWithBatchForTest(
 	originalLines []string,
 	groups []*text.Group,
 ) {
+	linesAfter := 0
+	if completion != nil {
+		linesAfter = max(0, len(eng.buffer.Lines())-completion.EndLineInc)
+		if buf, ok := eng.buffer.(*mockBuffer); ok && batch == nil {
+			batch = &mockApplyBatch{buf: buf, edit: history.Edit{
+				StartLine:  completion.StartLine,
+				EndLineInc: completion.EndLineInc,
+				Lines:      completion.Lines,
+			}}
+		}
+	}
 	eng.display.show(
 		completion,
 		batch,
 		originalLines,
+		linesAfter,
 		groups,
 		eng.rejectedCompletionFor(completion),
 	)
@@ -525,8 +467,7 @@ func (t *mockTimer) fire() {
 // --- Helper functions ---
 
 func createTestEngine(buf *mockBuffer, prov Provider, clock *mockClock) *Engine {
-	eng, _ := NewEngine(prov, buf, EngineConfig{
-		NsID:                1,
+	return New(Deps{Provider: prov, Buffer: buf, Clock: clock}, Config{
 		CompletionTimeout:   5 * time.Second,
 		IdleCompletionDelay: 500 * time.Millisecond,
 		TextChangeDebounce:  100 * time.Millisecond,
@@ -537,15 +478,22 @@ func createTestEngine(buf *mockBuffer, prov Provider, clock *mockClock) *Engine 
 		},
 		CompleteInInsert: true,
 		CompleteInNormal: true,
-	}, clock, nil)
-	return eng
+	})
 }
 
-// createTestEngineWithContext creates an engine with mainCtx set (needed for prefetch tests)
-func createTestEngineWithContext(buf *mockBuffer, prov Provider, clock *mockClock) (*Engine, context.CancelFunc) {
-	eng := createTestEngine(buf, prov, clock)
-	ctx, cancel := context.WithCancel(context.Background())
-	eng.mainCtx = ctx
-	eng.mainCancel = cancel
-	return eng, cancel
+func setStateNotifier(eng *Engine, f func(types.EngineStatus)) {
+	eng.stateNotifier = f
+}
+
+// waitFor polls cond until it holds. Use it only with a running engine; the
+// condition must read state the engine goroutine publishes through callbacks.
+func waitFor(t *testing.T, cond func() bool, label string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal(label)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"slices"
 
 	"cursortab/ctx"
-	"cursortab/types"
 )
 
 type completionInputOptions struct {
@@ -44,7 +43,7 @@ func (e *Engine) buildCurrentSnapshot(opts completionInputOptions) ctx.CurrentSn
 		col = opts.cursorCol
 	}
 	return ctx.CurrentSnapshot{
-		WorkspacePath: e.WorkspacePath,
+		WorkspacePath: e.buffer.WorkspacePath(),
 		File: ctx.FileSnapshot{
 			Path:  e.buffer.Path(),
 			Lines: slices.Clone(lines),
@@ -67,44 +66,26 @@ func (e *Engine) buildFileContextSnapshot(requirements ctx.Materials) ctx.FileCo
 	}
 
 	currentPath := e.buffer.Path()
-	nowNs := e.clock.Now().UnixNano()
-
-	var recentFiles []ctx.RecentFileSnapshot
+	snapshot := ctx.FileContextSnapshot{NowNs: e.clock.Now().UnixNano()}
 	if needs.RecentFileLines || needs.RecentFileDiffHistories {
-		recentFiles = make([]ctx.RecentFileSnapshot, 0, len(e.fileStateStore))
-		for _, entry := range e.fileStatesByRecency(func(path string, _ *FileState) bool {
-			return path != currentPath
-		}) {
-			recent := ctx.RecentFileSnapshot{
-				Path:         entry.path,
-				LastAccessNs: entry.state.LastAccessNs,
-			}
+		for _, file := range e.history.Recent(currentPath) {
+			recent := ctx.RecentFileSnapshot{Path: file.Path, LastAccessNs: file.AccessNs}
 			if needs.RecentFileLines {
-				recent.FirstLines = slices.Clone(entry.state.FirstLines)
+				recent.FirstLines = file.FirstLines
 			}
 			if needs.RecentFileDiffHistories {
-				recent.DiffHistories = clonePtrSlice(entry.state.DiffHistories)
+				recent.DiffHistories = file.Diffs
 			}
-			recentFiles = append(recentFiles, recent)
+			snapshot.RecentFiles = append(snapshot.RecentFiles, recent)
 		}
 	}
-
-	var currentDiffHistories []*types.DiffEntry
 	if needs.CurrentDiffHistories {
-		currentDiffHistories = clonePtrSlice(e.buffer.DiffHistories())
+		snapshot.CurrentDiffHistories = e.history.Diffs(currentPath)
 	}
-
-	var userActions []*types.UserAction
 	if needs.UserActions {
-		userActions = clonePtrSlice(e.userActions)
+		snapshot.UserActions = clonePtrSlice(e.userActions)
 	}
-
-	return ctx.FileContextSnapshot{
-		CurrentDiffHistories: currentDiffHistories,
-		RecentFiles:          recentFiles,
-		UserActions:          userActions,
-		NowNs:                nowNs,
-	}
+	return snapshot
 }
 
 func clonePtrSlice[T any](items []*T) []*T {

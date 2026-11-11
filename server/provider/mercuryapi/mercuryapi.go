@@ -57,7 +57,7 @@ func NewProvider(config *types.ProviderConfig) *Provider {
 			sourcectx.RecentFiles{}, sourcectx.EditHistory{},
 		}, provider.SyntheticPrefetchEnabled),
 		config: config,
-		client: mercuryapi.NewClient(config.ProviderURL, config.APIKey, config.CompletionTimeout),
+		client: mercuryapi.NewClient(config.URL, config.APIKey, config.CompletionTimeout),
 	}
 }
 
@@ -145,7 +145,7 @@ func (p *Provider) Build(state *provider.RequestState) (*mercuryapi.Request, err
 		gitDiff,
 	)
 
-	model := p.config.ProviderModel
+	model := p.config.Model
 	if model == "" {
 		model = mercuryapi.Model
 	}

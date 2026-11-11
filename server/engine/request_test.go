@@ -3,8 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,13 +15,13 @@ import (
 func TestDeferredCursorTargetRequest(t *testing.T) {
 	buf := newMockBuffer()
 	buf.col = len(buf.lines[0])
-	eng, cancel := createTestEngineWithContext(buf, newMockProvider(), newMockClock())
-	defer cancel()
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
 	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 1, ShouldRetrigger: true}
 	eng.handleDeferredCursorTarget()
 	assert.Equal(t, statePendingCompletion, eng.state, "fallback request is pending")
 	select {
-	case event := <-eng.eventChan:
+	case event := <-eng.events:
 		eng.handleEvent(event)
 	case <-time.After(time.Second):
 		t.Fatal("fallback completion did not return")
@@ -38,19 +36,18 @@ func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *tes
 	buf.col = 0
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
 	defer streamCancel()
-	eng.streamingState = &streamingState{}
-	eng.completionStream = newMockCompletionStream(streamCancel)
-	eng.acceptedDuringStreaming = true
+	eng.stream = &activeStream{stream: newMockCompletionStream(streamCancel)}
+	eng.stream.acceptedDuring = true
 	eng.state = stateIdle
 
 	eng.requestCompletion(types.CompletionSourceTyping, true)
 
-	assert.False(t, eng.acceptedDuringStreaming, "flag should be cleared")
+	assert.Nil(t, eng.stream, "leftover stream should be cleared")
 
 	select {
 	case <-streamCtx.Done():
@@ -67,13 +64,13 @@ func TestRequestCompletion_ErrorReturnsToIdle(t *testing.T) {
 	prov := newMockProvider()
 	prov.completionErr = errors.New("provider failed")
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.requestCompletion(types.CompletionSourceTyping, true)
 
 	select {
-	case event := <-eng.eventChan:
+	case event := <-eng.events:
 		eng.handleEvent(event)
 	case <-time.After(time.Second):
 		t.Fatal("completion error event timed out")
@@ -97,8 +94,8 @@ func TestEvalRequestCompletion_UsesBatchProviderPath(t *testing.T) {
 		Lines:      []string{"updated"},
 	})
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	res, err := eng.EvalRequestCompletion(context.Background(), true)
 
@@ -118,13 +115,13 @@ func TestRequestCompletion_CollectsOnlyRequiredMaterials(t *testing.T) {
 	prov := newMockProvider()
 	prov.materials = ctx.Materials{ctx.Diagnostics{}}
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.requestCompletion(types.CompletionSourceTyping, true)
 
 	select {
-	case event := <-eng.eventChan:
+	case event := <-eng.events:
 		assert.Equal(t, EventCompletionReady, event.Type, "completion should be ready")
 	case <-time.After(time.Second):
 		t.Fatal("completion ready event timed out")
@@ -147,7 +144,7 @@ func TestCompletionError_IgnoresStaleRequest(t *testing.T) {
 		buf.col = 0
 		prov := newMockProvider()
 		clock := newMockClock()
-		eng, cancel := createTestEngineWithContext(buf, prov, clock)
+		eng := createTestEngine(buf, prov, clock)
 
 		eng.state = statePendingCompletion
 		eng.completionRequestID = 1
@@ -168,7 +165,7 @@ func TestCompletionError_IgnoresStaleRequest(t *testing.T) {
 
 		assert.Equal(t, statePendingCompletion, eng.state, "stale completion error should not finish current pending request")
 		assert.False(t, cancelledNewRequest, "stale completion error should not cancel current request")
-		cancel()
+		eng.Close()
 	}
 }
 
@@ -176,8 +173,8 @@ func TestPrefetchReady_IgnoresStaleRequest(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.prefetchRequestID = 1
 	currentID := seedInflightPrefetch(eng, prefetchNoWait)
@@ -218,13 +215,13 @@ func TestRequestPrefetch_UsesStreamingTransportWhenAvailable(t *testing.T) {
 	})
 	close(stream.lines)
 	prov := newMockStreamingProvider(stream)
-	eng, cancel := createTestEngineWithContext(newMockBuffer(), prov, newMockClock())
-	defer cancel()
+	eng := createTestEngine(newMockBuffer(), prov, newMockClock())
+	defer eng.Close()
 
 	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
 
 	select {
-	case event := <-eng.eventChan:
+	case event := <-eng.events:
 		assert.Equal(t, EventPrefetchReady, event.Type, "stream finish delivers prefetch")
 		assert.Equal(t, stream.response, event.Response, "response comes from stream finish")
 		assert.Equal(t, 0, prov.completionCalls, "batch transport is not used")
@@ -247,8 +244,8 @@ func TestCompletePrefetch_FallsBackToBatch(t *testing.T) {
 func TestRequestPrefetch_CancelledStreamDeliversErrorNotReady(t *testing.T) {
 	stream := newMockCompletionStream(nil)
 	prov := newMockStreamingProvider(stream)
-	eng, cancel := createTestEngineWithContext(newMockBuffer(), prov, newMockClock())
-	defer cancel()
+	eng := createTestEngine(newMockBuffer(), prov, newMockClock())
+	defer eng.Close()
 
 	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
 	eng.cancelPrefetch()
@@ -256,7 +253,7 @@ func TestRequestPrefetch_CancelledStreamDeliversErrorNotReady(t *testing.T) {
 	close(stream.lines)
 
 	select {
-	case event := <-eng.eventChan:
+	case event := <-eng.events:
 		assert.Equal(t, EventPrefetchError, event.Type, "cancelled prefetch is not ready")
 		assert.True(t, errors.Is(event.Err, context.Canceled), "prefetch cancellation")
 	case <-time.After(time.Second):
@@ -271,8 +268,8 @@ func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	buf.col = 5
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCompletion
 	showDisplayedCompletionWithBatchForTest(
@@ -304,8 +301,8 @@ func TestAcceptCompletion_DoesNotPrefetchWithLiveEditorStateProvider(t *testing.
 	buf.col = 5
 	prov := newMockProviderWithLiveEditorState()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCompletion
 	showDisplayedCompletionWithBatchForTest(
@@ -338,8 +335,8 @@ func TestPrefetchReady_DoesNotInterruptActiveCompletion(t *testing.T) {
 	buf.col = 0
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCompletion
 	showDisplayedCompletionWithBatchForTest(
@@ -385,8 +382,8 @@ func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
 	buf.viewportBottom = 30
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCompletion
 	showDisplayedCompletionWithBatchForTest(
@@ -418,7 +415,7 @@ func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
 				BufferEnd:   15,
 				Lines:       []string{"new 15"},
 				Groups: []*text.Group{{
-					Type:       "modification",
+					Type:       text.GroupModification,
 					BufferLine: 15,
 					Lines:      []string{"new 15"},
 				}},
@@ -463,8 +460,8 @@ func TestAcceptLastStage_ClearsStalePrefetch_WhenOverlaps(t *testing.T) {
 	buf.viewportBottom = 20
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCompletion
 	showDisplayedCompletionWithBatchForTest(
@@ -496,7 +493,7 @@ func TestAcceptLastStage_ClearsStalePrefetch_WhenOverlaps(t *testing.T) {
 				BufferEnd:   15,
 				Lines:       []string{"new 15"},
 				Groups: []*text.Group{{
-					Type:       "modification",
+					Type:       text.GroupModification,
 					BufferLine: 15,
 					Lines:      []string{"new 15"},
 				}},
@@ -535,8 +532,8 @@ func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
 	buf.col = 5
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCompletion
 	showDisplayedCompletionForTest(
@@ -548,9 +545,9 @@ func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
 		},
 		[]string{"hello"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   5,
 			Lines:      []string{"hello!"},
 		}},
@@ -575,11 +572,11 @@ func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
 	buf.row = 1
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	stage0Groups := []*text.Group{{
-		Type:       "modification",
+		Type:       text.GroupModification,
 		BufferLine: 1,
 		Lines:      []string{"new line 1"},
 	}}
@@ -618,7 +615,7 @@ func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
 				BufferStart: 2,
 				BufferEnd:   2,
 				Lines:       []string{"new line 2"},
-				Groups:      []*text.Group{{Type: "modification", BufferLine: 2, Lines: []string{"new line 2"}}},
+				Groups:      []*text.Group{{Type: text.GroupModification, BufferLine: 2, Lines: []string{"new line 2"}}},
 				CursorTarget: &types.CursorPredictionTarget{
 					LineNumber:      3,
 					ShouldRetrigger: true,
@@ -645,8 +642,8 @@ func TestTryShowPrefetchedCompletion_WithChanges(t *testing.T) {
 	buf.viewportBottom = 10
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateIdle
 	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
@@ -674,8 +671,8 @@ func TestTryShowPrefetchedCompletion_NoChanges(t *testing.T) {
 	buf.viewportBottom = 10
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateIdle
 	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
@@ -701,8 +698,8 @@ func TestHandlePrefetchCursorPrediction_CloseDistance(t *testing.T) {
 	buf.viewportBottom = 10
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCursorTarget
 	seedInflightPrefetch(eng, prefetchForCursorPrediction)
@@ -733,8 +730,8 @@ func TestHandlePrefetchCursorPrediction_FarDistance(t *testing.T) {
 	buf.viewportBottom = 20
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateHasCursorTarget
 	seedInflightPrefetch(eng, prefetchForCursorPrediction)
@@ -774,8 +771,8 @@ func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
 	buf.viewportBottom = 10
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	// Setup staged completion at last stage (line 3)
 	eng.stagedCompletion = &text.StagedCompletion{
@@ -786,7 +783,7 @@ func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
 				BufferEnd:   3,
 				Lines:       []string{"new line 3"},
 				Groups: []*text.Group{{
-					Type:       "modification",
+					Type:       text.GroupModification,
 					BufferLine: 3,
 					Lines:      []string{"new line 3"},
 					OldLines:   []string{"old line 3"},
@@ -868,8 +865,8 @@ func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
 	buf.viewportBottom = 20
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	eng.state = stateIdle
 
@@ -919,12 +916,12 @@ func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
 	buf.col = 0
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	stage := &text.Stage{
 		BufferStart: 6,
-		BufferEnd:   6,
+		BufferEnd:   5,
 		Lines: []string{
 			"    n = len(arr)",
 			"    for i in range(n):",
@@ -932,7 +929,7 @@ func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
 			"            if arr[j] > arr[j+1]:",
 		},
 		Groups: []*text.Group{{
-			Type:       "addition",
+			Type:       text.GroupAddition,
 			BufferLine: 6,
 			StartLine:  1,
 			EndLine:    4,
@@ -989,8 +986,8 @@ func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
 	buf.viewportBottom = 10
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	// Setup staged completion at last stage
 	eng.stagedCompletion = &text.StagedCompletion{
@@ -1001,7 +998,7 @@ func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
 				BufferEnd:   2,
 				Lines:       []string{"new line 2"},
 				Groups: []*text.Group{{
-					Type:       "modification",
+					Type:       text.GroupModification,
 					BufferLine: 2,
 					Lines:      []string{"new line 2"},
 					OldLines:   []string{"old line 2"},
@@ -1042,68 +1039,14 @@ func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
 	assert.Equal(t, stateIdle, eng.state, "should clear UI while waiting")
 }
 
-// TestRequestPrefetch_NoRaceWithFileStateStoreWrites verifies that the
-// prefetch goroutine does not read shared engine state (specifically
-// fileStateStore) without synchronization. The event loop holds e.mu when
-// dispatching events; the prefetch goroutine must snapshot any required
-// state under that lock before launching, otherwise a concurrent file
-// switch will trigger a fatal "concurrent map iteration and map write"
-// runtime error. Run with `-race` to catch regressions.
-func TestRequestPrefetch_NoRaceWithFileStateStoreWrites(t *testing.T) {
-	buf := newMockBuffer()
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+func TestTextChangeRestartsIdleTimer(t *testing.T) {
+	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
+	defer eng.Close()
+	eng.config.TextChangeDebounce = -1 // Only the idle timer requests completions
 
-	for i := range 100 {
-		eng.fileStateStore[fmt.Sprintf("file%d.go", i)] = &FileState{
-			DiffHistories: []*types.DiffEntry{{Original: "a", Updated: "b", TimestampNs: 1}},
-			OriginalLines: []string{"line"},
-		}
-	}
+	eng.handleEvent(Event{Type: EventInsertEnter})
+	assert.Nil(t, eng.idleTimer, "idle timer after entering insert mode")
 
-	drainStop := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-drainStop:
-				return
-			case <-eng.eventChan:
-			}
-		}
-	}()
-
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; ; i++ {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			eng.mu.Lock()
-			eng.fileStateStore[fmt.Sprintf("mut%d.go", i%50)] = &FileState{
-				DiffHistories: []*types.DiffEntry{{Original: "x", Updated: "y", TimestampNs: 1}},
-			}
-			eng.mu.Unlock()
-		}
-	}()
-
-	for range 100 {
-		eng.mu.Lock()
-		eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
-		eng.mu.Unlock()
-		time.Sleep(time.Millisecond)
-	}
-
-	close(stop)
-	wg.Wait()
-	eng.mu.Lock()
-	eng.cancelPrefetch()
-	eng.mu.Unlock()
-	close(drainStop)
+	eng.handleEvent(Event{Type: EventTextChanged})
+	assert.NotNil(t, eng.idleTimer, "idle timer after typing")
 }

@@ -1,13 +1,18 @@
 package text
 
 import (
-	"cursortab/types"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"cursortab/types"
 )
 
-// Stage represents a single stage of changes to apply
+// Stage represents a single stage of changes to apply. Applying it replaces
+// buffer lines BufferStart..BufferEnd with Lines; a pure insertion has
+// BufferEnd = BufferStart-1 and inserts Lines before BufferStart.
 type Stage struct {
 	BufferStart  int                           // 1-indexed buffer coordinate
 	BufferEnd    int                           // 1-indexed, inclusive
@@ -18,6 +23,53 @@ type Stage struct {
 	CursorCol    int                           // Cursor column (0-indexed)
 	CursorTarget *types.CursorPredictionTarget // Navigation target
 	IsLastStage  bool
+}
+
+// IsInsertion reports whether the stage inserts lines without replacing any.
+func (s *Stage) IsInsertion() bool { return s.BufferEnd < s.BufferStart }
+
+// LastLine is the last buffer line the stage touches: BufferEnd, or the
+// insertion point for a pure insertion. Use it for positions and distances.
+func (s *Stage) LastLine() int { return max(s.BufferEnd, s.BufferStart) }
+
+// LineDelta is how many lines applying the stage adds to the buffer.
+func (s *Stage) LineDelta() int { return len(s.Lines) - (s.BufferEnd - s.BufferStart + 1) }
+
+// Apply returns lines with the stage applied. The range is clamped to lines,
+// and the result keeps at least one line, as a Neovim buffer does.
+func (s *Stage) Apply(lines []string) []string {
+	start := min(max(s.BufferStart-1, 0), len(lines))
+	end := min(max(s.BufferEnd, start), len(lines))
+	out := slices.Concat(lines[:start], s.Lines, lines[end:])
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+// ShiftAfter moves the stages that lie after applied, which was just applied
+// to the buffer, by the lines it added, so they keep pointing at the same
+// content. Cursor targets past applied move as well.
+func ShiftAfter(stages []*Stage, applied *Stage) {
+	delta := applied.LineDelta()
+	if delta == 0 {
+		return
+	}
+	for _, stage := range stages {
+		if stage == applied {
+			continue
+		}
+		if stage.BufferStart > applied.BufferEnd {
+			stage.BufferStart += delta
+			stage.BufferEnd += delta
+			for _, g := range stage.Groups {
+				g.BufferLine += delta
+			}
+		}
+		if t := stage.CursorTarget; t != nil && int(t.LineNumber) > applied.BufferEnd {
+			t.LineNumber += int32(delta)
+		}
+	}
 }
 
 // stageBuilder holds the scratch state used while assembling a Stage.
@@ -48,10 +100,9 @@ type StagingResult struct {
 
 // StagedCompletion holds the queue of pending stages
 type StagedCompletion struct {
-	Stages           []*Stage
-	CurrentIdx       int
-	Manual           bool
-	CumulativeOffset int // Tracks line count drift after each stage accept (for unequal line counts)
+	Stages     []*Stage
+	CurrentIdx int
+	Manual     bool
 }
 
 // StagingParams holds all parameters for CreateStages
@@ -84,11 +135,18 @@ func CreateStages(p *StagingParams) *StagingResult {
 		bufferLine := diff.LineMapping.GetBufferLine(change, p.BaseLineOffset)
 		allChanges = append(allChanges, indexedChange{change, bufferLine})
 	}
+	// Buffer order: at the same buffer line, additions are inserted before
+	// the line, so they come before a change of the line itself.
 	sort.SliceStable(allChanges, func(i, j int) bool {
-		if allChanges[i].bufferLine != allChanges[j].bufferLine {
-			return allChanges[i].bufferLine < allChanges[j].bufferLine
+		a, b := allChanges[i], allChanges[j]
+		if a.bufferLine != b.bufferLine {
+			return a.bufferLine < b.bufferLine
 		}
-		return allChanges[i].change.MapKey() < allChanges[j].change.MapKey()
+		aAdd, bAdd := a.change.Type == ChangeAddition, b.change.Type == ChangeAddition
+		if aAdd != bAdd {
+			return aAdd
+		}
+		return a.change.MapKey() < b.change.MapKey()
 	})
 
 	// Step 2: Group changes into stage builders (proximity + maxLines + viewport)
@@ -100,8 +158,8 @@ func CreateStages(p *StagingParams) *StagingResult {
 
 	// Step 3: Sort stages by cursor distance
 	sort.SliceStable(builders, func(i, j int) bool {
-		distI := distanceFromCursor(builders[i].bufferStart, builders[i].bufferEnd, p.CursorRow)
-		distJ := distanceFromCursor(builders[j].bufferStart, builders[j].bufferEnd, p.CursorRow)
+		distI := distanceFromCursor(builders[i].bufferStart, max(builders[i].bufferEnd, builders[i].bufferStart), p.CursorRow)
+		distJ := distanceFromCursor(builders[j].bufferStart, max(builders[j].bufferEnd, builders[j].bufferStart), p.CursorRow)
 		if distI != distJ {
 			return distI < distJ
 		}
@@ -193,13 +251,13 @@ func StageNeedsNavigation(stage *Stage, cursorRow, viewportTop, viewportBottom, 
 	// Always require navigation for stages entirely outside the viewport,
 	// even when close to the cursor (e.g. additions at the bottom edge).
 	if viewportTop > 0 && viewportBottom > 0 {
-		entirelyOutside := stage.BufferEnd < viewportTop || stage.BufferStart > viewportBottom
+		entirelyOutside := stage.LastLine() < viewportTop || stage.BufferStart > viewportBottom
 		if entirelyOutside {
 			return true
 		}
 	}
 
-	return distanceFromCursor(stage.BufferStart, stage.BufferEnd, cursorRow) > distThreshold
+	return distanceFromCursor(stage.BufferStart, stage.LastLine(), cursorRow) > distThreshold
 }
 
 // distanceFromCursor returns the minimum distance from cursorRow to the
@@ -214,164 +272,56 @@ func distanceFromCursor(start, end, cursorRow int) int {
 	return cursorRow - end
 }
 
-// computeStageRanges sets BufferStart, BufferEnd, newLineStart, and newLineEnd on the
-// stage in a single pass. It also optionally populates a bufferLines map (mapKey →
-// buffer line) used later for UI group positioning.
+// computeStageRanges sets the buffer range and the new-file line range of a
+// stage.
 //
-// Buffer range (old-file space):
-//   - Modifications/deletions contribute their OldLineNum directly.
-//   - Additions contribute their anchor (OldLineNum of the preceding old line).
-//   - Anchorless additions (OldLineNum=-1) are resolved via a forward walk of NewToOld.
+// Buffer range (old-file space): a modification or deletion covers its old
+// line; an addition covers the empty range at its insertion point. The stage
+// range spans them all, so the old lines between two changes are replaced as
+// well, and it is empty only when every change is an addition at the same
+// insertion point: a pure insertion.
 //
-// New-file range:
-//   - Seeded from the NewLineNum of every non-deletion change.
-//   - Expanded to include unchanged old lines in [oldStart, oldEnd] that map to new
-//     lines via OldToNew (skipped for pure same-anchor-addition stages, which insert
-//     without replacing any existing content).
+// New-file range: the new lines of every non-deletion change, plus the new
+// lines of the unchanged old lines inside the buffer range, which the stage
+// rewrites.
 func computeStageRanges(b *stageBuilder, baseLineOffset int, diff *DiffResult) {
-	minOldNonAdd := -1
-	maxOldNonAdd := -1
-	minAnchor := -1
-	maxAnchor := -1
-	hasNonAdditions := false
-	hasAdditions := false
-	newStart := 0
-	newEnd := 0
-
+	oldStart, oldEnd, covered := 0, 0, false
+	cover := func(start, end int) {
+		if !covered {
+			oldStart, oldEnd, covered = start, end, true
+			return
+		}
+		oldStart, oldEnd = min(oldStart, start), max(oldEnd, end)
+	}
+	newStart, newEnd := 0, 0
 	for _, change := range b.rawChanges {
-		// Track new-line range from every non-deletion change
 		if change.Type != ChangeDeletion && change.NewLineNum > 0 {
 			if newStart == 0 || change.NewLineNum < newStart {
 				newStart = change.NewLineNum
 			}
-			if change.NewLineNum > newEnd {
-				newEnd = change.NewLineNum
-			}
+			newEnd = max(newEnd, change.NewLineNum)
 		}
-
 		if change.Type == ChangeAddition {
-			hasAdditions = true
-			if change.OldLineNum > 0 {
-				if minAnchor == -1 || change.OldLineNum < minAnchor {
-					minAnchor = change.OldLineNum
-				}
-				if change.OldLineNum > maxAnchor {
-					maxAnchor = change.OldLineNum
-				}
-			}
-		} else {
-			hasNonAdditions = true
-			if change.OldLineNum > 0 {
-				if minOldNonAdd == -1 || change.OldLineNum < minOldNonAdd {
-					minOldNonAdd = change.OldLineNum
-				}
-				if change.OldLineNum > maxOldNonAdd {
-					maxOldNonAdd = change.OldLineNum
-				}
-			}
+			p := insertionPoint(change, diff.LineMapping, b.startLine)
+			cover(p, p-1)
+		} else if change.OldLineNum > 0 {
+			cover(change.OldLineNum, change.OldLineNum)
 		}
 	}
-
-	// Compute old-file range (buffer range)
-	var oldStart, oldEnd int
-
-	if !hasNonAdditions && hasAdditions {
-		// Pure additions: anchor is the old line before insertion
-		if minAnchor == maxAnchor {
-			// All anchored at the same line → pure insertion point
-			oldStart = minAnchor + 1
-			oldEnd = minAnchor + 1
-		} else {
-			// Different anchors → must replace old lines between them
-			oldStart = minAnchor + 1
-			oldEnd = maxAnchor
-		}
-	} else if !hasAdditions {
-		// No additions: range covers modified/deleted old lines
-		oldStart = minOldNonAdd
-		oldEnd = maxOldNonAdd
-	} else {
-		// Mixed: start with non-addition range, extend for addition anchors
-		oldStart = minOldNonAdd
-		oldEnd = maxOldNonAdd
-		for _, change := range b.rawChanges {
-			if change.Type == ChangeAddition && change.OldLineNum > 0 {
-				if change.OldLineNum >= oldEnd {
-					oldEnd = change.OldLineNum
-				}
-				if change.OldLineNum+1 < oldStart {
-					oldStart = change.OldLineNum + 1
-				}
-			}
-		}
-	}
-
-	// Anchorless additions (OldLineNum=-1): resolve each addition's insertion
-	// point by walking forward in NewToOld from its NewLineNum to the next
-	// mapped old line. The insertion belongs just before that old line; if
-	// no forward match exists, it goes past the end. Run unconditionally so
-	// mixed stages (anchorless addition combined with non-additions) extend
-	// the buffer range to include the insertion point — otherwise the
-	// untouched lines between the insertion point and the rest of the stage
-	// get duplicated when nvim_buf_set_lines applies the replacement.
-	if diff.LineMapping != nil {
-		for _, change := range b.rawChanges {
-			if change.Type != ChangeAddition || change.OldLineNum > 0 {
-				continue
-			}
-			if change.NewLineNum <= 0 {
-				continue
-			}
-			pos := -1
-			for i := change.NewLineNum - 1; i < len(diff.LineMapping.NewToOld); i++ {
-				if diff.LineMapping.NewToOld[i] > 0 {
-					pos = diff.LineMapping.NewToOld[i]
-					break
-				}
-			}
-			if pos < 0 {
-				pos = len(diff.LineMapping.OldToNew) + 1
-			}
-			if oldStart <= 0 || pos < oldStart {
-				oldStart = pos
-			}
-			if oldEnd > 0 && pos > oldEnd+1 {
-				oldEnd = pos - 1
-			}
-		}
-	}
-	if oldEnd <= 0 {
-		oldEnd = oldStart
-	}
-	if oldStart <= 0 {
-		oldStart = b.startLine
-	}
-	if oldEnd <= 0 {
-		oldEnd = b.endLine
+	if !covered {
+		oldStart, oldEnd = b.startLine, b.endLine
 	}
 
 	b.bufferStart = oldStart + baseLineOffset - 1
 	b.bufferEnd = oldEnd + baseLineOffset - 1
 
-	// Expand new-line range to include unchanged old lines that fall within
-	// [oldStart, oldEnd] and map to new lines. These must be included in
-	// Stage.Lines because SetBufferLines replaces the entire old range.
-	// Skip this for pure same-anchor-addition stages — they insert without
-	// replacing, so only the added lines are needed.
-	isPureSameAnchorInsert := !hasNonAdditions && hasAdditions && minAnchor == maxAnchor
-	if !isPureSameAnchorInsert && diff.LineMapping != nil {
-		for oldRel := oldStart; oldRel <= oldEnd && oldRel-1 < len(diff.LineMapping.OldToNew); oldRel++ {
-			if oldRel < 1 {
-				continue
-			}
-			newLine := diff.LineMapping.OldToNew[oldRel-1]
-			if newLine > 0 {
+	if diff.LineMapping != nil {
+		for oldLine := max(oldStart, 1); oldLine <= oldEnd && oldLine <= len(diff.LineMapping.OldToNew); oldLine++ {
+			if newLine := diff.LineMapping.OldToNew[oldLine-1]; newLine > 0 {
 				if newStart == 0 || newLine < newStart {
 					newStart = newLine
 				}
-				if newLine > newEnd {
-					newEnd = newLine
-				}
+				newEnd = max(newEnd, newLine)
 			}
 		}
 	}
@@ -386,6 +336,25 @@ func computeStageRanges(b *stageBuilder, baseLineOffset int, diff *DiffResult) {
 	}
 }
 
+// insertionPoint returns the old line an addition is inserted before: the
+// line after its anchor, or for an anchorless addition the next old line that
+// maps into the new text (past the end when none does). fallback is used
+// when there is no mapping.
+func insertionPoint(change LineChange, mapping *LineMapping, fallback int) int {
+	if change.OldLineNum > 0 {
+		return change.OldLineNum + 1
+	}
+	if mapping == nil || change.NewLineNum <= 0 {
+		return fallback
+	}
+	for i := change.NewLineNum - 1; i < len(mapping.NewToOld); i++ {
+		if mapping.NewToOld[i] > 0 {
+			return mapping.NewToOld[i]
+		}
+	}
+	return len(mapping.OldToNew) + 1
+}
+
 // finalizeStages turns each stage builder into a finalized Stage.
 // It extracts content, remaps changes to relative line numbers, computes groups,
 // and sets cursor targets based on sort order.
@@ -397,17 +366,21 @@ func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []stri
 		// Convert a single addition on the cursor line to a modification (append_chars).
 		// When the cursor sits on a whitespace-only line and the diff produces a
 		// pure addition (because the old content matched elsewhere as equal), we
-		// want inline ghost text rather than a virtual line.
+		// want inline ghost text rather than a virtual line. "Insert X before W"
+		// becomes "change W to X, add W after it", which is exact only when X
+		// directly precedes an unchanged W in the new text.
+		restoredNewLine := 0 // New line of the added W, when rewritten
 		if len(b.rawChanges) == 1 {
 			change := b.rawChanges[0]
 			if change.Type == ChangeAddition {
 				bufLine := diff.LineMapping.GetBufferLine(change, baseLineOffset)
 				oldIdx := bufLine - baseLineOffset // 0-indexed into oldLines
-				if bufLine == cursorRow && oldIdx >= 0 && oldIdx < len(oldLines) {
+				if bufLine == cursorRow && oldIdx >= 0 && oldIdx < len(oldLines) &&
+					keptAfter(diff.LineMapping, oldIdx, change.NewLineNum, oldLines, newLines) {
 					oldContent := oldLines[oldIdx]
 					if oldContent != "" && strings.TrimSpace(oldContent) == "" {
 						changeType, colStart, colEnd := categorizeLineChangeWithColumns(oldContent, change.Content)
-						b.rawChanges[0] = LineChange{
+						b.rawChanges = []LineChange{{
 							Type:       changeType,
 							OldLineNum: oldIdx + 1,
 							NewLineNum: change.NewLineNum,
@@ -415,7 +388,13 @@ func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []stri
 							OldContent: oldContent,
 							ColStart:   colStart,
 							ColEnd:     colEnd,
-						}
+						}, {
+							Type:       ChangeAddition,
+							OldLineNum: oldIdx + 1,
+							NewLineNum: change.NewLineNum + 1,
+							Content:    oldContent,
+						}}
+						restoredNewLine = change.NewLineNum + 1
 						computeStageRanges(b, baseLineOffset, diff)
 					}
 				}
@@ -435,31 +414,24 @@ func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []stri
 		remappedChanges := make(map[int]LineChange)
 		relativeToBufferLine := make(map[int]int)
 
-		// Deletions use old-coordinate space; non-deletions use new-coordinate space.
-		// When both are present, shift all deletions beyond the non-deletion range so
-		// their relative lines never overlap. Non-deletions occupy [1..nCount] and
-		// deletions occupy [nCount+1..], preserving inter-deletion gaps for grouping.
-		hasNonDeletions := false
+		// Non-deletions are keyed by their line in the stage content, [1..nCount].
+		// Deletions have no such line; they are keyed after it, [nCount+1..], by
+		// their old line counted from the first deleted one, which keeps the
+		// gaps between deletions for grouping.
+		nCount, firstDeleted := 0, 0
 		for _, change := range b.rawChanges {
 			if change.Type != ChangeDeletion {
-				hasNonDeletions = true
-				break
+				nCount = len(stageLines)
+			} else if firstDeleted == 0 || change.OldLineNum < firstDeleted {
+				firstDeleted = change.OldLineNum
 			}
-		}
-		nCount := 0
-		if hasNonDeletions {
-			nCount = len(stageLines)
 		}
 
 		for _, change := range b.rawChanges {
 			mapKey := change.MapKey()
 			var relativeLine int
 			if change.Type == ChangeDeletion {
-				rel := mapKey - b.startLine + 1
-				if nCount > 0 {
-					rel = nCount + rel
-				}
-				relativeLine = rel
+				relativeLine = nCount + change.OldLineNum - firstDeleted + 1
 			} else {
 				newLineNum := change.NewLineNum
 				if newLineNum <= 0 {
@@ -490,6 +462,12 @@ func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []stri
 			LineNumToBufferLine: relativeToBufferLine,
 		}
 		groups, targetCursorLine, targetCursorCol := FinalizeStageGroups(remappedChanges, stageLines, ctx)
+		if restoredNewLine > 0 {
+			// The cursor ends after the inserted text, not on the restored line.
+			cursorChanges := maps.Clone(remappedChanges)
+			delete(cursorChanges, restoredNewLine-b.newLineStart+1)
+			targetCursorLine, targetCursorCol = CalculateCursorPosition(cursorChanges, stageLines)
+		}
 
 		// Create cursor target. For the last stage, point to the end of NEW content
 		// (additions may extend past the old buffer end); otherwise point to the
@@ -534,11 +512,20 @@ func finalizeStages(builders []*stageBuilder, newLines []string, oldLines []stri
 	return stages
 }
 
+// keptAfter reports whether old line oldIdx (0-indexed) appears unchanged
+// right after new line newLine (1-indexed) in the new text.
+func keptAfter(mapping *LineMapping, oldIdx, newLine int, oldLines, newLines []string) bool {
+	if oldIdx >= len(mapping.OldToNew) || mapping.OldToNew[oldIdx] != newLine+1 || newLine >= len(newLines) {
+		return false
+	}
+	return newLines[newLine] == oldLines[oldIdx]
+}
+
 // setStackedHints sets RenderHint="stacked" on modification groups when
 // side-by-side rendering won't fit the available width.
 func setStackedHints(groups []*Group, availableWidth int) {
 	for _, g := range groups {
-		if g.Type != "modification" || g.RenderHint != "" {
+		if g.Type != GroupModification || g.RenderHint != HintNone {
 			continue
 		}
 
@@ -558,6 +545,15 @@ func setStackedHints(groups []*Group, availableWidth int) {
 			g.RenderHint = "stacked"
 		}
 	}
+}
+
+// LineRange returns lines startLine..endLineInc, 1-indexed and inclusive,
+// clamped to lines. It is empty when endLineInc < startLine, as for a pure
+// insertion. The result shares lines' backing array.
+func LineRange(lines []string, startLine, endLineInc int) []string {
+	lo := min(max(startLine-1, 0), len(lines))
+	hi := min(max(endLineInc, lo), len(lines))
+	return lines[lo:hi]
 }
 
 // JoinLines joins a slice of strings with newlines.

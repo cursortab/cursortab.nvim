@@ -1,31 +1,23 @@
+// Package engine is the completion state machine of one editor session.
+//
+// All engine state is owned by the goroutine that runs [Engine.Run]. Editor
+// events, timers, and provider results reach it as [Event] values through one
+// channel; nothing else touches the state, so the engine needs no locks.
 package engine
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"slices"
-	"strings"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"cursortab/buffer"
-	"cursortab/ctx"
+	"cursortab/history"
 	"cursortab/logger"
 	"cursortab/metrics"
 	"cursortab/text"
 	"cursortab/types"
-	"cursortab/utils"
 )
-
-var actionAbbrev = map[types.UserActionType]string{
-	types.ActionInsertChar:      "IC",
-	types.ActionInsertSelection: "IS",
-	types.ActionDeleteChar:      "DC",
-	types.ActionDeleteSelection: "DS",
-	types.ActionCursorMovement:  "CM",
-}
 
 // Timer represents a timer that can be stopped.
 type Timer interface {
@@ -51,88 +43,239 @@ func (systemClock) Now() time.Time {
 	return time.Now()
 }
 
-func newLifecycleContext(parent context.Context) (context.Context, context.CancelFunc) {
-	return context.WithCancel(parent)
+// Deps are the collaborators of an engine.
+type Deps struct {
+	Provider Provider
+	Buffer   Buffer
+	Clock    Clock
+	// History is optional; a new store is used when nil.
+	History *history.Store
+	// Metrics is an optional extra sender, combined with the provider when
+	// the provider also sends metrics.
+	Metrics metrics.Sender
+	// StateNotifier is optional. It receives engine status changes on the
+	// engine goroutine and must not block.
+	StateNotifier func(types.EngineStatus)
 }
 
 type Engine struct {
-	WorkspacePath string
-	WorkspaceID   string
+	provider      Provider
+	buffer        Buffer
+	history       *history.Store
+	clock         Clock
+	config        Config
+	stateNotifier func(types.EngineStatus)
+	lastNotified  types.EngineStatus
 
-	provider            Provider
-	buffer              Buffer
-	clock               Clock
-	state               state
-	ctx                 context.Context
-	currentCancel       context.CancelFunc
-	completionRequestID uint64
-	prefetchRequestID   uint64
-	idleTimer           Timer
-	textChangeTimer     Timer
-	mu                  sync.RWMutex
-	eventChan           chan Event
+	// ctx is the engine lifetime. Requests derive from it; Close cancels it.
+	ctx    context.Context
+	cancel context.CancelFunc
+	// events carries editor, timer, and request events to the engine goroutine.
+	events chan Event
+	// queue holds events raised while an event is handled. They run right
+	// after it, so the engine never blocks sending to its own channel.
+	queue []Event
 
-	// Main context and cancel for the engine lifecycle
-	mainCtx    context.Context
-	mainCancel context.CancelFunc
-	stopped    bool
-	stopOnce   sync.Once
+	lifecycle sync.Mutex
+	running   bool
+	closed    bool
+	done      chan struct{}
 
-	// Completion state
-	display      displayedCompletion
-	cursorTarget *types.CursorPredictionTarget
-
-	// Staged completion state (for multi-stage completions)
-	stagedCompletion *text.StagedCompletion
-
-	// Prefetch state
-	prefetch prefetchSlot
-
-	// Streaming state (line-by-line)
-	streamingState          *streamingState
-	completionStream        CompletionStream
-	streamLinesChan         <-chan string // Lines channel (nil when not streaming)
-	acceptedDuringStreaming bool          // True if user accepted partial during streaming
-
-	// Mode tracking
+	state        state
 	inInsertMode bool
 
-	// Config options
-	config EngineConfig
+	idleTimer       Timer
+	textChangeTimer Timer
 
-	// Per-file state that persists across file switches (for context restoration)
-	fileStateStore map[string]*FileState
+	completionRequestID uint64
+	currentCancel       context.CancelFunc
+	prefetchRequestID   uint64
+	prefetch            prefetchSlot
+	stream              *activeStream
+
+	display          displayedCompletion
+	cursorTarget     *types.CursorPredictionTarget
+	stagedCompletion *text.StagedCompletion
+
+	rejectedCompletions map[string][]*rejectedCompletion
 
 	// User action tracking for RecentUserActions
-	userActions      []*types.UserAction // Ring buffer of last MaxUserActions actions
-	lastBufferLines  []string            // For detecting text changes
+	userActions      []*types.UserAction // Last defaultMaxUserActions actions
+	lastBufferSize   int                 // Bytes at the last text change, -1 before the first
 	lastCursorOffset int                 // For cursor movement detection
 
 	// Metrics tracking (engine owns state, provider implements Sender)
-	metricSender    metrics.Sender
-	currentMetrics  metrics.CompletionInfo
-	currentSnapshot *metrics.Snapshot
-	metricsCh       chan metrics.Event
-
+	metricSender           metrics.Sender
+	metricsCh              chan metrics.Event
+	currentMetrics         metrics.CompletionInfo
+	currentSnapshot        *metrics.Snapshot
 	lastCompletionSource   types.CompletionSource
 	completionsSinceAccept int
-	pendingMetricsInfo     *types.MetricsInfo // stored from provider completion for showCurrentStage
-	rejectedCompletions    map[string][]*rejectedCompletion
-
-	stateNotifier func(types.EngineStatus)
-	lastNotified  types.EngineStatus
+	pendingMetricsInfo     *types.MetricsInfo // From the provider response, recorded when shown
 }
 
-// notifyStateChange publishes a coherent snapshot after an event, rather than
-// intermediate states during cancellation, replacement, or acceptance.
-// Called with mu held. A new editor connection forces an initial snapshot.
+// New creates an engine. Call Run to process events and Close to stop it.
+func New(deps Deps, config Config) *Engine {
+	ctx, cancel := context.WithCancel(context.Background())
+	e := &Engine{
+		provider:            deps.Provider,
+		buffer:              deps.Buffer,
+		history:             deps.History,
+		clock:               deps.Clock,
+		config:              config,
+		stateNotifier:       deps.StateNotifier,
+		ctx:                 ctx,
+		cancel:              cancel,
+		events:              make(chan Event, 100),
+		done:                make(chan struct{}),
+		state:               stateIdle,
+		rejectedCompletions: make(map[string][]*rejectedCompletion),
+		lastBufferSize:      -1,
+	}
+	if e.history == nil {
+		e.history = history.NewStore(defaultMaxRecentSnapshots)
+	}
+
+	var providerSender metrics.Sender
+	if !config.DisableProviderMetrics {
+		providerSender, _ = deps.Provider.(metrics.Sender)
+	}
+	switch {
+	case providerSender != nil && deps.Metrics != nil:
+		e.metricSender = metrics.NewMultiSender(providerSender, deps.Metrics)
+	case providerSender != nil:
+		e.metricSender = providerSender
+	case deps.Metrics != nil:
+		e.metricSender = deps.Metrics
+	}
+	if e.metricSender != nil {
+		e.metricsCh = make(chan metrics.Event, 64)
+	}
+	return e
+}
+
+// Run processes events until Close is called. It publishes the initial status
+// first and shuts the engine down before returning.
+func (e *Engine) Run() {
+	e.lifecycle.Lock()
+	if e.running || e.closed {
+		e.lifecycle.Unlock()
+		return
+	}
+	e.running = true
+	e.lifecycle.Unlock()
+	defer close(e.done)
+
+	if e.metricSender != nil {
+		go e.metricsWorker()
+	}
+	logger.Info("engine started")
+	e.notifyStateChange(true)
+
+	for {
+		var lines <-chan string
+		if e.stream != nil {
+			lines = e.stream.lines
+		}
+		select {
+		case <-e.ctx.Done():
+			e.shutdown()
+			return
+		case line, ok := <-lines:
+			e.safely("stream line", func() { e.handleStreamEvent(line, ok) })
+		case event := <-e.events:
+			e.safely(string(event.Type), func() { e.handleEvent(event) })
+		}
+	}
+}
+
+// Close stops the engine: it cancels all requests and timers. It leaves the
+// UI to the editor, which may already be gone. It waits for Run to return
+// when Run is active.
+func (e *Engine) Close() {
+	e.cancel()
+	e.lifecycle.Lock()
+	running := e.running
+	alreadyClosed := e.closed
+	e.closed = true
+	e.lifecycle.Unlock()
+	if running {
+		<-e.done
+	} else if !alreadyClosed {
+		e.shutdown()
+	}
+}
+
+// safely runs f and recovers from a panic by dropping the in-progress
+// completion, so one bad event cannot stop the session.
+func (e *Engine) safely(what string, f func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("engine panic while handling %s: %v\n%s", what, r, debug.Stack())
+			e.queue = nil
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Error("engine panic while recovering: %v", r)
+					}
+				}()
+				e.reject()
+				e.notifyStateChange(false)
+			}()
+		}
+	}()
+	f()
+}
+
+func (e *Engine) shutdown() {
+	logger.Info("stopping engine...")
+	e.cancelInFlight()
+	e.cancelPrefetch()
+	e.stopIdleTimer()
+	e.stopTextChangeTimer()
+	e.state = stateIdle
+	e.cursorTarget = nil
+	e.stagedCompletion = nil
+	e.resetCompletionFields()
+	e.notifyStateChange(false)
+	if e.metricsCh != nil {
+		close(e.metricsCh)
+	}
+	logger.Info("engine stopped")
+}
+
+// HandleEditorEvent queues a known editor event with the cursor and buffer
+// size at the time the editor sent it. Safe to call from any goroutine;
+// events after Close are dropped.
+func (e *Engine) HandleEditorEvent(event string, pos buffer.Position) {
+	if eventType := EventTypeFromString(event); eventType != "" {
+		e.send(Event{Type: eventType, Position: pos})
+	}
+}
+
+// send delivers an event from another goroutine to the engine goroutine.
+func (e *Engine) send(event Event) {
+	select {
+	case e.events <- event:
+	case <-e.ctx.Done():
+	}
+}
+
+// post queues an event raised on the engine goroutine.
+func (e *Engine) post(event Event) {
+	e.queue = append(e.queue, event)
+}
+
+// notifyStateChange publishes a coherent status snapshot after an event,
+// rather than intermediate states during cancellation, replacement, or
+// acceptance. force publishes even an unchanged status.
 func (e *Engine) notifyStateChange(force bool) {
 	if e.stateNotifier == nil {
 		return
 	}
 	status := types.EngineStatus{
 		State:   e.state.String(),
-		Pending: e.currentCancel != nil || e.completionStream != nil || e.hasInflightPrefetch(),
+		Pending: e.currentCancel != nil || e.stream != nil || e.hasInflightPrefetch(),
 	}
 	if force || status != e.lastNotified {
 		e.lastNotified = status
@@ -140,120 +283,12 @@ func (e *Engine) notifyStateChange(force bool) {
 	}
 }
 
-// SetStateNotifier registers a synchronous callback for state or activity changes.
-// Call before Start. The callback runs with the engine lock held and must not
-// call back into the engine.
-func (e *Engine) SetStateNotifier(f func(types.EngineStatus)) {
-	e.stateNotifier = f
-}
-
-// NewEngine creates a new Engine instance.
-// communitySender is optional — pass nil to disable community metrics.
-func NewEngine(provider Provider, buf Buffer, config EngineConfig, clock Clock, communitySender metrics.Sender) (*Engine, error) {
-	workspacePath, err := os.Getwd()
-	if err != nil {
-		logger.Warn("error getting current directory, using home: %v", err)
-		workspacePath = "~"
-	}
-	workspaceID := fmt.Sprintf("%s-%d", workspacePath, os.Getpid())
-
-	e := &Engine{
-		WorkspacePath:       workspacePath,
-		WorkspaceID:         workspaceID,
-		provider:            provider,
-		buffer:              buf,
-		clock:               clock,
-		state:               stateIdle,
-		ctx:                 nil,
-		eventChan:           make(chan Event, 100),
-		config:              config,
-		idleTimer:           nil,
-		textChangeTimer:     nil,
-		mu:                  sync.RWMutex{},
-		cursorTarget:        nil,
-		prefetch:            prefetchSlot{},
-		stopped:             false,
-		fileStateStore:      make(map[string]*FileState),
-		rejectedCompletions: make(map[string][]*rejectedCompletion),
-	}
-
-	// Initialize metrics: combine provider sender + community sender if available
-	var providerSender metrics.Sender
-	if !config.DisableProviderMetrics {
-		providerSender, _ = provider.(metrics.Sender)
-	}
-	switch {
-	case providerSender != nil && communitySender != nil:
-		e.metricSender = metrics.NewMultiSender(providerSender, communitySender)
-	case providerSender != nil:
-		e.metricSender = providerSender
-	case communitySender != nil:
-		e.metricSender = communitySender
-	}
-	if e.metricSender != nil {
-		e.metricsCh = make(chan metrics.Event, 64)
-	}
-
-	return e, nil
-}
-
-// Start begins the engine event loop.
-func (e *Engine) Start(ctx context.Context) {
-	e.mu.Lock()
-	if e.stopped {
-		e.mu.Unlock()
-		return
-	}
-
-	e.mainCtx, e.mainCancel = newLifecycleContext(ctx)
-	e.mu.Unlock()
-
-	go e.eventLoop(e.mainCtx)
-	if e.metricSender != nil {
-		go e.metricsWorker(e.mainCtx)
-	}
-	logger.Info("engine started")
-}
-
-// Stop gracefully shuts down the engine and cleans up all resources.
-func (e *Engine) Stop() {
-	e.stopOnce.Do(func() {
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		defer e.notifyStateChange(false)
-
-		logger.Info("stopping engine...")
-
-		e.stopped = true
-		e.cancelStreaming()
-		e.cancelPrefetch()
-		e.stopIdleTimer()
-		e.stopTextChangeTimer()
-		e.state = stateIdle
-		e.cursorTarget = nil
-		e.resetCompletionFields()
-		e.stagedCompletion = nil
-		// Cancel the main context to signal all in-flight goroutines and
-		// loops to exit. We deliberately do NOT close eventChan or metricsCh:
-		// senders use `select { case ch <- ...: case <-mainCtx.Done(): }` and
-		// closing the channel would race with that select (Go picks randomly
-		// between a closed-channel-send and a Done-channel-recv when both are
-		// ready). Letting the channels be GC'd avoids the panic class
-		// entirely; the eventLoop and metricsWorker exit on Done.
-		if e.mainCancel != nil {
-			e.mainCancel()
-		}
-
-		logger.Info("engine stopped")
-	})
-}
-
-// resetCompletionFields clears per-completion state. Used after accepting a
-// stage to prepare for the next one. Does not cancel requests, drop the staged
-// completion, or send metrics.
+// resetCompletionFields drops the displayed completion and ends its metrics.
 func (e *Engine) resetCompletionFields() {
 	e.display.reset()
 	e.pendingMetricsInfo = nil
+	e.currentMetrics = metrics.CompletionInfo{}
+	e.currentSnapshot = nil
 }
 
 func (e *Engine) cancelCurrentRequest() {
@@ -319,62 +354,11 @@ func (e *Engine) readyPrefetchCompletion() *types.Completion {
 	return nil
 }
 
-// HandleEditorEvent queues a known editor event for the engine.
-func (e *Engine) HandleEditorEvent(event string) {
-	eventType := EventTypeFromString(event)
-	if eventType == "" {
-		return
-	}
-	e.mu.RLock()
-	stopped, mainCtx := e.stopped, e.mainCtx
-	e.mu.RUnlock()
-	if stopped || mainCtx == nil {
-		return
-	}
-	select {
-	case e.eventChan <- Event{Type: eventType}:
-	case <-mainCtx.Done():
-	}
-}
-
-// ConnectEditor publishes an editor connection between events, then sends its
-// initial status. connect must start the RPC reader before publishing the client.
-func (e *Engine) ConnectEditor(connect func()) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.stopped {
-		return
-	}
-	connect()
-	e.notifyStateChange(true)
-}
-
 // Timer management
 
 func (e *Engine) startIdleTimer() {
-	// When delay is -1, idle completions are disabled
-	if e.config.IdleCompletionDelay < 0 {
-		return
-	}
-	if !e.isModeEnabled(false) {
-		return
-	}
 	e.stopIdleTimer()
-	e.idleTimer = e.clock.AfterFunc(e.config.IdleCompletionDelay, func() {
-		e.mu.RLock()
-		stopped := e.stopped
-		mainCtx := e.mainCtx
-		e.mu.RUnlock()
-
-		if stopped || mainCtx == nil {
-			return
-		}
-
-		select {
-		case e.eventChan <- Event{Type: EventIdleTimeout}:
-		case <-mainCtx.Done():
-		}
-	})
+	e.idleTimer = e.startTimer(e.config.IdleCompletionDelay, EventIdleTimeout)
 }
 
 func (e *Engine) stopIdleTimer() {
@@ -385,34 +369,12 @@ func (e *Engine) stopIdleTimer() {
 }
 
 func (e *Engine) resetIdleTimer() {
-	e.stopIdleTimer()
 	e.startIdleTimer()
 }
 
 func (e *Engine) startTextChangeTimer() {
-	// When debounce is -1, automatic text change completions are disabled
-	if e.config.TextChangeDebounce < 0 {
-		return
-	}
-	if !e.isModeEnabled(false) {
-		return
-	}
 	e.stopTextChangeTimer()
-	e.textChangeTimer = e.clock.AfterFunc(e.config.TextChangeDebounce, func() {
-		e.mu.RLock()
-		stopped := e.stopped
-		mainCtx := e.mainCtx
-		e.mu.RUnlock()
-
-		if stopped || mainCtx == nil {
-			return
-		}
-
-		select {
-		case e.eventChan <- Event{Type: EventTextChangeTimeout}:
-		case <-mainCtx.Done():
-		}
-	})
+	e.textChangeTimer = e.startTimer(e.config.TextChangeDebounce, EventTextChangeTimeout)
 }
 
 func (e *Engine) stopTextChangeTimer() {
@@ -420,6 +382,15 @@ func (e *Engine) stopTextChangeTimer() {
 		e.textChangeTimer.Stop()
 		e.textChangeTimer = nil
 	}
+}
+
+// startTimer sends eventType after delay. A negative delay disables the timer,
+// as do modes with completions turned off.
+func (e *Engine) startTimer(delay time.Duration, eventType EventType) Timer {
+	if delay < 0 || !e.isModeEnabled(false) {
+		return nil
+	}
+	return e.clock.AfterFunc(delay, func() { e.send(Event{Type: eventType}) })
 }
 
 // isModeEnabled returns true if completions are enabled for the current mode
@@ -436,383 +407,62 @@ func (e *Engine) isModeEnabled(manual bool) bool {
 
 // recordUserAction adds an action to the ring buffer, evicting oldest if full
 func (e *Engine) recordUserAction(action *types.UserAction) {
-	maxActions := defaultMaxUserActions
-	if maxActions <= 0 {
-		return
-	}
-	if len(e.userActions) >= maxActions {
-		e.userActions = e.userActions[1:] // Evict oldest
+	if len(e.userActions) >= defaultMaxUserActions {
+		e.userActions = e.userActions[1:]
 	}
 	e.userActions = append(e.userActions, action)
 }
 
-// recordTextChangeAction classifies and records a text change action
-func (e *Engine) recordTextChangeAction() {
-	currentLines := e.buffer.Lines()
-
-	if e.lastBufferLines == nil {
-		e.lastBufferLines = slices.Clone(currentLines)
+// recordTextChangeAction classifies and records a text change from the
+// buffer size the editor sent with it, since the synced lines may be older
+// than the change.
+func (e *Engine) recordTextChangeAction(pos buffer.Position) {
+	lastSize := e.lastBufferSize
+	e.lastBufferSize = pos.Size
+	if lastSize < 0 {
 		return
 	}
-
-	// Classify the action based on diff
-	actionType := classifyEdit(e.lastBufferLines, currentLines)
+	actionType := classifySizeChange(lastSize, pos.Size)
 	if actionType == "" {
-		e.lastBufferLines = slices.Clone(currentLines)
 		return
 	}
-
 	e.recordUserAction(&types.UserAction{
 		ActionType:  actionType,
 		FilePath:    e.buffer.Path(),
-		LineNumber:  e.buffer.Row(),
-		Offset:      calculateOffset(currentLines, e.buffer.Row(), e.buffer.Col()),
+		LineNumber:  pos.Row,
+		Offset:      pos.Offset,
 		TimestampMs: e.clock.Now().UnixMilli(),
 	})
-
-	e.lastBufferLines = slices.Clone(currentLines)
 }
 
 // recordCursorMovementAction records a cursor movement if position changed
-func (e *Engine) recordCursorMovementAction() {
-	currentOffset := calculateOffset(e.buffer.Lines(), e.buffer.Row(), e.buffer.Col())
-	if currentOffset != e.lastCursorOffset {
-		e.recordUserAction(&types.UserAction{
-			ActionType:  types.ActionCursorMovement,
-			FilePath:    e.buffer.Path(),
-			LineNumber:  e.buffer.Row(),
-			Offset:      currentOffset,
-			TimestampMs: e.clock.Now().UnixMilli(),
-		})
-		e.lastCursorOffset = currentOffset
+func (e *Engine) recordCursorMovementAction(pos buffer.Position) {
+	if pos.Offset == e.lastCursorOffset {
+		return
 	}
+	e.recordUserAction(&types.UserAction{
+		ActionType:  types.ActionCursorMovement,
+		FilePath:    e.buffer.Path(),
+		LineNumber:  pos.Row,
+		Offset:      pos.Offset,
+		TimestampMs: e.clock.Now().UnixMilli(),
+	})
+	e.lastCursorOffset = pos.Offset
 }
 
-// classifyEdit determines the action type based on character count changes
-func classifyEdit(oldLines, newLines []string) types.UserActionType {
-	oldLen := totalChars(oldLines)
-	newLen := totalChars(newLines)
-
-	inserted := max(0, newLen-oldLen)
-	deleted := max(0, oldLen-newLen)
-
-	switch {
-	case deleted == 0 && inserted == 1:
+// classifySizeChange determines the action type of an edit from the buffer
+// size before and after it.
+func classifySizeChange(oldSize, newSize int) types.UserActionType {
+	switch delta := newSize - oldSize; {
+	case delta == 1:
 		return types.ActionInsertChar
-	case deleted == 0 && inserted > 1:
+	case delta > 1:
 		return types.ActionInsertSelection
-	case deleted == 1 && inserted == 0:
+	case delta == -1:
 		return types.ActionDeleteChar
-	case deleted > 1 && inserted == 0:
+	case delta < -1:
 		return types.ActionDeleteSelection
-	case inserted > 0:
-		return types.ActionInsertSelection // Replace = delete + insert
 	default:
 		return ""
-	}
-}
-
-// calculateOffset computes byte offset from line/column position
-func calculateOffset(lines []string, row, col int) int {
-	offset := 0
-	for i := 0; i < row-1 && i < len(lines); i++ {
-		offset += len(lines[i]) + 1 // +1 for newline
-	}
-	if row >= 1 && row <= len(lines) {
-		offset += min(col, len(lines[row-1]))
-	}
-	return offset
-}
-
-// totalChars counts total characters including newlines
-func totalChars(lines []string) int {
-	total := 0
-	for _, line := range lines {
-		total += len(line) + 1
-	}
-	return total
-}
-
-// Metrics tracking
-
-// recordMetricsShown records that a completion was shown. Pass nil for info
-// when no provider metrics ID is available (e.g. streaming completions).
-func (e *Engine) recordMetricsShown(info *types.MetricsInfo, manual bool) {
-	now := e.clock.Now()
-	e.currentMetrics = metrics.CompletionInfo{ShownAt: now}
-
-	if info != nil && info.ID != "" {
-		e.currentMetrics.ID = info.ID
-		e.currentMetrics.Additions = info.Additions
-		e.currentMetrics.Deletions = info.Deletions
-	} else if e.display.hasCompletion() {
-		// Estimate additions/deletions from completion line counts
-		comp := e.display.current()
-		bufferLines := e.buffer.Lines()
-		origCount := 0
-		for i := comp.StartLine; i <= comp.EndLineInc && i-1 < len(bufferLines); i++ {
-			origCount++
-		}
-		newCount := len(comp.Lines)
-		if newCount > origCount {
-			e.currentMetrics.Additions = newCount - origCount
-		} else if origCount > newCount {
-			e.currentMetrics.Deletions = origCount - newCount
-		}
-	}
-
-	e.currentSnapshot = e.captureSnapshot(manual)
-	e.sendMetric(metrics.EventShown)
-}
-
-func (e *Engine) sendMetric(eventType metrics.EventType) {
-	if e.metricSender == nil {
-		return
-	}
-	// Need either a provider ID or a snapshot to send anything useful
-	if e.currentMetrics.ID == "" && e.currentSnapshot == nil {
-		return
-	}
-
-	event := metrics.Event{
-		Type:     eventType,
-		Info:     e.currentMetrics,
-		Snapshot: e.currentSnapshot,
-	}
-
-	if eventType != metrics.EventShown {
-		e.currentMetrics = metrics.CompletionInfo{}
-		e.currentSnapshot = nil
-		if eventType == metrics.EventAccepted {
-			e.completionsSinceAccept = 0
-		} else {
-			e.completionsSinceAccept++
-		}
-	}
-
-	select {
-	case e.metricsCh <- event:
-	default:
-		logger.Warn("metrics: event queue full, dropping %s event for %s", eventType, event.Info.ID)
-	}
-}
-
-// classifyScope maps a treesitter enclosing signature to a coarse scope bucket.
-func classifyScope(signature string) string {
-	if signature == "" {
-		return "top_level"
-	}
-	sig := strings.ToLower(signature)
-	switch {
-	case strings.Contains(sig, "func") || strings.Contains(sig, "function") ||
-		strings.Contains(sig, "method") || strings.Contains(sig, "def "):
-		return "function"
-	case strings.Contains(sig, "class") || strings.Contains(sig, "struct") ||
-		strings.Contains(sig, "impl") || strings.Contains(sig, "interface"):
-		return "class"
-	case strings.Contains(sig, "comment"):
-		return "comment"
-	case strings.Contains(sig, "string") || strings.Contains(sig, "template"):
-		return "string"
-	default:
-		return "other"
-	}
-}
-
-func (e *Engine) captureSnapshot(manual bool) *metrics.Snapshot {
-	current := e.buildCurrentSnapshot(completionInputOptions{})
-	fileContext := e.buildFileContextSnapshot(ctx.Materials{ctx.EditHistory{}, ctx.UserActions{}})
-	lines := current.File.Lines
-	row := current.Cursor.Row
-
-	line, col := currentLine(lines, row, current.Cursor.Col)
-	prefix := line[:col]
-	trimmedPrefix := strings.TrimRight(prefix, " \t")
-
-	docLen := documentByteLength(lines)
-	cursorOffset := byteOffset(lines, row, col)
-	relativePosition := 0.0
-	if docLen > 0 {
-		relativePosition = (float64(cursorOffset) + 0.5) / (1.0 + float64(docLen))
-	}
-
-	lastChar := ""
-	if len(prefix) > 0 {
-		lastChar = string(prefix[len(prefix)-1])
-	}
-	lastNWS := ""
-	if nwc, ok := lastNonWSChar(line, col); ok {
-		lastNWS = string(nwc)
-	}
-
-	// Count leading whitespace characters (raw count, not indent units)
-	leadingWS := 0
-	for _, ch := range line {
-		if ch != ' ' && ch != '\t' {
-			break
-		}
-		leadingWS++
-	}
-
-	fileExt := strings.ToLower(filepath.Ext(current.File.Path))
-	language := extToLanguage[fileExt]
-	if language == "" {
-		language = "unknown"
-	}
-
-	source := "typing"
-	if e.lastCompletionSource == types.CompletionSourceIdle {
-		source = "idle"
-	}
-
-	completionLines := 0
-	if e.display.hasCompletion() {
-		completionLines = len(e.display.current().Lines)
-	}
-
-	editCount, predictedEditRatio, timeSinceLastEditMs := metricsDiffStatsFromSnapshot(fileContext, e.config.MaxDiffTokens)
-	typingSpeed := metricsTypingSpeed(fileContext.UserActions)
-	recentActions := metricsRecentActions(fileContext.UserActions)
-	hasDiagnostics := false
-	if diagnostics := e.buffer.Diagnostics(); diagnostics != nil && len(diagnostics.Items) > 0 {
-		hasDiagnostics = true
-	}
-	treesitterScope := "other"
-	if treesitter := e.buffer.TreesitterSymbols(row, current.Cursor.Col, defaultMaxSiblings); treesitter != nil {
-		treesitterScope = classifyScope(treesitter.EnclosingSignature)
-	}
-
-	stageIndex := 0
-	if e.stagedCompletion != nil {
-		stageIndex = e.stagedCompletion.CurrentIdx
-	}
-
-	cursorTargetDistance := 0
-	if e.cursorTarget != nil {
-		dist := int(e.cursorTarget.LineNumber) - row
-		if dist < 0 {
-			dist = -dist
-		}
-		cursorTargetDistance = dist
-	}
-
-	snapshot := &metrics.Snapshot{
-		FileExt:                fileExt,
-		Language:               language,
-		PrefixLength:           len(prefix),
-		TrimmedPrefixLength:    len(trimmedPrefix),
-		LineCount:              len(lines),
-		RelativePosition:       relativePosition,
-		AfterCursorWS:          afterCursorIsWhitespace(lines, row, col),
-		LastChar:               lastChar,
-		LastNonWSChar:          lastNWS,
-		IndentationLevel:       leadingWS,
-		CompletionLines:        completionLines,
-		CompletionAdditions:    e.currentMetrics.Additions,
-		CompletionDeletions:    e.currentMetrics.Deletions,
-		CompletionSource:       source,
-		ManuallyTriggered:      manual,
-		Provider:               e.config.ProviderName,
-		StageIndex:             stageIndex,
-		CursorTargetDistance:   cursorTargetDistance,
-		IsPrefetched:           e.readyPrefetch() != nil,
-		TimeSinceLastEditMs:    timeSinceLastEditMs,
-		TypingSpeed:            typingSpeed,
-		RecentActions:          recentActions,
-		HasDiagnostics:         hasDiagnostics,
-		TreesitterScope:        treesitterScope,
-		EditCount:              editCount,
-		PredictedEditRatio:     predictedEditRatio,
-		CompletionsSinceAccept: e.completionsSinceAccept,
-	}
-	return snapshot
-}
-
-func metricsDiffStatsFromSnapshot(snapshot ctx.FileContextSnapshot, maxDiffTokens int) (int, float64, int) {
-	editCount := 0
-	predictedCount := 0
-	latestTimestampNs := int64(0)
-	addDiffStats := func(diffs []*types.DiffEntry) {
-		for _, d := range diffs {
-			if d == nil {
-				continue
-			}
-			editCount++
-			if d.Source == types.DiffSourcePredicted {
-				predictedCount++
-			}
-			if d.TimestampNs > latestTimestampNs {
-				latestTimestampNs = d.TimestampNs
-			}
-		}
-	}
-
-	for _, file := range snapshot.RecentFiles {
-		addDiffStats(buffer.ProcessDiffHistory(file.DiffHistories, snapshot.NowNs))
-	}
-	currentDiffs := buffer.ProcessDiffHistory(snapshot.CurrentDiffHistories, snapshot.NowNs)
-	if maxDiffTokens > 0 {
-		currentDiffs = utils.TrimDiffEntries(currentDiffs, maxDiffTokens)
-	}
-	addDiffStats(currentDiffs)
-
-	predictedEditRatio := 0.0
-	if editCount > 0 {
-		predictedEditRatio = float64(predictedCount) / float64(editCount)
-	}
-	timeSinceLastEditMs := 0
-	if latestTimestampNs > 0 {
-		timeSinceLastEditMs = int(snapshot.NowNs/1_000_000 - latestTimestampNs/1_000_000)
-	}
-	return editCount, predictedEditRatio, timeSinceLastEditMs
-}
-
-func metricsTypingSpeed(actions []*types.UserAction) float64 {
-	if len(actions) < 2 {
-		return 0
-	}
-	insertCount := 0
-	for _, action := range actions {
-		if action != nil && action.ActionType == types.ActionInsertChar {
-			insertCount++
-		}
-	}
-	first := actions[0]
-	last := actions[len(actions)-1]
-	if first == nil || last == nil {
-		return 0
-	}
-	if durationSec := float64(last.TimestampMs-first.TimestampMs) / 1000.0; durationSec > 0 {
-		return float64(insertCount) / durationSec
-	}
-	return 0
-}
-
-func metricsRecentActions(actions []*types.UserAction) []string {
-	recentActions := make([]string, 0, 5)
-	start := len(actions) - 5
-	if start < 0 {
-		start = 0
-	}
-	for _, action := range actions[start:] {
-		if action == nil {
-			continue
-		}
-		if abbr, ok := actionAbbrev[action.ActionType]; ok {
-			recentActions = append(recentActions, abbr)
-		}
-	}
-	return recentActions
-}
-
-// metricsWorker processes metrics events asynchronously.
-func (e *Engine) metricsWorker(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event := <-e.metricsCh:
-			e.metricSender.SendMetric(ctx, event)
-		}
 	}
 }

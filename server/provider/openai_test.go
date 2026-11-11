@@ -9,11 +9,11 @@ import (
 
 func TestRequestCarriesSamplingConfig(t *testing.T) {
 	o := NewOpenAI("test", &types.ProviderConfig{
-		ProviderModel:       "model",
-		ProviderTemperature: 0.2,
-		ProviderMaxTokens:   256,
-		ProviderTopK:        0,
-		ProviderTopP:        1.0,
+		Model:       "model",
+		Temperature: 0.2,
+		MaxTokens:   256,
+		TopK:        0,
+		TopP:        1.0,
 	})
 
 	req := o.Request("prompt", []string{"stop"})

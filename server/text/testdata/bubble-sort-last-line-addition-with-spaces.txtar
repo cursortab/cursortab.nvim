@@ -38,4 +38,6 @@ stage @13 cursor=1:21
   modification @13 1-1 append_chars 3:21
     + "    print(sorted_arr)"
     - "   "
+  addition @14 2-2
+    + "   "
 

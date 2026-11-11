@@ -42,11 +42,8 @@ type EvalRequestResult struct {
 // The manualTrigger parameter bypasses call-before suppression, matching
 // production manual trigger semantics.
 func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) (*EvalRequestResult, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if e.stopped {
-		return nil, fmt.Errorf("engine stopped")
+	if e.ctx.Err() != nil {
+		return nil, fmt.Errorf("engine closed")
 	}
 
 	result := &EvalRequestResult{}
@@ -81,7 +78,7 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 		return result, nil
 	}
 
-	shown := e.processCompletionWithManual(resp, manualTrigger) == completionShown
+	shown := e.processCompletion(resp, manualTrigger) == completionShown
 	result.Shown = shown
 	if !shown {
 		e.pendingMetricsInfo = nil
@@ -101,9 +98,7 @@ func (e *Engine) EvalRequestCompletion(ctx context.Context, manualTrigger bool) 
 // completion explicitly. That keeps cassette replay deterministic and ensures
 // per-step latency only reflects the requests the scenario asked for.
 func (e *Engine) EvalAccept() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.stagedCompletion == nil {
+	if e.ctx.Err() != nil || e.stagedCompletion == nil {
 		return
 	}
 	if e.cursorTarget != nil {
@@ -119,8 +114,9 @@ func (e *Engine) EvalAccept() {
 
 // EvalReject rejects the current completion synchronously.
 func (e *Engine) EvalReject() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if e.ctx.Err() != nil {
+		return
+	}
 	e.rejectAndRemember()
 }
 

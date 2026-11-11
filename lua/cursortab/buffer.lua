@@ -193,6 +193,25 @@ function buffer.should_skip()
 	return buffer_state.should_skip
 end
 
+-- Cursor and size of the current buffer, sent with each event: row (1-indexed),
+-- byte column, byte offset of the cursor and byte size, counting one byte per
+-- line break. Reads Neovim's line index, so the cost does not grow with the
+-- buffer.
+---@return integer[]
+function buffer.position()
+	local cursor = vim.api.nvim_win_get_cursor(0)
+	local last = vim.fn.line("$")
+	local size = vim.fn.line2byte(last + 1)
+	if size < 0 then -- An empty buffer: one empty line
+		return { cursor[1], cursor[2], 0, 1 }
+	end
+	-- line2byte counts a "dos" line break as two bytes.
+	local extra = vim.bo.fileformat == "dos" and 1 or 0
+	local line = vim.api.nvim_get_current_line()
+	local offset = vim.fn.line2byte(cursor[1]) - 1 - (cursor[1] - 1) * extra + math.min(cursor[2], #line)
+	return { cursor[1], cursor[2], offset, size - 1 - last * extra }
+end
+
 -- Set up autocmds for cache invalidation
 function buffer.setup()
 	vim.api.nvim_create_autocmd("BufWritePost", {

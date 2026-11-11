@@ -5,6 +5,7 @@ package zeta2
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"cursortab/client/openai"
@@ -32,7 +33,7 @@ const (
 
 // Editable region sizing. Zed uses token budgets (350 editable, 150 context)
 // for the cloud endpoint. We approximate with line counts inside the shared
-// request window bounded by ProviderMaxTokens.
+// request window bounded by MaxTokens.
 const (
 	editableLinesBefore  = 15
 	editableLinesAfter   = 15
@@ -354,7 +355,7 @@ func writeGitDiffPseudoFile(b *strings.Builder, gd *types.GitDiffContext) {
 }
 
 // buildEditHistory formats file diff histories as git-style unified diffs,
-// newest-first, capped at maxEditHistoryEvents. Each event is preceded by
+// oldest first, keeping the newest maxEditHistoryEvents. Each event is preceded by
 // "--- a/path\n+++ b/path\n" headers and separated by blank lines.
 //
 // Matches Zed's write_event in crates/zeta_prompt/src/zeta_prompt.rs:169-195.
@@ -363,7 +364,7 @@ func buildEditHistory(history []*types.FileDiffHistory) string {
 		return ""
 	}
 
-	// Flatten events with their file path, newest-first by timestamp.
+	// Flatten events with their file path.
 	type event struct {
 		path      string
 		diff      string
@@ -389,22 +390,9 @@ func buildEditHistory(history []*types.FileDiffHistory) string {
 		return ""
 	}
 
-	// Sort newest-first by timestamp.
-	for i := 1; i < len(events); i++ {
-		for j := i; j > 0 && events[j].tsNs > events[j-1].tsNs; j-- {
-			events[j], events[j-1] = events[j-1], events[j]
-		}
-	}
-
-	// Cap to maxEditHistoryEvents most recent.
-	if len(events) > maxEditHistoryEvents {
-		events = events[:maxEditHistoryEvents]
-	}
-
-	// Reverse to oldest-first for prompt output.
-	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
-		events[i], events[j] = events[j], events[i]
-	}
+	// Oldest first; events with equal timestamps keep their history order.
+	sort.SliceStable(events, func(i, j int) bool { return events[i].tsNs < events[j].tsNs })
+	events = events[max(len(events)-maxEditHistoryEvents, 0):]
 
 	var b strings.Builder
 	for i, ev := range events {

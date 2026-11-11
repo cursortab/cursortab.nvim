@@ -147,6 +147,8 @@ local completion_windows = {} -- Array of {win_id, buf_id} for overlay window cl
 ---@field startLine integer Start line of the buffer range (1-indexed, used for apply operation)
 ---@field cursor_line integer Cursor position (1-indexed, relative to content)
 ---@field cursor_col integer Cursor column (0-indexed)
+---@field bufnr integer Buffer the completion was computed for
+---@field changedtick integer b:changedtick of the content it was computed for
 
 -- Helper function to close cursor prediction jump text
 local function ensure_close_cursor_prediction()
@@ -495,26 +497,34 @@ local function clear_expected_line_state()
 	append_chars_state = nil
 end
 
--- Highlight a line with deletion background
+-- Highlight the text of a line that a modification replaces. The line itself
+-- stays, so only its text is marked.
 ---@param nvim_line integer 0-indexed line number
 ---@param current_buf integer
 ---@param ns_id integer
-local function highlight_deletion(nvim_line, current_buf, ns_id)
+local function highlight_replaced_text(nvim_line, current_buf, ns_id)
 	local line_content = vim.api.nvim_buf_get_lines(current_buf, nvim_line, nvim_line + 1, false)[1] or ""
-
-	if line_content ~= "" then
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
-			end_col = #line_content,
-			hl_group = "CursorTabDeletion",
-			hl_mode = "combine",
-		})
-		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
-	else
-		local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
-			line_hl_group = "CursorTabDeletion",
-		})
-		table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
+	if line_content == "" then
+		return
 	end
+	local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
+		end_col = #line_content,
+		hl_group = "CursorTabDeletion",
+		hl_mode = "combine",
+	})
+	table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
+end
+
+-- Highlight a line that a deletion removes across the whole window, so it
+-- differs from text removed from a line that stays.
+---@param nvim_line integer 0-indexed line number
+---@param current_buf integer
+---@param ns_id integer
+local function highlight_removed_line(nvim_line, current_buf, ns_id)
+	local extmark_id = vim.api.nvim_buf_set_extmark(current_buf, ns_id, nvim_line, 0, {
+		line_hl_group = "CursorTabDeletion",
+	})
+	table.insert(completion_extmarks, { buf = current_buf, extmark_id = extmark_id })
 end
 
 -- Render append_chars: show only the appended part as ghost text
@@ -686,9 +696,9 @@ local function render_modification(group, nvim_line, current_win, current_buf, s
 		overlay_col = max_old_width + 2
 	end
 
-	-- Highlight all old lines with deletion background
+	-- Mark the text of all old lines as replaced
 	for i = 1, line_count do
-		highlight_deletion(nvim_line + i - 1, current_buf, ns_id)
+		highlight_replaced_text(nvim_line + i - 1, current_buf, ns_id)
 	end
 
 	if use_stacked then
@@ -879,7 +889,7 @@ local function show_completion(diff_result)
 		elseif group.type == "deletion" then
 			-- Deletions are always rendered per-line within the group
 			for i = 1, (group.end_line - group.start_line + 1) do
-				highlight_deletion(nvim_line + i - 1, current_buf, ns_id)
+				highlight_removed_line(nvim_line + i - 1, current_buf, ns_id)
 			end
 		end
 	end

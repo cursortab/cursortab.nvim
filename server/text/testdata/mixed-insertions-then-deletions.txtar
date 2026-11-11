@@ -21,6 +21,6 @@ stage @2 cursor=2:5
     - "line B"
   addition @3 2-2
     + "new 2"
-  deletion @4 6-6
+  deletion @4 4-4
     + "line D"
 

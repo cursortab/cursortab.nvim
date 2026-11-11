@@ -37,8 +37,8 @@ end
 ---RPC callback: broadcasts changes to engine state or request activity.
 ---@param status CursortabEngineStatus
 function M.on_state_change(status)
-	-- Return the RPC response before subscribers run, so a callback can restart
-	-- the daemon without waiting for the engine lock held by this notification.
+	-- Return the RPC response before subscribers run: the engine waits for it,
+	-- so a callback that restarts the daemon would otherwise wait on itself.
 	vim.schedule(function()
 		vim.api.nvim_exec_autocmds("User", {
 			pattern = "CursortabStateChanged",
@@ -52,6 +52,11 @@ end
 function M.on_completion_ready(diff_result)
 	-- Clear the awaiting flag now that we've received the completion
 	events.clear_awaiting_completion()
+	-- A completion computed for older buffer content would render at the wrong
+	-- place. The edit that made it stale is already on its way to the daemon.
+	if diff_result.bufnr ~= vim.api.nvim_get_current_buf() or diff_result.changedtick ~= vim.b.changedtick then
+		return
+	end
 	ui.show_completion(diff_result)
 end
 
@@ -123,28 +128,13 @@ function M.status()
 	vim.cmd("checkhealth cursortab")
 end
 
----Restart cursortab daemon
+---Restart the cursortab daemon. Other editors reconnect to the new one.
 function M.restart()
 	vim.notify("Restarting cursortab daemon...", vim.log.levels.INFO)
-
-	-- Clear any existing completions first
 	events.clear_all_completions()
-
-	-- Stop existing daemon (this now handles all cleanup reliably)
-	local _, stop_message = daemon.stop_daemon()
-	vim.notify(stop_message, vim.log.levels.INFO)
-
-	-- Small delay to ensure cleanup is complete
-	vim.defer_fn(function()
-		-- Explicitly start the daemon
-		local start_success = daemon.force_start()
-
-		if start_success then
-			vim.notify("Cursortab daemon restarted successfully", vim.log.levels.INFO)
-		else
-			vim.notify("Failed to start cursortab daemon", vim.log.levels.ERROR)
-		end
-	end, 200)
+	daemon.restart(function()
+		vim.notify("Cursortab daemon restarted", vim.log.levels.INFO)
+	end)
 end
 
 ---Setup cursortab with user configuration
@@ -189,9 +179,15 @@ function M.setup(user_config)
 		M._patch_completion_plugins()
 	end)
 
+	-- A lost connection leaves no completion or engine state behind.
+	daemon.set_disconnect_handler(function()
+		M.on_reject()
+		M.on_state_change({ state = "Idle", pending = false })
+	end)
+
 	-- Start the daemon (non-blocking)
 	vim.defer_fn(function()
-		daemon.force_start()
+		daemon.start()
 	end, 0)
 end
 

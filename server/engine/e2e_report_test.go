@@ -81,11 +81,11 @@ func stagesFromEngine(stages []*text.Stage) []e2e.StageInfo {
 		}
 		for _, g := range s.Groups {
 			si.Groups = append(si.Groups, e2e.GroupInfo{
-				Type:       g.Type,
+				Type:       string(g.Type),
 				StartLine:  g.StartLine,
 				EndLine:    g.EndLine,
 				BufferLine: g.BufferLine,
-				RenderHint: g.RenderHint,
+				RenderHint: string(g.RenderHint),
 				ColStart:   g.ColStart,
 				ColEnd:     g.ColEnd,
 				Lines:      g.Lines,
@@ -113,8 +113,8 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	for _, step := range sc.Steps {
 		sr := stepResult{
@@ -147,7 +147,7 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 					EndLineInc: step.Completion.EndLineInc,
 					Lines:      step.Completion.Lines,
 				}
-				sr.Shown = eng.processCompletion(completionResponse(comp)) == completionShown
+				sr.Shown = eng.processCompletion(completionResponse(comp), false) == completionShown
 			}
 
 		case "prefetch":
@@ -182,7 +182,7 @@ func runEngineScenarioForReport(sc *engineScenario) scenarioResult {
 				stage := eng.getStage(eng.stagedCompletion.CurrentIdx)
 				if stage != nil {
 					buf.mu.Lock()
-					buf.lines = applyStageToLines(buf.lines, stage)
+					buf.lines = stage.Apply(buf.lines)
 					buf.mu.Unlock()
 				}
 			}

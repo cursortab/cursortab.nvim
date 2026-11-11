@@ -8,10 +8,11 @@ hello
 keep me too
 -- new.txt --
 keep me
-
+  
 keep me too
 -- expected --
-stage @2 cursor=-1:-1
-  deletion @2 1-1
-    + "hello"
+stage @2 cursor=1:2
+  modification @2 1-1
+    + "  "
+    - "hello"
 

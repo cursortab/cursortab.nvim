@@ -10,6 +10,7 @@ import (
 	"cursortab/engine"
 	"cursortab/eval/cassette"
 	"cursortab/eval/clock"
+	hist "cursortab/history"
 	"cursortab/types"
 )
 
@@ -176,27 +177,22 @@ func runTarget(sc *Scenario, t Target, cfg Config) *TargetOutcome {
 	}
 	buf := NewEvalBuffer(sc.FilePath, sc.Buffer.Lines, row, col)
 	buf.SetViewport(sc.Buffer.ViewportTop, sc.Buffer.ViewportBottom)
-	if sc.Buffer.Modified != nil {
-		buf.SetModified(*sc.Buffer.Modified)
-	}
-	if sc.Buffer.SkipHistory != nil {
-		buf.SetSkipHistory(*sc.Buffer.SkipHistory)
-	}
-	if len(sc.History) > 0 {
-		entries := make([]*types.DiffEntry, 0, len(sc.History))
-		for _, h := range sc.History {
-			entries = append(entries, &types.DiffEntry{
-				Original:    h.Original,
-				Updated:     h.Updated,
-				Source:      types.DiffSourceManual,
-				TimestampNs: time.Now().UnixNano(),
-			})
-		}
-		buf.diffHistories = entries
-	}
+	buf.SetModified(sc.Buffer.Modified)
 
 	fc := clock.New(time.Time{})
-	eng, err := engine.NewEngine(prov, buf, engine.EngineConfig{
+	var history []*types.DiffEntry
+	for _, h := range sc.History {
+		history = append(history, &types.DiffEntry{
+			Original:    h.Original,
+			Updated:     h.Updated,
+			Source:      types.DiffSourceManual,
+			TimestampNs: fc.Now().UnixNano(),
+		})
+	}
+	store := hist.NewStore(3)
+	store.Seed(sc.FilePath, sc.Buffer.Lines, history, fc.Now().UnixNano())
+
+	eng := engine.New(engine.Deps{Provider: prov, Buffer: buf, Clock: fc, History: store}, engine.Config{
 		ProviderName:        t.Name,
 		CompletionTimeout:   30 * time.Second,
 		IdleCompletionDelay: -1,
@@ -207,15 +203,8 @@ func runTarget(sc *Scenario, t Target, cfg Config) *TargetOutcome {
 		CompleteInInsert:       true,
 		CompleteInNormal:       true,
 		DisableProviderMetrics: true,
-	}, fc, nil)
-	if err != nil {
-		to.Error = fmt.Errorf("engine init: %w", err)
-		return to
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	eng.Start(ctx)
-	defer eng.Stop()
+	})
+	defer eng.Close()
 
 	for i, step := range sc.Steps {
 		// Snapshot replayer/copilot duration before the step so we can

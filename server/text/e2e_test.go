@@ -114,22 +114,6 @@ type fixtureResult struct {
 	Verified          bool
 }
 
-// stageIsPureInsertion checks if a stage is a pure insertion (insert without
-// replacing any old lines). Mirrors computeReplaceEnd in buffer.go.
-func stageIsPureInsertion(stage *Stage) bool {
-	if stage.BufferStart != stage.BufferEnd || len(stage.Groups) == 0 {
-		return false
-	}
-	groupLines := 0
-	for _, g := range stage.Groups {
-		if g.Type != "addition" {
-			return false
-		}
-		groupLines += g.EndLine - g.StartLine + 1
-	}
-	return len(stage.Lines) == groupLines
-}
-
 // testBuffer simulates Neovim's buffer for apply verification.
 type testBuffer struct {
 	lines []string
@@ -137,31 +121,7 @@ type testBuffer struct {
 
 // applyStage simulates nvim_buf_set_lines for a stage.
 func (b *testBuffer) applyStage(stage *Stage) {
-	isPureInsertion := stageIsPureInsertion(stage)
-
-	start := stage.BufferStart - 1 // 0-indexed
-	if isPureInsertion {
-		// Insert without replacing: splice at start
-		newLines := make([]string, 0, len(b.lines)+len(stage.Lines))
-		newLines = append(newLines, b.lines[:start]...)
-		newLines = append(newLines, stage.Lines...)
-		newLines = append(newLines, b.lines[start:]...)
-		b.lines = newLines
-	} else {
-		// Replace [start, end] inclusive with stage.Lines
-		end := stage.BufferEnd // 1-indexed inclusive → 0-indexed exclusive
-		newLines := make([]string, 0, len(b.lines)-end+start+len(stage.Lines))
-		newLines = append(newLines, b.lines[:start]...)
-		newLines = append(newLines, stage.Lines...)
-		if end < len(b.lines) {
-			newLines = append(newLines, b.lines[end:]...)
-		}
-		// Neovim buffers always have at least one line
-		if len(newLines) == 0 {
-			newLines = []string{""}
-		}
-		b.lines = newLines
-	}
+	b.lines = stage.Apply(b.lines)
 }
 
 // partialAcceptStage simulates Ctrl+Right partial acceptance for a stage.
@@ -171,14 +131,7 @@ func (b *testBuffer) applyStage(stage *Stage) {
 func (b *testBuffer) partialAcceptStage(stage *Stage) {
 	// Partial accept only works for same-line-count modifications and append_chars.
 	// Stages that add or remove lines require full batch apply (Tab).
-	isPureInsertion := stageIsPureInsertion(stage)
-	var oldLineCount int
-	if isPureInsertion {
-		oldLineCount = 0
-	} else {
-		oldLineCount = stage.BufferEnd - stage.BufferStart + 1
-	}
-	if len(stage.Lines) != oldLineCount {
+	if stage.LineDelta() != 0 || stage.IsInsertion() {
 		b.applyStage(stage)
 		return
 	}
@@ -256,32 +209,10 @@ func (b *testBuffer) partialAcceptStage(stage *Stage) {
 	}
 }
 
-// advanceOffsets applies the offset from the applied stage to remaining stages
-// that are at or after the applied stage's buffer position.
+// advanceOffsets shifts the remaining stages after stages[appliedIdx] was
+// applied.
 func advanceOffsets(stages []*Stage, appliedIdx int) {
-	stage := stages[appliedIdx]
-
-	isPureInsertion := stageIsPureInsertion(stage)
-
-	var oldLineCount int
-	if isPureInsertion {
-		oldLineCount = 0
-	} else {
-		oldLineCount = stage.BufferEnd - stage.BufferStart + 1
-	}
-	offset := len(stage.Lines) - oldLineCount
-
-	if offset != 0 {
-		for i := appliedIdx + 1; i < len(stages); i++ {
-			if stages[i].BufferStart >= stage.BufferStart {
-				stages[i].BufferStart += offset
-				stages[i].BufferEnd += offset
-				for _, g := range stages[i].Groups {
-					g.BufferLine += offset
-				}
-			}
-		}
-	}
+	ShiftAfter(stages[appliedIdx+1:], stages[appliedIdx])
 }
 
 // --- Shared helpers ---

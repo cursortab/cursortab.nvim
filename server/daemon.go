@@ -2,319 +2,277 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"net"
 	"os"
 	"strconv"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"cursortab/buffer"
 	"cursortab/engine"
 	"cursortab/logger"
-	"cursortab/metrics"
-	"cursortab/provider/copilot"
-	"cursortab/provider/dataset"
-	"cursortab/provider/fim"
-	"cursortab/provider/inline"
-	"cursortab/provider/mercuryapi"
-	"cursortab/provider/sweep"
-	"cursortab/provider/windsurf"
-	"cursortab/provider/zeta"
-	"cursortab/provider/zeta2"
-	"cursortab/types"
 
 	"github.com/neovim/go-client/nvim"
 )
 
+// errDaemonRunning means another daemon already serves the state directory.
+var errDaemonRunning = errors.New("daemon already running")
+
+// idleTimeout is how long the daemon keeps running without connected editors.
+const idleTimeout = 30 * time.Second
+
+// Daemon accepts editor connections and runs one session per connection.
 type Daemon struct {
-	config      Config
-	provider    engine.Provider
-	buffer      *buffer.NvimBuffer
-	engine      *engine.Engine
-	listener    net.Listener
-	pidPath     string
-	clientCount int64
-	shutdown    chan bool
-	ctx         context.Context
-	cancel      context.CancelFunc
+	config   DaemonConfig
+	deviceID string
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	mu       sync.Mutex
+	sessions int
+	idleFrom time.Time // When the last session ended
 }
 
-func newDaemonContext() (context.Context, context.CancelFunc) {
-	return context.WithCancel(context.Background())
-}
-
-func NewDaemon(config Config) (*Daemon, error) {
-	apiKey := ""
-	if config.Provider.ApiKeyEnv != "" {
-		apiKey = os.Getenv(config.Provider.ApiKeyEnv)
-		if apiKey == "" {
-			logger.Warn("api_key_env is set to %q but environment variable is not defined", config.Provider.ApiKeyEnv)
-		}
-	}
-
-	providerConfig := &types.ProviderConfig{
-		ProviderURL:         config.Provider.URL,
-		APIKey:              apiKey,
-		ProviderModel:       config.Provider.Model,
-		ProviderTemperature: config.Provider.Temperature,
-		ProviderContextSize: config.Provider.ContextSize,
-		ProviderMaxTokens:   config.Provider.MaxTokens,
-		ProviderTopK:        config.Provider.TopK,
-		ProviderTopP:        config.Provider.TopP,
-		CompletionPath:      config.Provider.CompletionPath,
-		CompletionTimeout:   config.Provider.CompletionTimeout,
-		PrivacyMode:         config.Provider.PrivacyMode,
-		Version:             Version,
-		EditorVersion:       config.EditorVersion,
-		EditorOS:            config.EditorOS,
-		StateDir:            config.StateDir,
-		DeviceID:            loadOrCreateDeviceID(config.StateDir),
-	}
-
-	if config.Provider.FIMTokens != nil {
-		providerConfig.FIMTokens = &types.FIMTokenConfig{
-			Prefix:   config.Provider.FIMTokens.Prefix,
-			Suffix:   config.Provider.FIMTokens.Suffix,
-			Middle:   config.Provider.FIMTokens.Middle,
-			RepoName: config.Provider.FIMTokens.RepoName,
-			FileSep:  config.Provider.FIMTokens.FileSep,
-		}
-	}
-
-	buf := buffer.New(buffer.Config{
-		NsID: config.NsID,
-	})
-
-	var prov engine.Provider
-	switch types.ProviderType(config.Provider.Type) {
-	case types.ProviderTypeInline:
-		prov = inline.NewProvider(providerConfig)
-	case types.ProviderTypeFIM:
-		prov = fim.NewProvider(providerConfig)
-	case types.ProviderTypeSweep:
-		prov = sweep.NewProvider(providerConfig)
-	case types.ProviderTypeZeta:
-		prov = zeta.NewProvider(providerConfig)
-	case types.ProviderTypeZeta2:
-		prov = zeta2.NewProvider(providerConfig)
-	case types.ProviderTypeZeta21:
-		prov = zeta2.NewProvider21(providerConfig)
-	case types.ProviderTypeCopilot:
-		prov = copilot.NewProvider(buf)
-	case types.ProviderTypeWindsurf:
-		prov = windsurf.NewProvider(buf)
-	case types.ProviderTypeMercuryAPI:
-		prov = mercuryapi.NewProvider(providerConfig)
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", config.Provider.Type)
-	}
-
-	// Initialize dataset sender if user opted in to contribute data
-	var datasetSender metrics.Sender
-	if config.ContributeData {
-		datasetSender = dataset.NewSender(
-			providerConfig.DeviceID,
-			providerConfig.Version,
-			"", // Default: api.cursortab.com
-		)
-	}
-
-	eng, err := engine.NewEngine(prov, buf, engine.EngineConfig{
-		NsID:                config.NsID,
-		ProviderName:        config.Provider.Type,
-		CompletionTimeout:   time.Duration(config.Provider.CompletionTimeout) * time.Millisecond,
-		IdleCompletionDelay: time.Duration(config.Behavior.IdleCompletionDelay) * time.Millisecond,
-		TextChangeDebounce:  time.Duration(config.Behavior.TextChangeDebounce) * time.Millisecond,
-		CursorPrediction: engine.CursorPredictionConfig{
-			Enabled:            config.Behavior.CursorPrediction.Enabled,
-			AutoAdvance:        config.Behavior.CursorPrediction.AutoAdvance,
-			ProximityThreshold: config.Behavior.CursorPrediction.ProximityThreshold,
-		},
-		MaxDiffTokens:    config.Provider.MaxDiffHistoryTokens,
-		MaxVisibleLines:  config.Behavior.MaxVisibleLines,
-		DisabledIn:       config.Behavior.DisabledIn,
-		CompleteInInsert: config.Behavior.CompleteInInsert,
-		CompleteInNormal: config.Behavior.CompleteInNormal,
-	}, engine.SystemClock, datasetSender)
-	if err != nil {
-		return nil, err
-	}
-	eng.SetStateNotifier(buf.NotifyState)
-
-	ctx, cancel := newDaemonContext()
-
+func NewDaemon(config DaemonConfig) *Daemon {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Daemon{
 		config:   config,
-		provider: prov,
-		buffer:   buf,
-		engine:   eng,
-		pidPath:  getPidPath(config.StateDir),
-		shutdown: make(chan bool, 1),
+		deviceID: loadOrCreateDeviceID(config.StateDir),
 		ctx:      ctx,
 		cancel:   cancel,
-	}, nil
+		idleFrom: time.Now(),
+	}
 }
 
-func (d *Daemon) Start() error {
-	// Setup logging and PID management
-	d.writePidFile()
-	defer d.removePidFile()
+// Run serves connections until a shutdown signal arrives or no editor has
+// been connected for the idle timeout.
+//
+// Only the daemon that holds the lock of the state directory runs; it alone
+// creates and removes the runtime files.
+func (d *Daemon) Run() error {
+	unlock, err := lockDaemon(d.config.StateDir)
+	if errors.Is(err, errDaemonRunning) {
+		logger.Info("another daemon is already running, exiting")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
-	// Setup IPC
 	listener, addr, err := listenIPC(d.config.StateDir)
 	if err != nil {
 		return err
 	}
-	d.listener = listener
 	defer cleanupIPC(d.config.StateDir)
 
-	logger.Info("daemon listening on: %s", addr)
+	pidPath := runtimePath(d.config.StateDir, "pid")
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		logger.Warn("could not write PID file: %v", err)
+	}
+	defer os.Remove(pidPath)
+	logger.Info("daemon %s listening on %s (PID %d)", Version, addr, os.Getpid())
 
-	// Start engine
-	d.engine.Start(d.ctx)
+	setupShutdownHandler(func() {
+		logger.Info("received shutdown signal")
+		d.cancel()
+	})
+	go d.shutdownWhenIdle()
+	go func() {
+		<-d.ctx.Done()
+		listener.Close()
+	}()
 
-	// Setup shutdown handling
-	d.setupShutdownHandling()
-
-	// Start connection handling
-	go d.acceptConnections()
-
-	// Start idle monitoring
-	go d.monitorIdleShutdown()
-
-	// Wait for shutdown
-	<-d.ctx.Done()
-	logger.Info("daemon shutting down...")
+	var wg sync.WaitGroup
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if d.ctx.Err() != nil {
+				break
+			}
+			logger.Error("error accepting connection: %v", err)
+			continue
+		}
+		d.sessionStarted()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.serve(conn)
+		}()
+	}
+	// Sessions end once their connection closes; a session stuck in a call
+	// that ignores cancellation must not keep the daemon alive.
+	stopped := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		logger.Info("daemon stopped")
+	case <-time.After(5 * time.Second):
+		logger.Warn("daemon stopped with sessions still ending")
+	}
 	return nil
 }
 
-func (d *Daemon) setupShutdownHandling() {
-	setupShutdownHandler(func() {
-		logger.Info("received shutdown signal")
-		d.Stop()
-	})
-}
-
-func (d *Daemon) acceptConnections() {
-	for {
-		conn, err := d.listener.Accept()
-		if err != nil {
-			select {
-			case <-d.ctx.Done():
-				return // Server is shutting down
-			default:
-				logger.Error("error accepting connection: %v", err)
-				continue
-			}
-		}
-
-		atomic.AddInt64(&d.clientCount, 1)
-		logger.Info("new client connected, total clients: %d", atomic.LoadInt64(&d.clientCount))
-		go d.handleConnection(conn)
-	}
-}
-
-func (d *Daemon) handleConnection(conn net.Conn) {
+// serve runs the session of one editor connection. The editor first sends
+// the cursortab_init notification with its session config; events before it
+// are dropped. go-client runs notifications in order on one goroutine; the
+// lock only orders them with the end of the session, which closes the engine
+// even when the init arrives late.
+func (d *Daemon) serve(conn net.Conn) {
 	defer conn.Close()
-	defer func() {
-		atomic.AddInt64(&d.clientCount, -1)
-		logger.Info("client disconnected, remaining clients: %d", atomic.LoadInt64(&d.clientCount))
-	}()
+	defer d.sessionEnded()
 
-	// Create Neovim client from the connection
-	n, err := nvim.New(conn, conn, conn, logger.Debug)
+	client, err := nvim.New(conn, conn, conn, logger.Debug)
 	if err != nil {
 		logger.Error("error creating nvim client: %v", err)
 		return
 	}
+	defer client.Close()
 
-	if err := n.RegisterHandler("cursortab_event", d.engine.HandleEditorEvent); err != nil {
-		logger.Error("error registering editor event handler: %v", err)
-		return
+	var (
+		mu      sync.Mutex
+		session *engine.Engine
+		ended   bool
+	)
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		ended = true
+		if session != nil {
+			session.Close()
+		}
+	}()
+
+	handlers := map[string]any{
+		"cursortab_init": func(raw string) {
+			mu.Lock()
+			defer mu.Unlock()
+			if ended || session != nil {
+				logger.Warn("ignoring session init")
+				return
+			}
+			eng, err := initSession(client, raw, d.deviceID)
+			if err != nil {
+				logger.Error("session init failed: %v", err)
+				notifyError(client, err)
+				return
+			}
+			session = eng
+			go eng.Run()
+			logger.Info("session started")
+			notifyStarted(client)
+		},
+		"cursortab_event": func(event string, pos [4]int) {
+			mu.Lock()
+			eng := session
+			mu.Unlock()
+			if eng != nil {
+				eng.HandleEditorEvent(event, buffer.Position{Row: pos[0], Col: pos[1], Offset: pos[2], Size: pos[3]})
+			}
+		},
+		"cursortab_shutdown": func() {
+			logger.Info("shutdown requested by an editor")
+			d.cancel()
+		},
+	}
+	for name, handler := range handlers {
+		if err := client.RegisterHandler(name, handler); err != nil {
+			logger.Error("error registering %s handler: %v", name, err)
+			return
+		}
 	}
 
 	served := make(chan error, 1)
-	d.engine.ConnectEditor(func() {
-		go func() { served <- n.Serve() }()
-		d.buffer.SetClient(n)
-	})
-
+	go func() { served <- client.Serve() }()
 	select {
+	case err = <-served:
+		logSessionEnd(err)
 	case <-d.ctx.Done():
-		return
-	case err := <-served:
-		if err != nil && err != io.EOF {
-			logger.Error("error serving connection: %v", err)
-		}
+		// Close the connection before the engine, so its final RPCs fail fast
+		// instead of waiting on an editor that may not respond. The editor
+		// resets its UI when the connection ends.
+		conn.Close()
 	}
 }
 
-func (d *Daemon) monitorIdleShutdown() {
-	// In debug mode, shut down immediately when no clients are connected
-	if d.config.Debug.ImmediateShutdown {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-d.ctx.Done():
-				return
-			case <-ticker.C:
-				if atomic.LoadInt64(&d.clientCount) == 0 {
-					logger.Debug("debug mode: no clients connected, shutting down daemon immediately")
-					d.Stop()
-					return
-				}
-			}
-		}
-	} else {
-		// Normal mode: wait for timeout period before shutting down
-		idleTimer := time.NewTimer(30 * time.Second)
-		defer idleTimer.Stop()
-
-		for {
-			select {
-			case <-d.ctx.Done():
-				return
-			case <-idleTimer.C:
-				if atomic.LoadInt64(&d.clientCount) == 0 {
-					logger.Info("no clients connected for timeout period, shutting down daemon")
-					d.Stop()
-					return
-				}
-			}
-
-			// Reset timer when no clients
-			if atomic.LoadInt64(&d.clientCount) == 0 {
-				idleTimer.Reset(5 * time.Second)
-			} else {
-				idleTimer.Reset(30 * time.Second)
-			}
-		}
-	}
-}
-
-func (d *Daemon) Stop() {
-	d.engine.Stop()
-	d.cancel()
-	if d.listener != nil {
-		d.listener.Close()
-	}
-}
-
-func (d *Daemon) writePidFile() {
-	pid := os.Getpid()
-	err := os.WriteFile(d.pidPath, []byte(strconv.Itoa(pid)), 0644)
+// initSession builds the engine of a session from the raw session config.
+func initSession(client *nvim.Nvim, raw string, deviceID string) (*engine.Engine, error) {
+	config, err := parseSessionConfig(raw)
 	if err != nil {
-		logger.Warn("could not write PID file: %v", err)
+		return nil, err
 	}
-	logger.Info("server started with PID %d", pid)
+	return newSessionEngine(client, config, deviceID)
 }
 
-func (d *Daemon) removePidFile() {
-	if err := os.Remove(d.pidPath); err != nil && !os.IsNotExist(err) {
-		logger.Warn("could not remove PID file: %v", err)
+// notifyStarted tells the editor that its session runs, with the PID of the
+// daemon.
+func notifyStarted(client *nvim.Nvim) {
+	const started = `require("cursortab.daemon").on_session_started(...)`
+	if err := client.ExecLua(started, nil, os.Getpid()); err != nil {
+		logger.Debug("could not confirm session start: %v", err)
+	}
+}
+
+// notifyError shows a session error in the editor.
+func notifyError(client *nvim.Nvim, err error) {
+	const show = `require("cursortab.daemon").on_session_error(...)`
+	if execErr := client.ExecLua(show, nil, err.Error()); execErr != nil {
+		logger.Debug("could not show session error: %v", execErr)
+	}
+}
+
+func logSessionEnd(err error) {
+	if err != nil && !errors.Is(err, io.EOF) {
+		logger.Error("connection error: %v", err)
+	}
+	logger.Info("session ended")
+}
+
+func (d *Daemon) sessionStarted() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sessions++
+	logger.Info("client connected, sessions: %d", d.sessions)
+}
+
+func (d *Daemon) sessionEnded() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sessions--
+	if d.sessions == 0 {
+		d.idleFrom = time.Now()
+	}
+	logger.Info("client disconnected, sessions: %d", d.sessions)
+}
+
+// shutdownWhenIdle stops the daemon once no editor has been connected for the
+// idle timeout, or right away in immediate-shutdown debug mode.
+func (d *Daemon) shutdownWhenIdle() {
+	timeout := idleTimeout
+	if d.config.ImmediateShutdown {
+		timeout = 0
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.mu.Lock()
+			idle := d.sessions == 0 && time.Since(d.idleFrom) >= timeout
+			d.mu.Unlock()
+			if idle {
+				logger.Info("no clients connected, shutting down daemon")
+				d.cancel()
+				return
+			}
+		}
 	}
 }

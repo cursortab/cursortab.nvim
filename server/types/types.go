@@ -202,30 +202,28 @@ const (
 // Prefix/Suffix/Middle must all be set. When nil, the FIM provider uses the
 // OpenAI completions API prompt+suffix format (e.g. DeepSeek).
 type FIMTokenConfig struct {
-	Prefix   string // Token before the prefix content (e.g., "<|fim_prefix|>")
-	Suffix   string // Token before the suffix content (e.g., "<|fim_suffix|>")
-	Middle   string // Token before the middle/completion (e.g., "<|fim_middle|>")
-	RepoName string // Optional repo-level FIM token (e.g., "<|repo_name|>")
-	FileSep  string // Optional file separator token (e.g., "<|file_sep|>")
+	Prefix   string `json:"prefix"`    // Token before the prefix content (e.g., "<|fim_prefix|>")
+	Suffix   string `json:"suffix"`    // Token before the suffix content (e.g., "<|fim_suffix|>")
+	Middle   string `json:"middle"`    // Token before the middle/completion (e.g., "<|fim_middle|>")
+	RepoName string `json:"repo_name"` // Optional repo-level FIM token (e.g., "<|repo_name|>")
+	FileSep  string `json:"file_sep"`  // Optional file separator token (e.g., "<|file_sep|>")
 }
 
 // ProviderConfig holds configuration for providers
 type ProviderConfig struct {
-	ProviderURL         string          // URL of the provider server (e.g., "http://localhost:8000")
-	APIKey              string          // Resolved API key for authenticated requests
-	ProviderModel       string          // Model name
-	ProviderTemperature float64         // Sampling temperature
-	ProviderContextSize int             // Max input context size in tokens (0 = use ProviderMaxTokens)
-	ProviderMaxTokens   int             // Max tokens to generate
-	ProviderTopK        int             // Top-k sampling (used by some providers)
-	ProviderTopP        float64         // Top-p sampling (0 leaves the provider default)
-	CompletionPath      string          // API endpoint path (e.g., "/v1/completions")
-	FIMTokens           *FIMTokenConfig // nil = prompt+suffix mode; non-nil = tokenized FIM
-	CompletionTimeout   int             // Timeout for completion requests in milliseconds
-	PrivacyMode         bool            // Don't send telemetry to provider
-	Version             string          // Plugin version for metrics/telemetry
-	EditorVersion       string          // Editor version (e.g., "0.10.0")
-	EditorOS            string          // Operating system name (e.g., "Darwin")
-	StateDir            string          // State directory for persistent data (device_id, etc.)
-	DeviceID            string          // Persistent device identifier
+	URL               string          // URL of the provider server (e.g., "http://localhost:8000")
+	APIKey            string          // Resolved API key for authenticated requests
+	Model             string          // Model name
+	Temperature       float64         // Sampling temperature
+	ContextSize       int             // Max input context size in tokens (0 = use MaxTokens)
+	MaxTokens         int             // Max tokens to generate
+	TopK              int             // Top-k sampling (used by some providers)
+	TopP              float64         // Top-p sampling (0 leaves the provider default)
+	CompletionPath    string          // API endpoint path (e.g., "/v1/completions")
+	FIMTokens         *FIMTokenConfig // nil = prompt+suffix mode; non-nil = tokenized FIM
+	CompletionTimeout int             // Timeout for completion requests in milliseconds
+	PrivacyMode       bool            // Don't send telemetry to provider
+	Version           string          // Plugin version for metrics/telemetry
+	EditorVersion     string          // Editor version (e.g., "0.10.0")
+	EditorOS          string          // Operating system name (e.g., "Darwin")
 }

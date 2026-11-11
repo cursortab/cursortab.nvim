@@ -27,7 +27,7 @@ func NewOpenAI(name string, config *types.ProviderConfig) OpenAI {
 	return OpenAI{
 		config: config,
 		name:   name,
-		client: openai.NewClient(config.ProviderURL, config.CompletionPath, config.APIKey),
+		client: openai.NewClient(config.URL, config.CompletionPath, config.APIKey),
 	}
 }
 
@@ -62,7 +62,7 @@ func (o OpenAI) SetHTTPTransport(rt http.RoundTripper) {
 func (o OpenAI) LogRequest(req *openai.CompletionRequest, maxLines int) {
 	logger.Debug("%s provider request:\n  URL: %s%s\n  Model: %s\n  Temperature: %.2f\n  MaxTokens: %d\n  MaxLines: %d\n  Prompt length: %d chars\n  Prompt:\n%s",
 		o.name,
-		o.config.ProviderURL,
+		o.config.URL,
 		o.config.CompletionPath,
 		req.Model,
 		req.Temperature,
@@ -76,12 +76,12 @@ func (o OpenAI) LogRequest(req *openai.CompletionRequest, maxLines int) {
 // Prompt, suffix, and stop tokens remain leaf protocol facts.
 func (o OpenAI) Request(prompt string, stop []string) *openai.CompletionRequest {
 	return &openai.CompletionRequest{
-		Model:       o.config.ProviderModel,
+		Model:       o.config.Model,
 		Prompt:      prompt,
-		Temperature: o.config.ProviderTemperature,
-		MaxTokens:   o.config.ProviderMaxTokens,
-		TopK:        o.config.ProviderTopK,
-		TopP:        o.config.ProviderTopP,
+		Temperature: o.config.Temperature,
+		MaxTokens:   o.config.MaxTokens,
+		TopK:        o.config.TopK,
+		TopP:        o.config.TopP,
 		Stop:        stop,
 		N:           1,
 		Echo:        false,
@@ -135,7 +135,12 @@ type lineStreamSession struct {
 	err       error
 }
 
+// StartStream returns nil when the cursor line does not fit the context
+// budget; the batch path then returns an empty response.
 func (o OpenAI) StartStream(ctx context.Context, input sourcectx.CompletionInput, config *types.ProviderConfig, flow OpenAIStreamFlow) (engine.CompletionStream, error) {
+	if !cursorLineFits(input, config) {
+		return nil, nil
+	}
 	state := prepareRequestState(input, config)
 	req, err := flow.Build(state)
 	if err != nil {

@@ -12,10 +12,6 @@ type CopilotClientInfo struct {
 }
 
 func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
-	if b.client == nil {
-		return nil, fmt.Errorf("nvim client not set")
-	}
-
 	var result []map[string]any
 	batch := b.client.NewBatch()
 	batch.ExecLua(`return require('cursortab.bridge').get_lsp_client({'copilot', 'GitHub Copilot'})`, &result, nil)
@@ -34,10 +30,6 @@ func (b *NvimBuffer) GetCopilotClient() (*CopilotClientInfo, error) {
 }
 
 func (b *NvimBuffer) SendCopilotDidFocus(uri string) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
 	batch := b.client.NewBatch()
 	batch.ExecLua(`
 		return require('cursortab.bridge').send_lsp_event(
@@ -51,10 +43,6 @@ func (b *NvimBuffer) SendCopilotDidFocus(uri string) error {
 }
 
 func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
 	chanID := b.client.ChannelID()
 
 	batch := b.client.NewBatch()
@@ -71,9 +59,6 @@ func (b *NvimBuffer) SendCopilotNESRequest(reqID int64, uri string) error {
 }
 
 func (b *NvimBuffer) RegisterCopilotHandler(handler func(reqID int64, editsJSON string, errMsg string)) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
 	return b.client.RegisterHandler("cursortab_copilot_response", func(_ *nvim.Nvim, reqID int64, editsJSON string, errMsg string) {
 		handler(reqID, editsJSON, errMsg)
 	})
@@ -86,10 +71,6 @@ type WindsurfInfo struct {
 }
 
 func (b *NvimBuffer) GetWindsurfInfo() (*WindsurfInfo, error) {
-	if b.client == nil {
-		return nil, fmt.Errorf("nvim client not set")
-	}
-
 	var result map[string]any
 	batch := b.client.NewBatch()
 	batch.ExecLua(`return require('cursortab.bridge').windsurf_get_info()`, &result, nil)

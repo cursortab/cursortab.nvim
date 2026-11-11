@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"cursortab/history"
 	"cursortab/logger"
 	"cursortab/text"
 	"cursortab/types"
+	"cursortab/utils"
 )
 
 // inertSuffixPattern matches cursor suffixes where insertion-only completions
@@ -97,10 +99,7 @@ func (e *Engine) suppressForMidLine() bool {
 // save (or initial open). Files that skip history (e.g. COMMIT_EDITMSG) are
 // never suppressed.
 func (e *Engine) suppressForNoEdits() bool {
-	if e.buffer.SkipHistory() {
-		return false
-	}
-	return !e.buffer.IsModified()
+	return !history.SkipHistory(e.buffer.Path()) && !e.buffer.Modified()
 }
 
 // suppressForDisabledScope returns the matched scope name if the cursor is
@@ -258,7 +257,7 @@ func (r *rejectedCompletion) matches(other *rejectedCompletion) (bool, string) {
 	if r.filePath != other.filePath {
 		return false, fmt.Sprintf("file mismatch cached=%s incoming=%s", r.filePath, other.filePath)
 	}
-	if dist := absInt(r.startLine - other.startLine); dist > rejectedCompletionLineProximity {
+	if dist := utils.Abs(r.startLine - other.startLine); dist > rejectedCompletionLineProximity {
 		return false, fmt.Sprintf("start line distance %d > %d", dist, rejectedCompletionLineProximity)
 	}
 	beforeSim, beforeOK := contextLineSimilar(r.beforeLine, other.beforeLine)
@@ -393,13 +392,6 @@ func surroundingCompletionContext(lines []string, startLine, endLineInc int) (st
 		after = strings.TrimSpace(lines[endLineInc])
 	}
 	return before, after
-}
-
-func absInt(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
 }
 
 func isDeletion(action types.UserActionType) bool {

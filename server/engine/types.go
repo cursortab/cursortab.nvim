@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"cursortab/history"
 	"time"
 
 	"cursortab/buffer"
@@ -10,36 +11,35 @@ import (
 	"cursortab/types"
 )
 
+// Buffer is the editor side of the engine: a cached snapshot of the current
+// buffer and window that Sync refreshes, plus rendering and edit operations.
 type Buffer interface {
-	Sync(workspacePath string) (*buffer.SyncResult, error)
-	Lines() []string
-	Row() int
-	Col() int
+	// Sync refreshes the snapshot and reports whether the current buffer
+	// changed since the previous sync.
+	Sync() (switched bool, err error)
+	WorkspacePath() string
 	Path() string
-	Version() int
+	Modified() bool // Changes since the buffer was last written
+	Lines() []string
+	Row() int // 1-indexed
+	Col() int // 0-indexed byte column
 	ViewportBounds() (top, bottom int)
 	AvailableWidth() int
-	PreviousLines() []string
-	OriginalLines() []string
-	DiffHistories() []*types.DiffEntry
-	DiskLines() []string
+
 	Diagnostics() *types.Diagnostics
 	TreesitterSymbols(row int, col int, maxSiblings int) *types.TreesitterContext
-	SetFileContext(ctx buffer.FileContext)
-	HasChanges(startLine, endLineInc int, lines []string) bool
-	PrepareCompletion(startLine, endLineInc int, lines []string, groups []*text.Group) buffer.Batch
-	CommitPending()
-	CommitUserEdits() bool  // Returns true if changes were committed
-	ClearDiffHistory()      // Reset diff history and checkpoint on save
-	IsModified() bool       // True if buffer content differs from the last-saved checkpoint
 	CursorScopes() []string // Treesitter node types from cursor to root
-	SkipHistory() bool      // True for files where diff history is not recorded
-	ShowCursorTarget(line int) error
-	ClearUI() error
+
+	// PrepareCompletion renders a completion and returns the batch that
+	// applies it to the buffer and the snapshot.
+	PrepareCompletion(startLine, endLineInc int, lines []string, groups []*text.Group) buffer.Batch
+	ShowCursorTarget(line int)
+	ClearUI()
+
 	MoveCursor(line int, center, mark bool) error
-	InsertText(line, col int, text string, keepUI bool) error // Insert text at position (1-indexed line, 0-indexed col)
-	ReplaceLine(line int, content string, keepUI bool) error  // Replace a single line (1-indexed)
-	InsertLine(line int, content string, keepUI bool) error   // Insert a new line at position (1-indexed)
+	AppendText(line int, text string) error // Appends to the end of line (1-indexed)
+	// SetLines applies edit and moves the cursor to the end of its last line.
+	SetLines(edit history.Edit) error
 }
 
 // Provider is the engine boundary for completion providers.
@@ -103,6 +103,7 @@ type displayedCompletion struct {
 	completion      *types.Completion
 	batch           buffer.Batch
 	originalLines   []string
+	linesAfter      int // buffer lines after the completion's range
 	groups          []*text.Group
 	rejectCandidate *rejectedCompletion
 }
@@ -111,6 +112,7 @@ func (d *displayedCompletion) show(
 	completion *types.Completion,
 	batch buffer.Batch,
 	originalLines []string,
+	linesAfter int,
 	groups []*text.Group,
 	rejectCandidate *rejectedCompletion,
 ) {
@@ -118,6 +120,7 @@ func (d *displayedCompletion) show(
 		completion:      completion,
 		batch:           batch,
 		originalLines:   originalLines,
+		linesAfter:      linesAfter,
 		groups:          groups,
 		rejectCandidate: rejectCandidate,
 	}
@@ -159,24 +162,23 @@ func (d *displayedCompletion) clearRejectionCandidate() {
 	d.rejectCandidate = nil
 }
 
-func (d *displayedCompletion) advanceLine(wasInsertion bool) bool {
-	if d.completion == nil || len(d.completion.Lines) <= 1 {
-		return false
-	}
-	d.completion.Lines = d.completion.Lines[1:]
-	d.completion.StartLine++
-	d.groups = advanceGroupsAfterAccept(d.groups, wasInsertion)
-	return len(d.groups) > 0
-}
+// activeStream is a completion being received line by line.
+type activeStream struct {
+	stream       CompletionStream
+	lines        <-chan string
+	stageBuilder *text.IncrementalStageBuilder
+	manual       bool
 
-type streamingState struct {
-	StageBuilder *text.IncrementalStageBuilder
-	Manual       bool
+	// pendingLine holds the last received line until the next one arrives,
+	// so a line truncated by the end of the stream is never staged.
+	pendingLine    string
+	hasPendingLine bool
 
-	PendingLine    string // Buffer for last line (drop if truncated)
-	HasPendingLine bool
-
-	FirstStageRendered bool
+	firstStageRendered bool
+	// acceptedDuring is set when the user accepted the rendered stage while
+	// the stream was still running; the rest of the stream then becomes the
+	// next prediction.
+	acceptedDuring bool
 }
 
 type state int
@@ -237,20 +239,8 @@ type CursorPredictionConfig struct {
 	ProximityThreshold int  // Lines apart to trigger staging (default: 3)
 }
 
-// FileState holds per-file context that persists across file switches
-type FileState struct {
-	PreviousLines []string           // Content before user started editing this file
-	DiffHistories []*types.DiffEntry // Cumulative diffs for this file
-	OriginalLines []string           // Checkpoint for granular diffs (resets on CommitUserEdits)
-	DiskLines     []string           // File content as last written to disk (resets only on save)
-	LastAccessNs  int64              // Monotonic timestamp for LRU eviction
-	Version       int                // Buffer version when last active
-	FirstLines    []string           // First 30 lines for FileChunks context
-}
-
-// EngineConfig holds engine configuration
-type EngineConfig struct {
-	NsID                   int
+// Config holds engine configuration
+type Config struct {
 	ProviderName           string
 	CompletionTimeout      time.Duration
 	IdleCompletionDelay    time.Duration

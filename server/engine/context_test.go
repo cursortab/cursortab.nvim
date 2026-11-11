@@ -8,82 +8,12 @@ import (
 	"testing"
 )
 
-func TestIsFileStateValid(t *testing.T) {
-	buf := newMockBuffer()
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	tests := []struct {
-		name         string
-		state        *FileState
-		currentLines []string
-		want         bool
-	}{
-		{
-			name:         "empty original lines",
-			state:        &FileState{OriginalLines: []string{}},
-			currentLines: []string{"a", "b"},
-			want:         false,
-		},
-		{
-			name:         "same content",
-			state:        &FileState{OriginalLines: []string{"a", "b", "c"}},
-			currentLines: []string{"a", "b", "c"},
-			want:         true,
-		},
-		{
-			name:         "minor difference",
-			state:        &FileState{OriginalLines: []string{"a", "b", "c"}},
-			currentLines: []string{"a", "b", "c", "d"},
-			want:         true,
-		},
-		{
-			name:         "major line count difference",
-			state:        &FileState{OriginalLines: []string{"a", "b", "c"}},
-			currentLines: []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"},
-			want:         false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := eng.isFileStateValid(tt.state, tt.currentLines)
-			assert.Equal(t, tt.want, got, "isFileStateValid")
-		})
-	}
-}
-
-func TestTrimFileStateStore(t *testing.T) {
-	buf := newMockBuffer()
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	// Add 5 file states
-	for i := 0; i < 5; i++ {
-		eng.fileStateStore[string(rune('a'+i))+".go"] = &FileState{
-			LastAccessNs: int64(i * 1000),
-		}
-	}
-
-	eng.trimFileStateStore(2)
-
-	assert.Equal(t, 2, len(eng.fileStateStore), "file state store size")
-
-	// Should keep the most recently accessed (highest LastAccessNs)
-	_, existsD := eng.fileStateStore["d.go"]
-	assert.True(t, existsD, "should keep d.go (second most recent)")
-	_, existsE := eng.fileStateStore["e.go"]
-	assert.True(t, existsE, "should keep e.go (most recent)")
-}
-
 func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	prefetchCtx, cancelPrefetch := context.WithCancel(context.Background())
 	currentCtx, currentCancel := context.WithCancel(context.Background())
@@ -99,8 +29,7 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 		}}},
 	}
 	eng.currentCancel = currentCancel
-	eng.completionStream = newMockCompletionStream(streamCancel)
-	eng.streamingState = &streamingState{}
+	eng.stream = &activeStream{stream: newMockCompletionStream(streamCancel)}
 	eng.state = stateStreamingCompletion
 	showDisplayedCompletionForTest(
 		eng,
@@ -113,12 +42,11 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 	eng.stagedCompletion = &text.StagedCompletion{CurrentIdx: 0}
 	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 5}
 
-	eng.handleFileSwitch("a.go", "b.go", []string{"new content"})
+	eng.handleFileSwitch()
 
 	assertNoPrefetch(t, eng, "prefetch cleared")
 	assert.Nil(t, eng.currentCancel, "current request cancel cleared")
-	assert.Nil(t, eng.completionStream, "completion stream cleared")
-	assert.Nil(t, eng.streamingState, "streaming state cleared")
+	assert.Nil(t, eng.stream, "streaming state cleared")
 	assert.Nil(t, eng.display.current(), "completions cleared")
 	assert.Nil(t, eng.stagedCompletion, "staged completion cleared")
 	assert.Nil(t, eng.cursorTarget, "cursor target cleared")
@@ -138,4 +66,58 @@ func TestHandleFileSwitch_DropsInFlightWork(t *testing.T) {
 			t.Errorf("%s context should be cancelled", c.name)
 		}
 	}
+}
+
+func TestBufEnterSetsHistoryBaseline(t *testing.T) {
+	buf := newMockBuffer()
+	buf.path = "a.go"
+	buf.lines = []string{"one", "two"}
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+
+	buf.switchOnSync = true
+	eng.handleEvent(Event{Type: EventBufEnter})
+
+	buf.lines = []string{"one", "changed"}
+	eng.handleEvent(Event{Type: EventInsertLeave})
+
+	diffs := eng.history.Diffs("a.go")
+	assert.Equal(t, 1, len(diffs), "one recorded edit")
+	assert.Equal(t, "two", diffs[0].Original, "edit is against the entered content")
+	assert.Equal(t, "changed", diffs[0].Updated, "edited content")
+}
+
+func TestPathChangeKeepsHistory(t *testing.T) {
+	buf := newMockBuffer()
+	buf.path = "a.go"
+	buf.lines = []string{"one", "two"}
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+
+	buf.switchOnSync = true
+	eng.handleEvent(Event{Type: EventBufEnter})
+	buf.lines = []string{"one", "changed"}
+	eng.handleEvent(Event{Type: EventInsertLeave})
+
+	buf.pathOnSync = "pkg/a.go"
+	eng.handleEvent(Event{Type: EventBufEnter})
+
+	assert.Equal(t, 1, len(eng.history.Diffs("pkg/a.go")), "history follows the new path")
+	assert.Equal(t, 0, len(eng.history.Recent("pkg/a.go")), "old path is not a recent file")
+}
+
+func TestFileSyncedMakesFileContentTheBaseline(t *testing.T) {
+	buf := newMockBuffer()
+	buf.path = "a.go"
+	buf.lines = []string{"one"}
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+	buf.switchOnSync = true
+	eng.handleEvent(Event{Type: EventBufEnter})
+
+	buf.lines = []string{"changed on disk"} // :edit! or autoread
+	eng.handleEvent(Event{Type: EventFileSynced})
+	eng.handleEvent(Event{Type: EventInsertLeave})
+
+	assert.Equal(t, 0, len(eng.history.Diffs("a.go")), "reloaded content is not a user edit")
 }

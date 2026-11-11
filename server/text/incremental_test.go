@@ -1467,10 +1467,10 @@ func TestIncrementalStageBuilder_MaxVisibleLines_ThreeStages(t *testing.T) {
 
 	// Verify stage 2 and 3 are pure additions (all groups are "addition" type)
 	for _, g := range stage2.Groups {
-		assert.Equal(t, "addition", g.Type, "stage 2 should have only addition groups")
+		assert.Equal(t, GroupAddition, g.Type, "stage 2 should have only addition groups")
 	}
 	for _, g := range stage3.Groups {
-		assert.Equal(t, "addition", g.Type, "stage 3 should have only addition groups")
+		assert.Equal(t, GroupAddition, g.Type, "stage 3 should have only addition groups")
 	}
 
 	// The key test: IsPureAddition should be detectable from groups
@@ -1587,8 +1587,8 @@ func TestIncrementalStageBuilder_EmptyLineFilledWithContent(t *testing.T) {
 	// First group should be modification with append_chars hint
 	assert.True(t, len(stage.Groups) >= 1, "should have at least 1 group")
 	firstGroup := stage.Groups[0]
-	assert.Equal(t, "modification", firstGroup.Type, "group type")
-	assert.Equal(t, "append_chars", firstGroup.RenderHint, "render hint")
+	assert.Equal(t, GroupModification, firstGroup.Type, "group type")
+	assert.Equal(t, HintAppendChars, firstGroup.RenderHint, "render hint")
 	assert.Equal(t, 3, firstGroup.BufferLine, "buffer line")
 }
 
@@ -1824,9 +1824,9 @@ func TestIncrementalStageBuilder_WhitespaceLineExpansion(t *testing.T) {
 
 	assert.Equal(t, 2, len(modGroups), "should have two modification groups")
 	assert.Equal(t, 5, modGroups[0].BufferLine, "first modification at buffer line 5")
-	assert.Equal(t, "append_chars", modGroups[0].RenderHint, "empty line gets append_chars")
+	assert.Equal(t, HintAppendChars, modGroups[0].RenderHint, "empty line gets append_chars")
 	assert.Equal(t, 6, modGroups[1].BufferLine, "second modification at buffer line 6")
-	assert.Equal(t, "replace_chars", modGroups[1].RenderHint, "whitespace line gets replace_chars")
+	assert.Equal(t, HintReplaceChars, modGroups[1].RenderHint, "whitespace line gets replace_chars")
 
 	// Additions after the modification groups should be anchored below them
 	for _, g := range stage.Groups {
@@ -1908,7 +1908,7 @@ func TestIncrementalStageBuilder_LowSimilarityModification(t *testing.T) {
 				group := stage.Groups[0]
 				assert.Equal(t, tt.wantBufferLine, group.BufferLine,
 					"Group BufferLine should match expected")
-				assert.Equal(t, "modification", group.Type,
+				assert.Equal(t, GroupModification, group.Type,
 					"should be classified as modification after fallback matching")
 			}
 		})
@@ -1943,7 +1943,7 @@ func TestIncrementalStageBuilder_InsertedLineIsAddition(t *testing.T) {
 	assert.True(t, len(stage.Groups) > 0, "should have groups")
 
 	group := stage.Groups[0]
-	assert.Equal(t, "addition", group.Type, "group type")
+	assert.Equal(t, GroupAddition, group.Type, "group type")
 	assert.Equal(t, []string{""}, group.Lines, "group lines")
 }
 
@@ -2026,7 +2026,7 @@ func TestIncrementalStageBuilder_BlankLineInsertionsBetweenFunctions(t *testing.
 	// Verify intermediate stages have no deletions
 	for i, stage := range intermediateStages {
 		for _, group := range stage.Groups {
-			assert.NotEqual(t, "deletion", group.Type,
+			assert.NotEqual(t, GroupDeletion, group.Type,
 				fmt.Sprintf("intermediate stage %d should have no deletion groups, got deletion at buffer_line %d with lines %v",
 					i, group.BufferLine, group.Lines))
 		}
@@ -2038,7 +2038,7 @@ func TestIncrementalStageBuilder_BlankLineInsertionsBetweenFunctions(t *testing.
 	// Verify the finalized (batch) result has no deletions
 	for _, stage := range result.Stages {
 		for _, group := range stage.Groups {
-			assert.NotEqual(t, "deletion", group.Type,
+			assert.NotEqual(t, GroupDeletion, group.Type,
 				fmt.Sprintf("finalized stage should have no deletion groups, got deletion at buffer_line %d with lines %v",
 					group.BufferLine, group.Lines))
 		}
@@ -2096,7 +2096,7 @@ func TestIncrementalStageBuilder_LowSimilarityModificationBufferRange(t *testing
 		group := stage.Groups[0]
 		assert.Equal(t, 6, group.BufferLine,
 			"Group BufferLine should be at the modified line")
-		assert.Equal(t, "modification", group.Type,
+		assert.Equal(t, GroupModification, group.Type,
 			"should be modification after fallback matching")
 	}
 }

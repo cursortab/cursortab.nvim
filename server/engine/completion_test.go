@@ -35,7 +35,7 @@ func TestShowCurrentStage_UsesStagedManualFlagForMetrics(t *testing.T) {
 			BufferEnd:   1,
 			Lines:       []string{"hello world"},
 			Groups: []*text.Group{{
-				Type:       "modification",
+				Type:       text.GroupModification,
 				BufferLine: 1,
 				Lines:      []string{"hello world"},
 				OldLines:   []string{"hello"},
@@ -63,7 +63,7 @@ func TestTextChangeRerender_PreservesManualFlagForMetrics(t *testing.T) {
 		EndLineInc: 1,
 		Lines:      []string{"hello world"},
 	})
-	assert.Equal(t, completionShown, eng.processCompletionWithManual(resp, true), "initial manual completion")
+	assert.Equal(t, completionShown, eng.processCompletion(resp, true), "initial manual completion")
 
 	buf.lines = []string{"hello w"}
 	buf.col = 7
@@ -258,7 +258,7 @@ func TestHandleCursorTarget_StageNeedsNavigationCapturesRejectedCompletionCandid
 			BufferEnd:   10,
 			Lines:       []string{"new line 10"},
 			Groups: []*text.Group{{
-				Type:       "modification",
+				Type:       text.GroupModification,
 				BufferLine: 10,
 				StartLine:  1,
 				EndLine:    1,
@@ -321,7 +321,7 @@ func TestProcessCompletion_TailTrimModelOverrun(t *testing.T) {
 		},
 	}
 
-	eng.processCompletion(completionResponse(comp))
+	eng.processCompletion(completionResponse(comp), false)
 
 	// After tail-trim, lines 7-10 should be trimmed (they match buffer[7:10]).
 	// The completion should only produce changes within/near the editable range,
@@ -383,7 +383,7 @@ func TestProcessCompletion_NoSpuriousAdditions(t *testing.T) {
 		},
 	}
 
-	result := eng.processCompletion(completionResponse(comp)) == completionShown
+	result := eng.processCompletion(completionResponse(comp), false) == completionShown
 	assert.True(t, result, "processCompletion should show remaining changes")
 
 	if eng.stagedCompletion != nil && len(eng.stagedCompletion.Stages) > 0 {
@@ -394,4 +394,109 @@ func TestProcessCompletion_NoSpuriousAdditions(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestReconcileRange(t *testing.T) {
+	lines := []string{"a", "b", "c", "d"}
+
+	tests := []struct {
+		name       string
+		completion *types.Completion
+		wantOld    []string
+		wantNew    []string
+	}{
+		{
+			name:       "replaces the declared range",
+			completion: &types.Completion{StartLine: 2, EndLineInc: 2, Lines: []string{"B"}},
+			wantOld:    []string{"b"},
+			wantNew:    []string{"B"},
+		},
+		{
+			name:       "extends over lines already applied",
+			completion: &types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"A", "b", "C"}},
+			wantOld:    []string{"a", "b"},
+			wantNew:    []string{"A", "b", "C"},
+		},
+		{
+			name:       "drops trailing lines that repeat the buffer",
+			completion: &types.Completion{StartLine: 2, EndLineInc: 2, Lines: []string{"B", "x", "d"}},
+			wantOld:    []string{"b"},
+			wantNew:    []string{"B", "x"},
+		},
+		{
+			name:       "pure insertion",
+			completion: &types.Completion{StartLine: 2, EndLineInc: 1, Lines: []string{"new"}},
+			wantOld:    []string{},
+			wantNew:    []string{"new"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := append([]string(nil), tt.completion.Lines...)
+			oldLines, newLines := reconcileRange(lines, tt.completion)
+			assert.Equal(t, tt.wantOld, oldLines, "old lines")
+			assert.Equal(t, tt.wantNew, newLines, "new lines")
+			assert.Equal(t, original, tt.completion.Lines, "completion unchanged")
+		})
+	}
+}
+
+// typeThrough shows completion, then replays each buffer state as typing and
+// reports whether the completion stayed displayed after each one.
+func typeThrough(t *testing.T, lines []string, completion *types.Completion, typed ...[]string) (*Engine, []bool) {
+	t.Helper()
+	buf := newMockBuffer()
+	buf.lines = lines
+	buf.row = completion.StartLine
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	assert.Equal(t, completionShown, eng.processCompletion(completionResponse(completion), false), "initial completion")
+	var shown []bool
+	for _, state := range typed {
+		buf.lines = state
+		eng.handleTextChangeImpl()
+		shown = append(shown, eng.display.hasCompletion())
+	}
+	return eng, shown
+}
+
+func TestTypingThroughInsertionKeepsCompletion(t *testing.T) {
+	eng, shown := typeThrough(t,
+		[]string{"func f() {", "}"},
+		&types.Completion{StartLine: 2, EndLineInc: 1, Lines: []string{"\tx := 1", "\treturn x"}},
+		[]string{"func f() {", "", "}"},
+		[]string{"func f() {", "\tx :", "}"},
+		[]string{"func f() {", "\tx := 1", "", "}"},
+		[]string{"func f() {", "\tx := 1", "\tret", "}"},
+	)
+	assert.Equal(t, []bool{true, true, true, true}, shown, "completion stays while typing matches")
+	assert.Equal(t, &types.Completion{StartLine: 3, EndLineInc: 3, Lines: []string{"\treturn x"}}, eng.display.current(), "remaining completion")
+}
+
+func TestTypingThroughModificationWithAdditionsKeepsCompletion(t *testing.T) {
+	eng, shown := typeThrough(t,
+		[]string{"def f", "next"},
+		&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"def foo():", "  pass"}},
+		[]string{"def fo", "next"},
+	)
+	assert.Equal(t, []bool{true}, shown, "completion stays while typing matches")
+	assert.Equal(t, &types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"def foo():", "  pass"}}, eng.display.current(), "remaining completion")
+}
+
+func TestTypingAgainstInsertionRejects(t *testing.T) {
+	_, shown := typeThrough(t,
+		[]string{"func f() {", "}"},
+		&types.Completion{StartLine: 2, EndLineInc: 1, Lines: []string{"\tx := 1"}},
+		[]string{"func f() {", "\ty", "}"},
+	)
+	assert.Equal(t, []bool{false}, shown, "diverging typing rejects the completion")
+}
+
+func TestTypingWholeInsertionClearsCompletion(t *testing.T) {
+	eng, shown := typeThrough(t,
+		[]string{"func f() {", "}"},
+		&types.Completion{StartLine: 2, EndLineInc: 1, Lines: []string{"\tx := 1"}},
+		[]string{"func f() {", "\tx := 1", "}"},
+	)
+	assert.Equal(t, []bool{false}, shown, "fully typed completion is cleared")
+	assert.Nil(t, eng.rejectedCompletions[eng.buffer.Path()], "fully typed completion is not remembered as rejected")
 }

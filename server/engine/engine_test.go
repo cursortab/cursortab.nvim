@@ -2,8 +2,9 @@ package engine
 
 import (
 	"errors"
+	"slices"
+	"sync"
 	"testing"
-	"time"
 
 	"cursortab/assert"
 	"cursortab/types"
@@ -16,41 +17,44 @@ func TestEngineCreation(t *testing.T) {
 
 	eng := createTestEngine(buf, prov, clock)
 
-	assert.NotNil(t, eng, "NewEngine")
+	assert.NotNil(t, eng, "New")
 	assert.Equal(t, stateIdle, eng.state, "initial state")
 }
 
 func TestStateNotifier(t *testing.T) {
-	eng, cancel := createTestEngineWithContext(newMockBuffer(), newMockProvider(), newMockClock())
-	defer cancel()
-	var status types.EngineStatus
-	notifications := 0
-	connected := false
-	eng.SetStateNotifier(func(value types.EngineStatus) {
-		assert.True(t, connected, "editor is connected before its status is sent")
-		status = value
-		notifications++
+	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
+	var mu sync.Mutex
+	var statuses []types.EngineStatus
+	setStateNotifier(eng, func(value types.EngineStatus) {
+		mu.Lock()
+		defer mu.Unlock()
+		statuses = append(statuses, value)
 	})
-	eng.ConnectEditor(func() { connected = true })
-	assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "initial status")
-	eng.handleEvent(Event{Type: EventTrigger})
-	assert.Equal(t, types.EngineStatus{State: "PendingCompletion", Pending: true}, status, "request started")
-
-	select {
-	case event := <-eng.eventChan:
-		eng.handleEvent(event)
-	case <-time.After(time.Second):
-		t.Fatal("completion did not return")
+	last := func() (types.EngineStatus, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(statuses) == 0 {
+			return types.EngineStatus{}, 0
+		}
+		return statuses[len(statuses)-1], len(statuses)
 	}
-	assert.Equal(t, types.EngineStatus{State: "HasCompletion"}, status, "request finished but suggestion remains")
-	count := notifications
-	eng.handleEvent(Event{Type: EventInsertEnter})
-	assert.Equal(t, count, notifications, "unchanged status is not repeated")
-	eng.handleEvent(Event{Type: EventEsc})
-	assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "suggestion rejected")
-	connected = false
-	eng.ConnectEditor(func() { connected = true })
-	assert.Equal(t, count+2, notifications, "new connection receives current status")
+	go eng.Run()
+	defer eng.Close()
+
+	waitFor(t, func() bool { _, n := last(); return n == 1 }, "initial status is published")
+	eng.send(Event{Type: EventTrigger})
+	waitFor(t, func() bool { s, _ := last(); return s.State == "HasCompletion" }, "request finishes with a suggestion")
+	status, count := last()
+	assert.False(t, status.Pending, "nothing pending once the suggestion is shown")
+	mu.Lock()
+	assert.True(t, slices.Contains(statuses, types.EngineStatus{State: "PendingCompletion", Pending: true}), "request start is published")
+	mu.Unlock()
+
+	eng.send(Event{Type: EventInsertEnter})
+	eng.send(Event{Type: EventEsc})
+	waitFor(t, func() bool { s, _ := last(); return s.State == "Idle" }, "suggestion rejected")
+	_, n := last()
+	assert.Equal(t, count+1, n, "unchanged status is not repeated")
 }
 
 func TestStateNotifierRequestResults(t *testing.T) {
@@ -58,7 +62,7 @@ func TestStateNotifierRequestResults(t *testing.T) {
 		t.Run(string(result), func(t *testing.T) {
 			eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
 			var status types.EngineStatus
-			eng.SetStateNotifier(func(value types.EngineStatus) { status = value })
+			setStateNotifier(eng, func(value types.EngineStatus) { status = value })
 			eng.state = statePendingCompletion
 			eng.completionRequestID = 2
 			eng.currentCancel = func() {}
@@ -73,7 +77,7 @@ func TestStateNotifierRequestResults(t *testing.T) {
 func TestStateNotifierOverlappingRequests(t *testing.T) {
 	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
 	var status types.EngineStatus
-	eng.SetStateNotifier(func(value types.EngineStatus) { status = value })
+	setStateNotifier(eng, func(value types.EngineStatus) { status = value })
 	eng.state = statePendingCompletion
 	eng.completionRequestID = 1
 	eng.currentCancel = func() {}
@@ -92,10 +96,9 @@ func TestStateNotifierCancellation(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
 			var status types.EngineStatus
-			eng.SetStateNotifier(func(value types.EngineStatus) { status = value })
+			setStateNotifier(eng, func(value types.EngineStatus) { status = value })
 			eng.state = stateStreamingCompletion
-			eng.streamingState = &streamingState{}
-			eng.completionStream = newMockCompletionStream(nil)
+			eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
 			eng.currentCancel = func() {}
 			seedInflightPrefetch(eng, prefetchNoWait)
 			eng.notifyStateChange(false)
@@ -104,10 +107,10 @@ func TestStateNotifierCancellation(t *testing.T) {
 			case "reject":
 				eng.handleEvent(Event{Type: EventEsc})
 			case "file-switch":
-				eng.handleFileSwitch("old.go", "new.go", nil)
+				eng.handleFileSwitch()
 				eng.notifyStateChange(false)
 			case "stop":
-				eng.Stop()
+				eng.Close()
 			}
 			assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "cancellation clears all activity")
 		})

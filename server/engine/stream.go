@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"slices"
+
 	"cursortab/logger"
 	"cursortab/text"
 	"cursortab/types"
@@ -12,10 +14,11 @@ func (e *Engine) startCompletionStream(stream CompletionStream, manual bool) {
 
 	viewportTop, viewportBottom := e.buffer.ViewportBounds()
 	windowStart, oldLines := stream.Window()
-
-	e.streamingState = &streamingState{
-		Manual: manual,
-		StageBuilder: text.NewIncrementalStageBuilder(
+	e.stream = &activeStream{
+		stream: stream,
+		lines:  stream.Lines(),
+		manual: manual,
+		stageBuilder: text.NewIncrementalStageBuilder(
 			oldLines,
 			windowStart+1, // baseLineOffset (1-indexed)
 			e.config.CursorPrediction.ProximityThreshold,
@@ -28,45 +31,39 @@ func (e *Engine) startCompletionStream(stream CompletionStream, manual bool) {
 			e.buffer.AvailableWidth(),
 		),
 	}
-	e.completionStream = stream
-	e.streamLinesChan = stream.Lines()
 }
 
-func (e *Engine) cancelStreaming() {
-	e.streamLinesChan = nil
-	if e.completionStream != nil {
-		e.completionStream.Cancel()
-		e.completionStream = nil
+// cancelInFlight cancels the current request and stops its stream, if any. A
+// stage rendered from the stream stays displayed.
+func (e *Engine) cancelInFlight() {
+	if e.stream != nil {
+		e.stream.stream.Cancel()
+		e.stream = nil
 	}
 	e.cancelCurrentRequest()
-	e.streamingState = nil
-	e.acceptedDuringStreaming = false
 }
 
-func (e *Engine) cancelStreamingKeepPartial() {
-	e.streamLinesChan = nil
-	if e.completionStream != nil {
-		e.completionStream.Cancel()
-		e.completionStream = nil
-	}
-	e.cancelCurrentRequest()
-	e.streamingState = nil
+// handleStreamEvent handles one received line, or the end of the stream when
+// ok is false.
+func (e *Engine) handleStreamEvent(line string, ok bool) {
+	e.process(func() {
+		if ok {
+			e.handleStreamLine(line)
+		} else {
+			e.handleStreamComplete()
+		}
+	})
 }
 
 func (e *Engine) handleStreamLine(line string) {
-	defer e.notifyStateChange(false)
-	ss := e.streamingState
-	if ss == nil {
+	s := e.stream
+	if s == nil || s.acceptedDuring {
 		return
 	}
 
-	if e.acceptedDuringStreaming {
-		return
-	}
-
-	if ss.HasPendingLine {
-		finalized := ss.StageBuilder.AddLine(ss.PendingLine)
-		if finalized != nil && !ss.FirstStageRendered {
+	if s.hasPendingLine {
+		finalized := s.stageBuilder.AddLine(s.pendingLine)
+		if finalized != nil && !s.firstStageRendered {
 			viewportTop, viewportBottom := e.buffer.ViewportBounds()
 			needsNav := text.StageNeedsNavigation(
 				finalized,
@@ -74,74 +71,45 @@ func (e *Engine) handleStreamLine(line string) {
 				viewportTop, viewportBottom,
 				e.config.CursorPrediction.ProximityThreshold,
 			)
-			if !needsNav {
-				if e.renderStreamedStage(finalized) {
-					e.recordMetricsShown(nil, ss.Manual)
-					ss.FirstStageRendered = true
-				}
+			if !needsNav && e.renderStreamedStage(finalized) {
+				e.recordMetricsShown(nil, s.manual)
+				s.firstStageRendered = true
 			}
 		}
 	}
 
-	ss.PendingLine = line
-	ss.HasPendingLine = true
+	s.pendingLine = line
+	s.hasPendingLine = true
 }
 
-func (e *Engine) handleStreamCompleteSimple() {
-	defer e.notifyStateChange(false)
-	e.streamLinesChan = nil
-
-	if e.streamingState == nil {
+func (e *Engine) handleStreamComplete() {
+	s := e.stream
+	if s == nil {
 		return
 	}
-
-	ss := e.streamingState
-
-	if e.acceptedDuringStreaming {
-		e.acceptedDuringStreaming = false
-		if e.completionStream != nil {
-			resp, err := e.completionStream.Finish()
-			if err != nil {
-				logger.Error("stream completion error after accept: %v", err)
-			} else {
-				e.handleStreamCompleteAfterAccept(resp, ss.Manual)
-			}
-			e.completionStream = nil
-		}
-		e.cancelCurrentRequest()
-		e.streamingState = nil
-		return
-	}
-
-	firstStageRendered := ss.FirstStageRendered
-
-	if ss.HasPendingLine {
-		ss.StageBuilder.AddLine(ss.PendingLine)
-		ss.HasPendingLine = false
-	}
-
-	var streamResponse *types.CompletionResponse
-	if e.completionStream != nil {
-		if resp, err := e.completionStream.Finish(); err == nil {
-			streamResponse = resp
-		} else {
-			logger.Error("stream completion error: %v", err)
-			e.cancelCurrentRequest()
-			e.streamingState = nil
-			e.completionStream = nil
-			e.reject()
-			return
-		}
-	}
+	e.stream = nil
+	resp, err := s.stream.Finish()
 	e.cancelCurrentRequest()
 
-	stagingResult := ss.StageBuilder.Finalize()
-	if streamResponse != nil && streamResponse.CursorTarget != nil && stagingResult != nil && len(stagingResult.Stages) > 0 {
-		stagingResult.Stages[len(stagingResult.Stages)-1].CursorTarget = streamResponse.CursorTarget
+	if s.acceptedDuring {
+		if err != nil {
+			logger.Error("stream completion error after accept: %v", err)
+			return
+		}
+		e.handleStreamCompleteAfterAccept(resp, s.manual)
+		return
 	}
 
-	e.streamingState = nil
-	e.completionStream = nil
+	if err != nil {
+		logger.Error("stream completion error: %v", err)
+		e.reject()
+		return
+	}
+
+	if s.hasPendingLine {
+		s.stageBuilder.AddLine(s.pendingLine)
+	}
+	stagingResult := s.stageBuilder.Finalize()
 
 	if stagingResult == nil || len(stagingResult.Stages) == 0 {
 		// A stream may emit no preview lines and deliver its completion only
@@ -149,43 +117,46 @@ func (e *Engine) handleStreamCompleteSimple() {
 		// marker's number, so nothing can be previewed mid-stream). Adopt the
 		// parsed batch result instead of dropping it.
 		e.state = stateIdle
-		if streamResponse != nil {
-			e.handleCompletionReadyImpl(streamResponse, ss.Manual)
+		if resp != nil {
+			e.handleCompletionReadyImpl(resp, s.manual)
 		}
 		return
 	}
 
+	if resp != nil && resp.CursorTarget != nil {
+		stagingResult.Stages[len(stagingResult.Stages)-1].CursorTarget = resp.CursorTarget
+	}
 	e.stagedCompletion = &text.StagedCompletion{
 		Stages:     stagingResult.Stages,
 		CurrentIdx: 0,
-		Manual:     ss.Manual,
+		Manual:     s.manual,
 	}
 
-	// If the first stage matches a recent rejection, drop everything.
-	// Important: if we already rendered a stage during streaming, ghost text
-	// and display batch are live; a plain state flip would leave them visible
-	// with no (idle, accept) transition, so Tab would do nothing. Route
-	// through reject() so ClearUI and completion/display batch cleanup happen.
+	// If the first stage matches a recent rejection, drop everything. A stage
+	// rendered during streaming is live, so route through reject() to clear
+	// the UI and the display batch.
 	firstStage := stagingResult.Stages[0]
-	if e.suppressRejectedCompletionForStage(firstStage, ss.Manual) {
+	if e.suppressRejectedCompletionForStage(firstStage, s.manual) {
 		e.reject()
 		return
 	}
 
-	// If we already rendered a stage during streaming, keep it as-is.
-	// Re-rendering would cause visible flicker since Finalize() diffs against
-	// full old lines (vs partial during streaming), producing different groups.
-	// The accept path reconciles any boundary mismatch (accept.go:54-63).
-	if firstStageRendered {
+	// Keep a stage rendered during streaming when it makes the same edit as
+	// the first final stage; re-rendering it would only flicker, as groups
+	// may differ. Otherwise the final stages replace it: accepting a stage
+	// that is not Stages[0] would apply the wrong edit.
+	if s.firstStageRendered && rendersStage(e.display.current(), firstStage) {
 		e.cursorTarget = firstStage.CursorTarget
 		e.state = stateHasCompletion
 		return
 	}
 
 	e.buffer.ClearUI()
-
 	if stagingResult.FirstNeedsNavigation {
-		e.showStageCursorTarget(stagingResult.Stages[0])
+		// The streamed stage is gone from the screen; its metrics carry over
+		// to the stage shown after the jump.
+		e.display.reset()
+		e.showStageCursorTarget(firstStage)
 	} else {
 		e.showCurrentStage()
 	}
@@ -238,15 +209,15 @@ func (e *Engine) handleStreamCompleteAfterAccept(resp *types.CompletionResponse,
 }
 
 func (e *Engine) renderStreamedStage(stage *text.Stage) bool {
-	ss := e.streamingState
-	if ss == nil || stage == nil || len(stage.Groups) == 0 {
+	s := e.stream
+	if s == nil || stage == nil || len(stage.Groups) == 0 {
 		return false
 	}
 
 	// Suppress before rendering so cached rejections do not flash during
 	// streaming and then disappear when the full stream finalizes.
-	if e.suppressRejectedCompletionForStage(stage, ss.Manual) {
-		e.cancelStreaming()
+	if e.suppressRejectedCompletionForStage(stage, s.manual) {
+		e.cancelInFlight()
 		e.reject()
 		return false
 	}
@@ -255,4 +226,13 @@ func (e *Engine) renderStreamedStage(stage *text.Stage) bool {
 	e.setDisplayedStage(stage, stage.Groups)
 
 	return true
+}
+
+// rendersStage reports whether the displayed completion makes the edit of
+// stage.
+func rendersStage(displayed *types.Completion, stage *text.Stage) bool {
+	return displayed != nil &&
+		displayed.StartLine == stage.BufferStart &&
+		displayed.EndLineInc == stage.BufferEnd &&
+		slices.Equal(displayed.Lines, stage.Lines)
 }

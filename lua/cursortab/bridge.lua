@@ -99,7 +99,7 @@ function M.send_copilot_nes_request(client_names, params)
 end
 
 function M.windsurf_get_info()
-	local ok, codeium = pcall(require, 'codeium')
+	local ok, codeium = pcall(require, "codeium")
 	if not ok or not codeium.s then
 		return { healthy = false }
 	end
@@ -108,7 +108,7 @@ function M.windsurf_get_info()
 		return { healthy = false }
 	end
 	local api_key = ""
-	local ok_cfg, cfg = pcall(require, 'codeium.config')
+	local ok_cfg, cfg = pcall(require, "codeium.config")
 	if ok_cfg and cfg and cfg.options and cfg.options.config_path then
 		local config_path = cfg.options.config_path
 		if vim.fn.filereadable(config_path) == 1 then

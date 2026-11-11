@@ -30,21 +30,15 @@ local current_keymaps = { accept = nil, partial_accept = nil, trigger = nil }
 
 local esc_handler_ns = nil
 
--- Skip exactly one TextChanged after accepting a completion
----@type boolean
-local skip_next_text_changed = false
-
--- State for cursor movement suppression during completion application
----@type boolean
-local skip_next_cursor_moved = false
-
 -- Flag to suppress reject events while waiting for completion after cursor target accept
 ---@type boolean
 local awaiting_completion_after_jump = false
 
--- Track if text changed in current event loop tick (to dedupe with CursorMovedI)
----@type boolean
-local text_changed_this_tick = false
+-- The buffer state last handled: b:cursortab_tick is the changedtick of the
+-- last text event, b:cursortab_cursor the cursor of the last cursor event.
+-- Cursortab's own edits set both, so the events they cause match it and are
+-- skipped. Neovim fires CursorMoved(I) before TextChanged(I) for the same
+-- edit, so a cursor event that comes with a change is left to the text event.
 
 -- True while cursortab is applying a completion; native completion plugins should stay closed
 ---@type boolean
@@ -64,6 +58,17 @@ end
 local function release_blink()
 	if has_blink and vim.b.completion == false then
 		vim.b.completion = nil
+	end
+end
+
+-- End completing once the events of cursortab's own edit ran, so that native
+-- completion plugins do not react to them.
+local function finish_completing()
+	if completing then
+		vim.schedule(function()
+			completing = false
+			release_blink()
+		end)
 	end
 end
 
@@ -87,9 +92,6 @@ end
 ---@return string
 local function on_accept()
 	if ui.has_cursor_prediction() or ui.has_completion() then
-		-- Suppress the immediate text change and cursor movement caused by applying the completion
-		skip_next_text_changed = true
-		skip_next_cursor_moved = true
 		-- When accepting cursor prediction, suppress rejects until we receive the completion
 		-- Server runs normal! commands which trigger multiple events
 		if ui.has_cursor_prediction() then
@@ -114,9 +116,6 @@ end
 ---@return string
 local function on_partial_accept()
 	if ui.has_completion() then
-		-- Suppress the immediate text change and cursor movement caused by partial accept
-		skip_next_text_changed = true
-		skip_next_cursor_moved = true
 		completing = true
 		suppress_blink()
 		vim.schedule(dismiss_native_completion)
@@ -178,11 +177,17 @@ local function setup_autocommands()
 	end
 	autocommands_setup_done = true
 
-	-- Track buffer/window focus changes to update cached state
+	-- Track buffer/window focus changes to update cached state and let the
+	-- daemon open the entered buffer before any edit
 	vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
-		callback = vim.schedule_wrap(function()
-			buffer.update_state()
-		end),
+		callback = function(args)
+			vim.b[args.buf].cursortab_tick = vim.b[args.buf].changedtick
+			vim.b[args.buf].cursortab_cursor = nil
+			vim.schedule(function()
+				buffer.update_state()
+				daemon.send_event("buf_enter")
+			end)
+		end,
 	})
 
 	-- Text change events
@@ -193,21 +198,11 @@ local function setup_autocommands()
 				return
 			end
 
-			-- Skip exactly one text change immediately following a completion accept
-			if skip_next_text_changed then
-				skip_next_text_changed = false
-				vim.schedule(function()
-					completing = false
-					release_blink()
-				end)
+			if vim.b.changedtick == vim.b.cursortab_tick then
+				finish_completing()
 				return
 			end
-
-			-- Mark that text changed this tick (to dedupe with CursorMovedI)
-			text_changed_this_tick = true
-			vim.schedule(function()
-				text_changed_this_tick = false
-			end)
+			vim.b.cursortab_tick = vim.b.changedtick
 
 			-- Handle cursor prediction (always clear - no partial match logic)
 			if ui.has_cursor_prediction() then
@@ -239,15 +234,15 @@ local function setup_autocommands()
 
 	-- Shared cursor movement handler (UI only, does not send event)
 	---@return boolean suppressed true if the event was suppressed (skip sending)
-	local function handle_cursor_moved(is_insert)
-		if is_insert and text_changed_this_tick then
+	local function handle_cursor_moved()
+		local cursor = vim.api.nvim_win_get_cursor(0)
+		local last = vim.b.cursortab_cursor
+		vim.b.cursortab_cursor = cursor
+		if vim.b.changedtick ~= vim.b.cursortab_tick then
 			return true
 		end
-		if skip_next_cursor_moved then
-			skip_next_cursor_moved = false
-			return true
-		end
-		if awaiting_completion_after_jump then
+		if last and last[1] == cursor[1] and last[2] == cursor[2] then
+			finish_completing()
 			return true
 		end
 		if ui.has_cursor_prediction() or ui.has_completion() then
@@ -264,7 +259,7 @@ local function setup_autocommands()
 			if mode ~= "n" then
 				return
 			end
-			if handle_cursor_moved(false) then
+			if handle_cursor_moved() then
 				return
 			end
 			if not is_mode_enabled("normal") then
@@ -277,7 +272,7 @@ local function setup_autocommands()
 	-- Cursor movement events (insert mode - e.g., arrow keys)
 	vim.api.nvim_create_autocmd({ "CursorMovedI" }, {
 		callback = function()
-			if handle_cursor_moved(true) then
+			if handle_cursor_moved() then
 				return
 			end
 			if not is_mode_enabled("insert") then
@@ -308,13 +303,14 @@ local function setup_autocommands()
 		end,
 	})
 
-	-- File save: reset diff history baseline
-	vim.api.nvim_create_autocmd({ "BufWritePost" }, {
-		callback = function()
-			if buffer.should_skip() then
+	-- The current buffer now equals its file (written, or read by :edit or
+	-- autoread): reset the diff history baseline
+	vim.api.nvim_create_autocmd({ "BufWritePost", "BufReadPost" }, {
+		callback = function(args)
+			if args.buf ~= vim.api.nvim_get_current_buf() or buffer.should_skip() then
 				return
 			end
-			daemon.send_event("file_saved")
+			daemon.send_event("file_synced")
 		end,
 	})
 
@@ -351,6 +347,13 @@ end
 function events.clear_all_completions()
 	ui.close_all()
 	daemon.send_reject()
+end
+
+-- RPC callback: cursortab edited the buffer or moved the cursor. The events
+-- this causes match the recorded state and are skipped.
+function events.on_edit_applied()
+	vim.b.cursortab_tick = vim.b.changedtick
+	vim.b.cursortab_cursor = vim.api.nvim_win_get_cursor(0)
 end
 
 -- Clear the awaiting completion flag (called when completion is received)

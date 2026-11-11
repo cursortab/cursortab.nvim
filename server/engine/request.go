@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"slices"
 
 	"cursortab/ctx"
 	"cursortab/logger"
@@ -104,7 +103,7 @@ func logCompletionSuppression(reason string) {
 }
 
 func (e *Engine) requestCompletion(source types.CompletionSource, manual bool) {
-	if e.stopped {
+	if e.ctx.Err() != nil {
 		return
 	}
 
@@ -112,7 +111,7 @@ func (e *Engine) requestCompletion(source types.CompletionSource, manual bool) {
 	// new request supersedes its "next prediction" output; without this,
 	// the leftover stream's late completion hits handleStreamCompleteAfterAccept
 	// and rewrites state we're about to set up here.
-	e.cancelStreaming()
+	e.cancelInFlight()
 
 	e.syncBuffer()
 
@@ -125,49 +124,33 @@ func (e *Engine) requestCompletion(source types.CompletionSource, manual bool) {
 
 	e.completionRequestID++
 	requestID := e.completionRequestID
-	input, compatible, err := e.prepareCompletionInput(e.mainCtx, completionInputOptions{})
+	input, compatible, err := e.prepareCompletionInput(e.ctx, completionInputOptions{})
 	if err != nil {
-		select {
-		case e.eventChan <- Event{Type: EventCompletionError, RequestID: requestID, Err: err}:
-		case <-e.mainCtx.Done():
-		}
+		e.post(Event{Type: EventCompletionError, RequestID: requestID, Err: err})
 		return
 	}
 	if !compatible {
 		e.state = statePendingCompletion
-		select {
-		case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: &types.CompletionResponse{}}:
-		case <-e.mainCtx.Done():
-		}
+		e.post(Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: &types.CompletionResponse{}})
 		return
 	}
 
 	e.state = statePendingCompletion
-	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+	reqCtx, cancel := context.WithTimeout(e.ctx, e.config.CompletionTimeout)
 	e.currentCancel = cancel
 	go func() {
 		result, stream, err := e.startProviderCompletion(reqCtx, input)
 		if err != nil {
 			cancel()
-			select {
-			case e.eventChan <- Event{Type: EventCompletionError, RequestID: requestID, Err: err}:
-			case <-e.mainCtx.Done():
-			}
+			e.send(Event{Type: EventCompletionError, RequestID: requestID, Err: err})
 			return
 		}
 		if stream != nil {
-			select {
-			case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Stream: stream}:
-			case <-e.mainCtx.Done():
-				cancel()
-			}
+			e.send(Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Stream: stream})
 			return
 		}
 		cancel()
-		select {
-		case e.eventChan <- Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: result}:
-		case <-e.mainCtx.Done():
-		}
+		e.send(Event{Type: EventCompletionReady, RequestID: requestID, Manual: manual, Response: result})
 	}()
 }
 
@@ -192,7 +175,7 @@ type prefetchOpts struct {
 }
 
 func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts, wait prefetchWait) {
-	if e.stopped {
+	if e.ctx.Err() != nil {
 		return
 	}
 
@@ -212,17 +195,14 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 
 	// Build the frozen request input before the goroutine starts so it cannot
 	// race with later buffer or file-state mutations.
-	input, compatible, err := e.prepareCompletionInput(e.mainCtx, completionInputOptions{
+	input, compatible, err := e.prepareCompletionInput(e.ctx, completionInputOptions{
 		lines:             opts.Lines,
 		cursorRow:         overrideRow,
 		cursorCol:         overrideCol,
 		hasCursorOverride: true,
 	})
 	if err != nil {
-		select {
-		case e.eventChan <- Event{Type: EventPrefetchError, RequestID: requestID, Err: err}:
-		case <-e.mainCtx.Done():
-		}
+		e.post(Event{Type: EventPrefetchError, RequestID: requestID, Err: err})
 		return
 	}
 	if !compatible {
@@ -230,7 +210,7 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 		return
 	}
 
-	reqCtx, cancel := context.WithTimeout(e.mainCtx, e.config.CompletionTimeout)
+	reqCtx, cancel := context.WithTimeout(e.ctx, e.config.CompletionTimeout)
 	if e.prefetch.inflight != nil && e.prefetch.inflight.requestID == requestID {
 		e.prefetch.inflight.cancel = cancel
 	}
@@ -238,16 +218,10 @@ func (e *Engine) requestPrefetch(overrideRow, overrideCol int, opts prefetchOpts
 		defer cancel()
 		result, err := e.completePrefetch(reqCtx, input)
 		if err != nil {
-			select {
-			case e.eventChan <- Event{Type: EventPrefetchError, RequestID: requestID, Err: err}:
-			case <-e.mainCtx.Done():
-			}
+			e.send(Event{Type: EventPrefetchError, RequestID: requestID, Err: err})
 			return
 		}
-		select {
-		case e.eventChan <- Event{Type: EventPrefetchReady, RequestID: requestID, Response: result}:
-		case <-e.mainCtx.Done():
-		}
+		e.send(Event{Type: EventPrefetchReady, RequestID: requestID, Response: result})
 	}()
 }
 
@@ -341,7 +315,7 @@ func (e *Engine) tryShowPrefetchedCompletionWithManual(manual bool) bool {
 	e.syncBuffer()
 
 	e.clearPrefetch()
-	return e.processCompletionWithManual(resp.CompletionResponse, resp.Manual || manual) == completionShown
+	return e.processCompletion(resp.CompletionResponse, resp.Manual || manual) == completionShown
 }
 
 func (e *Engine) handlePrefetchError(err error) {
@@ -370,7 +344,7 @@ func (e *Engine) handleDeferredCursorTarget() {
 
 		e.clearPrefetch()
 
-		if e.processCompletionWithManual(resp.CompletionResponse, resp.Manual) == completionShown {
+		if e.processCompletion(resp.CompletionResponse, resp.Manual) == completionShown {
 			return
 		}
 
@@ -406,7 +380,7 @@ func (e *Engine) prefetchAtNMinusOne() {
 		return
 	}
 
-	lines := applyStageToLines(slices.Clone(e.buffer.Lines()), stage)
+	lines := stage.Apply(e.buffer.Lines())
 
 	overrideRow := max(1, int(stage.CursorTarget.LineNumber))
 

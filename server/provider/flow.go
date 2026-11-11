@@ -9,6 +9,7 @@ import (
 
 	sourcectx "cursortab/ctx"
 	"cursortab/engine"
+	"cursortab/logger"
 	"cursortab/types"
 	"cursortab/utils"
 )
@@ -79,6 +80,33 @@ type CompletionFlow[RequestPayload any, RawResult any] interface {
 	Parse(*RequestState, RawResult) (*types.CompletionResponse, error)
 }
 
+// contextTokens returns the token budget of the request window, 0 for none.
+func contextTokens(config *types.ProviderConfig) int {
+	if config == nil {
+		return 0
+	}
+	if config.ContextSize != 0 {
+		return config.ContextSize
+	}
+	return config.MaxTokens
+}
+
+// cursorLineFits reports whether the cursor line fits the context budget.
+// The window never splits a line, so a longer one, such as minified code,
+// would overflow the budget on its own.
+func cursorLineFits(input sourcectx.CompletionInput, config *types.ProviderConfig) bool {
+	tokens := contextTokens(config)
+	lines, row := input.Current.File.Lines, input.Current.Cursor.Row
+	if tokens <= 0 || row < 1 || row > len(lines) {
+		return true
+	}
+	if len(lines[row-1]) <= utils.EstimateCharsFromTokens(tokens) {
+		return true
+	}
+	logger.Debug("skipping request: cursor line of %d bytes exceeds the context budget", len(lines[row-1]))
+	return false
+}
+
 // prepareRequestState derives the source frame shared by Build, Parse, and
 // stream windowing.
 func prepareRequestState(input sourcectx.CompletionInput, config *types.ProviderConfig) *RequestState {
@@ -89,13 +117,7 @@ func prepareRequestState(input sourcectx.CompletionInput, config *types.Provider
 	if material, ok := sourcectx.Find[sourcectx.Treesitter](input.Materials); ok && material.Data != nil {
 		syntaxRanges = material.Data.SyntaxRanges
 	}
-	contextSize := 0
-	if config != nil {
-		contextSize = config.ProviderContextSize
-		if contextSize == 0 {
-			contextSize = config.ProviderMaxTokens
-		}
-	}
+	contextSize := contextTokens(config)
 	trimmedLines, newCursorLine, _, trimOffset, didTrim := utils.TrimContentAroundCursor(
 		current.File.Lines,
 		cursorLine,
@@ -125,6 +147,9 @@ func StartBatch[RequestPayload any, RawResult any](
 	config *types.ProviderConfig,
 	flow CompletionFlow[RequestPayload, RawResult],
 ) (*types.CompletionResponse, error) {
+	if !cursorLineFits(input, config) {
+		return EmptyResponse(), nil
+	}
 	state := prepareRequestState(input, config)
 	payload, err := flow.Build(state)
 	if err != nil {

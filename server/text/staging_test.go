@@ -1,9 +1,11 @@
 package text
 
 import (
-	"cursortab/assert"
 	"fmt"
 	"testing"
+
+	"cursortab/assert"
+	"cursortab/types"
 )
 
 func TestStageDistanceFromCursor(t *testing.T) {
@@ -98,7 +100,7 @@ func TestCreateStages_ConsecutiveDeletionsBlankLines(t *testing.T) {
 	assert.Equal(t, 1, len(stage.Groups), "both consecutive deletions form 1 group")
 
 	group := stage.Groups[0]
-	assert.Equal(t, "deletion", group.Type, "group type is deletion")
+	assert.Equal(t, GroupDeletion, group.Type, "group type is deletion")
 	assert.Equal(t, 2, len(group.Lines), "group spans both deleted lines")
 }
 
@@ -852,8 +854,9 @@ func TestGetStageBufferRange_WithInsertions(t *testing.T) {
 
 	computeStageRanges(stage, 1, diff)
 
-	// Both insertions anchor to line 1, so range should be 1-1
-	assert.True(t, stage.bufferStart <= stage.bufferEnd, fmt.Sprintf("invalid range: start=%d > end=%d", stage.bufferStart, stage.bufferEnd))
+	// Both insertions anchor to line 1: an empty range inserting before line 2
+	assert.Equal(t, 2, stage.bufferStart, "insertion point")
+	assert.Equal(t, 1, stage.bufferEnd, "empty range for a pure insertion")
 }
 
 func TestGetBufferLine_DeletionAtLine1(t *testing.T) {
@@ -894,7 +897,7 @@ func TestGetBufferLine_InsertionWithNoAnchor(t *testing.T) {
 	assert.Equal(t, 1, bufferLine, "buffer line for insertion at line 1 with no anchor")
 }
 
-func TestCreateStages_CumulativeOffsetScenario(t *testing.T) {
+func TestCreateStages_LineCountChangeShiftsLaterStages(t *testing.T) {
 	// Scenario: first stage increases line count, affecting second stage coordinates
 	diff := &DiffResult{
 		Changes: []LineChange{
@@ -1019,8 +1022,8 @@ func TestGetStageBufferRange_AllInsertions(t *testing.T) {
 
 	// Pure additions with valid anchors (from mapping) use insertion point (anchor + 1).
 	// The mapping shows these insertions are anchored to old line 1, so insertion point is 2.
-	assert.True(t, stage.bufferStart <= stage.bufferEnd, fmt.Sprintf("valid range: start=%d end=%d", stage.bufferStart, stage.bufferEnd))
 	assert.Equal(t, 2, stage.bufferStart, "pure additions with mapping anchor: insertion point is anchor + 1")
+	assert.Equal(t, 1, stage.bufferEnd, "empty range for a pure insertion")
 }
 
 func TestStageGroups_ShouldNotExceedStageContent(t *testing.T) {
@@ -1157,7 +1160,7 @@ func TestGetStageBufferRange_AdditionsWithinBuffer(t *testing.T) {
 
 	// Pure additions with anchor at line 4: insertion point is anchor + 1 = 5
 	assert.Equal(t, 5, stage.bufferStart, "buffer start line is insertion point (anchor + 1)")
-	assert.Equal(t, 5, stage.bufferEnd, "buffer end line equals start for pure additions")
+	assert.Equal(t, 4, stage.bufferEnd, "empty range for a pure insertion")
 }
 
 func TestCreateStages_AdditionsAtEndOfFile(t *testing.T) {
@@ -1292,7 +1295,7 @@ func TestGetStageBufferRange_OnlyAdditionsWithAnchor(t *testing.T) {
 
 	// Pure additions with anchor at line 10: insertion point is anchor + 1 = 11
 	assert.Equal(t, 11, stage.bufferStart, "buffer start should be insertion point (anchor + 1)")
-	assert.Equal(t, 11, stage.bufferEnd, "buffer end equals start for pure additions")
+	assert.Equal(t, 10, stage.bufferEnd, "empty range for a pure insertion")
 }
 
 func TestGetStageBufferRange_OnlyAdditionsBeyondBuffer(t *testing.T) {
@@ -1321,7 +1324,7 @@ func TestGetStageBufferRange_OnlyAdditionsBeyondBuffer(t *testing.T) {
 
 	// Pure additions with anchor at line 10: insertion point is anchor + 1 = 11
 	assert.Equal(t, 11, stage.bufferStart, "buffer start should be insertion point (anchor + 1)")
-	assert.Equal(t, 11, stage.bufferEnd, "buffer end equals start for pure additions (anchor + 1)")
+	assert.Equal(t, 10, stage.bufferEnd, "empty range for a pure insertion")
 }
 
 func TestCreateStages_EmptyNewLines(t *testing.T) {
@@ -1404,9 +1407,9 @@ func TestGetStageBufferRange_AllAdditionsNoValidAnchor(t *testing.T) {
 
 	computeStageRanges(stage, 1, diff)
 
-	// Anchorless additions with no mapping: falls back to stage start/end lines
+	// Anchorless additions with no mapping insert at the stage start line
 	assert.Equal(t, 5, stage.bufferStart, "should fallback to stage.startLine")
-	assert.Equal(t, 7, stage.bufferEnd, "should fallback to stage.endLine")
+	assert.Equal(t, 4, stage.bufferEnd, "empty range for a pure insertion")
 }
 
 func TestGetStageBufferRange_BaseLineOffsetZero(t *testing.T) {
@@ -2066,9 +2069,8 @@ func TestPureAdditionsAfterExistingContent(t *testing.T) {
 	assert.Equal(t, 3, stage.BufferStart,
 		fmt.Sprintf("BufferStart should be 3 (insertion point), got %d", stage.BufferStart))
 
-	// BufferEnd equals BufferStart for pure same-anchor additions (insertion semantics)
-	assert.Equal(t, 3, stage.BufferEnd,
-		fmt.Sprintf("BufferEnd should equal BufferStart for pure insertion, got %d", stage.BufferEnd))
+	assert.True(t, stage.IsInsertion(), "pure same-anchor additions are an insertion")
+	assert.Equal(t, 2, stage.BufferEnd, "empty range for a pure insertion")
 }
 
 // TestMixedDeletionAndAdditions verifies correct staging when old content has a
@@ -2403,7 +2405,7 @@ func TestGetStageBufferRange_PureAdditionsBufferLineMapping(t *testing.T) {
 	computeStageRanges(stage, baseLineOffset, diff)
 
 	// Stage buffer range should be at insertion point
-	assert.True(t, stage.bufferStart == stage.bufferEnd, "pure additions have start == end")
+	assert.Equal(t, stage.bufferStart-1, stage.bufferEnd, "pure additions have an empty range")
 
 	// Buffer lines for each change should match the stage range
 	for _, change := range diff.Changes {
@@ -3285,4 +3287,34 @@ func TestCreateStages_AnchorlessAdditionBelowModification(t *testing.T) {
 
 	got := applyStage(oldLines, result.Stages[0])
 	assert.Equal(t, newLines, got, "applying stage should reproduce new buffer")
+}
+
+func TestLineRange(t *testing.T) {
+	lines := []string{"a", "b", "c"}
+	assert.Equal(t, []string{"b", "c"}, LineRange(lines, 2, 3), "inclusive range")
+	assert.Equal(t, []string{}, LineRange(lines, 2, 1), "pure insertion")
+	assert.Equal(t, []string{"c"}, LineRange(lines, 3, 9), "end clamped")
+	assert.Equal(t, []string{}, LineRange(lines, 5, 6), "past the end")
+}
+
+func TestStageApplyAndShift(t *testing.T) {
+	lines := []string{"a", "b", "c", "d"}
+	insertion := &Stage{BufferStart: 2, BufferEnd: 1, Lines: []string{"x", "y"}}
+	replacement := &Stage{BufferStart: 2, BufferEnd: 3, Lines: []string{"B"}}
+
+	assert.True(t, insertion.IsInsertion(), "empty range is an insertion")
+	assert.Equal(t, []string{"a", "x", "y", "b", "c", "d"}, insertion.Apply(lines), "insertion keeps line 2")
+	assert.Equal(t, []string{"a", "B", "d"}, replacement.Apply(lines), "replacement of lines 2-3")
+	assert.Equal(t, []string{""}, (&Stage{BufferStart: 1, BufferEnd: 4}).Apply(lines), "buffer keeps one line")
+
+	// A replacement starting where an insertion was applied lies after it.
+	later := &Stage{BufferStart: 2, BufferEnd: 2, CursorTarget: &types.CursorPredictionTarget{LineNumber: 4}}
+	ShiftAfter([]*Stage{later}, insertion)
+	assert.Equal(t, 4, later.BufferStart, "shifted by the inserted lines")
+	assert.Equal(t, int32(6), later.CursorTarget.LineNumber, "cursor target shifted")
+
+	// An insertion at the start of an applied replacement lies before it.
+	before := &Stage{BufferStart: 2, BufferEnd: 1}
+	ShiftAfter([]*Stage{before}, replacement)
+	assert.Equal(t, 2, before.BufferStart, "insertion point before the replacement stays")
 }

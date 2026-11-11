@@ -3,17 +3,37 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 )
 
 func getIPCAddress(stateDir string) string {
-	return filepath.Join(stateDir, "cursortab.sock")
+	return runtimePath(stateDir, "sock")
 }
 
+// lockDaemon takes the daemon lock of stateDir, or returns errDaemonRunning
+// when another daemon holds it. The system releases the lock when the
+// process exits; unlock releases it earlier.
+func lockDaemon(stateDir string) (unlock func(), err error) {
+	f, err := os.OpenFile(runtimePath(stateDir, "lock"), os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errDaemonRunning
+		}
+		return nil, err
+	}
+	return func() { f.Close() }, nil
+}
+
+// listenIPC creates the daemon socket. The caller holds the daemon lock, so
+// a socket file left there belongs to a dead daemon.
 func listenIPC(stateDir string) (net.Listener, string, error) {
 	path := getIPCAddress(stateDir)
 	os.Remove(path)
@@ -29,12 +49,8 @@ func cleanupIPC(stateDir string) {
 	os.Remove(getIPCAddress(stateDir))
 }
 
-func isProcessRunning(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return p.Signal(syscall.Signal(0)) == nil
+func detachedProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true}
 }
 
 func setupShutdownHandler(onShutdown func()) {

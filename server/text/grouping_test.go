@@ -19,10 +19,10 @@ func TestGroupChanges_SingleModification(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "number of groups")
-	assert.Equal(t, "modification", groups[0].Type, "group type")
+	assert.Equal(t, GroupModification, groups[0].Type, "group type")
 	assert.Equal(t, 1, groups[0].StartLine, "start line")
 	assert.Equal(t, 1, groups[0].EndLine, "end line")
-	assert.Equal(t, "replace_chars", groups[0].RenderHint, "render hint")
+	assert.Equal(t, HintReplaceChars, groups[0].RenderHint, "render hint")
 	assert.Equal(t, 6, groups[0].ColStart, "col start")
 	assert.Equal(t, 11, groups[0].ColEnd, "col end")
 }
@@ -38,10 +38,10 @@ func TestGroupChanges_SingleAddition(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "number of groups")
-	assert.Equal(t, "addition", groups[0].Type, "group type")
+	assert.Equal(t, GroupAddition, groups[0].Type, "group type")
 	assert.Equal(t, 2, groups[0].StartLine, "start line")
 	assert.Equal(t, 2, groups[0].EndLine, "end line")
-	assert.Equal(t, "", groups[0].RenderHint, "render hint for addition")
+	assert.Equal(t, HintNone, groups[0].RenderHint, "render hint for addition")
 }
 
 func TestGroupChanges_ConsecutiveAdditions(t *testing.T) {
@@ -54,7 +54,7 @@ func TestGroupChanges_ConsecutiveAdditions(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "should be grouped into one")
-	assert.Equal(t, "addition", groups[0].Type, "group type")
+	assert.Equal(t, GroupAddition, groups[0].Type, "group type")
 	assert.Equal(t, 2, groups[0].StartLine, "start line")
 	assert.Equal(t, 4, groups[0].EndLine, "end line")
 	assert.Equal(t, 3, len(groups[0].Lines), "number of lines")
@@ -62,20 +62,35 @@ func TestGroupChanges_ConsecutiveAdditions(t *testing.T) {
 
 func TestGroupChanges_ConsecutiveModifications(t *testing.T) {
 	changes := map[int]LineChange{
-		2: {Type: ChangeModification, Content: "new 2", OldContent: "old 2"},
-		3: {Type: ChangeModification, Content: "new 3", OldContent: "old 3"},
-		4: {Type: ChangeModification, Content: "new 4", OldContent: "old 4"},
+		2: {Type: ChangeModification, OldLineNum: 2, Content: "new 2", OldContent: "old 2"},
+		3: {Type: ChangeModification, OldLineNum: 3, Content: "new 3", OldContent: "old 3"},
+		4: {Type: ChangeModification, OldLineNum: 4, Content: "new 4", OldContent: "old 4"},
 	}
 
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "should be grouped into one")
-	assert.Equal(t, "modification", groups[0].Type, "group type")
+	assert.Equal(t, GroupModification, groups[0].Type, "group type")
 	assert.Equal(t, 2, groups[0].StartLine, "start line")
 	assert.Equal(t, 4, groups[0].EndLine, "end line")
 	assert.Equal(t, 3, len(groups[0].Lines), "number of lines")
 	assert.Equal(t, 3, len(groups[0].OldLines), "number of old lines")
-	assert.Equal(t, "", groups[0].RenderHint, "no render hint for multi-line")
+	assert.Equal(t, HintNone, groups[0].RenderHint, "no render hint for multi-line")
+}
+
+// Modifications next to each other in the new text, of old lines with a
+// deleted line between them, render over different buffer lines.
+func TestGroupChanges_ModificationsOfNonConsecutiveOldLines(t *testing.T) {
+	changes := map[int]LineChange{
+		2: {Type: ChangeModification, OldLineNum: 2, Content: "new 2", OldContent: "old 2"},
+		3: {Type: ChangeModification, OldLineNum: 4, Content: "new 4", OldContent: "old 4"},
+	}
+
+	groups := GroupChanges(changes)
+
+	assert.Equal(t, 2, len(groups), "one group per run of old lines")
+	assert.Equal(t, []string{"old 2"}, groups[0].OldLines, "first group old lines")
+	assert.Equal(t, []string{"old 4"}, groups[1].OldLines, "second group old lines")
 }
 
 func TestGroupChanges_NonConsecutive(t *testing.T) {
@@ -112,8 +127,8 @@ func TestGroupChanges_DeletionsIncluded(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 2, len(groups), "deletion and addition should be separate groups")
-	assert.Equal(t, "deletion", groups[0].Type, "first group is deletion")
-	assert.Equal(t, "addition", groups[1].Type, "second group is addition")
+	assert.Equal(t, GroupDeletion, groups[0].Type, "first group is deletion")
+	assert.Equal(t, GroupAddition, groups[1].Type, "second group is addition")
 }
 
 func TestGroupChanges_OnlyDeletions(t *testing.T) {
@@ -125,7 +140,7 @@ func TestGroupChanges_OnlyDeletions(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "one group for consecutive deletions")
-	assert.Equal(t, "deletion", groups[0].Type, "group type is deletion")
+	assert.Equal(t, GroupDeletion, groups[0].Type, "group type is deletion")
 }
 
 func TestGroupChanges_Empty(t *testing.T) {
@@ -150,7 +165,7 @@ func TestGroupChanges_AppendCharsHint(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "one group")
-	assert.Equal(t, "append_chars", groups[0].RenderHint, "render hint")
+	assert.Equal(t, HintAppendChars, groups[0].RenderHint, "render hint")
 	assert.Equal(t, 5, groups[0].ColStart, "col start")
 	assert.Equal(t, 11, groups[0].ColEnd, "col end")
 }
@@ -165,10 +180,10 @@ func TestGroupChanges_MultiLineWithDifferentColumns(t *testing.T) {
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 2, len(groups), "hinted changes stay separate")
-	assert.Equal(t, "replace_chars", groups[0].RenderHint, "first group has hint")
+	assert.Equal(t, HintReplaceChars, groups[0].RenderHint, "first group has hint")
 	assert.Equal(t, 0, groups[0].ColStart, "first group col start")
 	assert.Equal(t, 1, groups[0].ColEnd, "first group col end")
-	assert.Equal(t, "replace_chars", groups[1].RenderHint, "second group has hint")
+	assert.Equal(t, HintReplaceChars, groups[1].RenderHint, "second group has hint")
 	assert.Equal(t, 5, groups[1].ColStart, "second group col start")
 	assert.Equal(t, 6, groups[1].ColEnd, "second group col end")
 }
@@ -186,7 +201,7 @@ func TestGroupChanges_MultiLineWithIdenticalColumns(t *testing.T) {
 
 	assert.Equal(t, 3, len(groups), "each hinted change gets its own group")
 	for i, group := range groups {
-		assert.Equal(t, "replace_chars", group.RenderHint, "group has hint")
+		assert.Equal(t, HintReplaceChars, group.RenderHint, "group has hint")
 		assert.Equal(t, 3, group.ColStart, "col start")
 		assert.Equal(t, 11, group.ColEnd, "col end")
 		assert.Equal(t, i+1, group.StartLine, "start line")
@@ -212,17 +227,17 @@ func TestGroupChanges_MultiLineMixedHints(t *testing.T) {
 // A multi-line group cannot use a single-line hint, so it is cleared on merge.
 func TestGroupChanges_ConsecutiveModificationsWithRenderHint(t *testing.T) {
 	changes := map[int]LineChange{
-		1: {Type: ChangeReplaceChars, Content: "def foo_new(data):", OldContent: "def foo_ol(data):", ColStart: 8, ColEnd: 15},
-		2: {Type: ChangeModification, Content: "    return x, y", OldContent: "    return x"},
+		1: {Type: ChangeReplaceChars, OldLineNum: 1, Content: "def foo_new(data):", OldContent: "def foo_ol(data):", ColStart: 8, ColEnd: 15},
+		2: {Type: ChangeModification, OldLineNum: 2, Content: "    return x, y", OldContent: "    return x"},
 	}
 
 	groups := GroupChanges(changes)
 
 	assert.Equal(t, 1, len(groups), "consecutive modifications should form 1 group")
-	assert.Equal(t, "modification", groups[0].Type, "group type")
+	assert.Equal(t, GroupModification, groups[0].Type, "group type")
 	assert.Equal(t, 1, groups[0].StartLine, "start line")
 	assert.Equal(t, 2, groups[0].EndLine, "end line")
-	assert.Equal(t, "", groups[0].RenderHint, "render hint cleared for multi-line group")
+	assert.Equal(t, HintNone, groups[0].RenderHint, "render hint cleared for multi-line group")
 	assert.Equal(t, 2, len(groups[0].Lines), "both new lines present")
 	assert.Equal(t, 2, len(groups[0].OldLines), "both old lines present")
 }
@@ -465,7 +480,7 @@ func TestGroupsMustReflectActualBufferState(t *testing.T) {
 
 	firstGroups := GroupChanges(firstDiff.ChangesMap())
 	assert.Equal(t, 1, len(firstGroups), "first diff: 1 group")
-	assert.Equal(t, "addition", firstGroups[0].Type, "first diff group: addition")
+	assert.Equal(t, GroupAddition, firstGroups[0].Type, "first diff group: addition")
 	assert.Nil(t, firstGroups[0].OldLines, "addition has no old_lines")
 
 	// But when applying to actual buffer, line 2 has different content
@@ -483,7 +498,7 @@ func TestGroupsMustReflectActualBufferState(t *testing.T) {
 
 	secondGroups := GroupChanges(secondDiff.ChangesMap())
 	assert.Equal(t, 1, len(secondGroups), "second diff: 1 group")
-	assert.Equal(t, "modification", secondGroups[0].Type, "second diff group: modification")
+	assert.Equal(t, GroupModification, secondGroups[0].Type, "second diff group: modification")
 	assert.NotNil(t, secondGroups[0].OldLines, "modification has old_lines")
 
 	// Key assertion: the two diffs produce different group types
@@ -496,8 +511,8 @@ func TestValidateRenderHintsForCursor_DowngradesAppendCharsBeforeCursor(t *testi
 	// This should be downgraded because the ghost text would appear before cursor
 	groups := []*Group{
 		{
-			Type:       "modification",
-			RenderHint: "append_chars",
+			Type:       GroupModification,
+			RenderHint: HintAppendChars,
 			BufferLine: 10,
 			ColStart:   2,
 			ColEnd:     8,
@@ -506,7 +521,7 @@ func TestValidateRenderHintsForCursor_DowngradesAppendCharsBeforeCursor(t *testi
 
 	ValidateRenderHintsForCursor(groups, 10, 5) // cursor at row 10, col 5
 
-	assert.Equal(t, "", groups[0].RenderHint, "should downgrade append_chars when ColStart < cursorCol")
+	assert.Equal(t, HintNone, groups[0].RenderHint, "should downgrade append_chars when ColStart < cursorCol")
 }
 
 func TestValidateRenderHintsForCursor_KeepsAppendCharsAtOrAfterCursor(t *testing.T) {
@@ -514,8 +529,8 @@ func TestValidateRenderHintsForCursor_KeepsAppendCharsAtOrAfterCursor(t *testing
 	// This should NOT be downgraded because ghost text appears after cursor
 	groups := []*Group{
 		{
-			Type:       "modification",
-			RenderHint: "append_chars",
+			Type:       GroupModification,
+			RenderHint: HintAppendChars,
 			BufferLine: 10,
 			ColStart:   4,
 			ColEnd:     8,
@@ -524,7 +539,7 @@ func TestValidateRenderHintsForCursor_KeepsAppendCharsAtOrAfterCursor(t *testing
 
 	ValidateRenderHintsForCursor(groups, 10, 2) // cursor at row 10, col 2
 
-	assert.Equal(t, "append_chars", groups[0].RenderHint, "should keep append_chars when ColStart >= cursorCol")
+	assert.Equal(t, HintAppendChars, groups[0].RenderHint, "should keep append_chars when ColStart >= cursorCol")
 }
 
 func TestValidateRenderHintsForCursor_IgnoresDifferentLine(t *testing.T) {
@@ -532,8 +547,8 @@ func TestValidateRenderHintsForCursor_IgnoresDifferentLine(t *testing.T) {
 	// Should NOT be affected even if ColStart < cursorCol
 	groups := []*Group{
 		{
-			Type:       "modification",
-			RenderHint: "append_chars",
+			Type:       GroupModification,
+			RenderHint: HintAppendChars,
 			BufferLine: 15, // different line
 			ColStart:   2,
 			ColEnd:     8,
@@ -542,7 +557,7 @@ func TestValidateRenderHintsForCursor_IgnoresDifferentLine(t *testing.T) {
 
 	ValidateRenderHintsForCursor(groups, 10, 5) // cursor at row 10, col 5
 
-	assert.Equal(t, "append_chars", groups[0].RenderHint, "should not affect groups on different lines")
+	assert.Equal(t, HintAppendChars, groups[0].RenderHint, "should not affect groups on different lines")
 }
 
 func TestValidateRenderHintsForCursor_KeepsReplaceCharsAtCursor(t *testing.T) {
@@ -550,8 +565,8 @@ func TestValidateRenderHintsForCursor_KeepsReplaceCharsAtCursor(t *testing.T) {
 	// This should be kept because cursor is at the change start (not past it)
 	groups := []*Group{
 		{
-			Type:       "modification",
-			RenderHint: "replace_chars",
+			Type:       GroupModification,
+			RenderHint: HintReplaceChars,
 			BufferLine: 10,
 			ColStart:   5,
 			ColEnd:     10,
@@ -560,7 +575,7 @@ func TestValidateRenderHintsForCursor_KeepsReplaceCharsAtCursor(t *testing.T) {
 
 	ValidateRenderHintsForCursor(groups, 10, 5) // cursor at row 10, col 5
 
-	assert.Equal(t, "replace_chars", groups[0].RenderHint, "should keep replace_chars when ColStart == cursorCol")
+	assert.Equal(t, HintReplaceChars, groups[0].RenderHint, "should keep replace_chars when ColStart == cursorCol")
 }
 
 func TestValidateRenderHintsForCursor_DowngradesReplaceCharsBeforeCursor(t *testing.T) {
@@ -568,8 +583,8 @@ func TestValidateRenderHintsForCursor_DowngradesReplaceCharsBeforeCursor(t *test
 	// This should be downgraded because cursor is past the change start
 	groups := []*Group{
 		{
-			Type:       "modification",
-			RenderHint: "replace_chars",
+			Type:       GroupModification,
+			RenderHint: HintReplaceChars,
 			BufferLine: 10,
 			ColStart:   3,
 			ColEnd:     10,
@@ -578,7 +593,7 @@ func TestValidateRenderHintsForCursor_DowngradesReplaceCharsBeforeCursor(t *test
 
 	ValidateRenderHintsForCursor(groups, 10, 8) // cursor at row 10, col 8
 
-	assert.Equal(t, "", groups[0].RenderHint, "should downgrade replace_chars when ColStart < cursorCol")
+	assert.Equal(t, HintNone, groups[0].RenderHint, "should downgrade replace_chars when ColStart < cursorCol")
 }
 
 func TestValidateRenderHintsForCursor_KeepsReplaceCharsBeforeCursor(t *testing.T) {
@@ -586,8 +601,8 @@ func TestValidateRenderHintsForCursor_KeepsReplaceCharsBeforeCursor(t *testing.T
 	// This should NOT be downgraded because cursor is before the change
 	groups := []*Group{
 		{
-			Type:       "modification",
-			RenderHint: "replace_chars",
+			Type:       GroupModification,
+			RenderHint: HintReplaceChars,
 			BufferLine: 10,
 			ColStart:   5,
 			ColEnd:     10,
@@ -596,22 +611,22 @@ func TestValidateRenderHintsForCursor_KeepsReplaceCharsBeforeCursor(t *testing.T
 
 	ValidateRenderHintsForCursor(groups, 10, 2) // cursor at row 10, col 2
 
-	assert.Equal(t, "replace_chars", groups[0].RenderHint, "should keep replace_chars when ColStart > cursorCol")
+	assert.Equal(t, HintReplaceChars, groups[0].RenderHint, "should keep replace_chars when ColStart > cursorCol")
 }
 
 func TestValidateRenderHintsForCursor_AppendVsReplaceAtExactPosition(t *testing.T) {
 	// At exact cursor position (col 5), both hints are kept because
 	// cursor is at the change start, not past it
 	appendGroup := &Group{
-		Type:       "modification",
-		RenderHint: "append_chars",
+		Type:       GroupModification,
+		RenderHint: HintAppendChars,
 		BufferLine: 10,
 		ColStart:   5,
 		ColEnd:     10,
 	}
 	replaceGroup := &Group{
-		Type:       "modification",
-		RenderHint: "replace_chars",
+		Type:       GroupModification,
+		RenderHint: HintReplaceChars,
 		BufferLine: 10,
 		ColStart:   5,
 		ColEnd:     10,
@@ -620,8 +635,8 @@ func TestValidateRenderHintsForCursor_AppendVsReplaceAtExactPosition(t *testing.
 	ValidateRenderHintsForCursor([]*Group{appendGroup}, 10, 5)
 	ValidateRenderHintsForCursor([]*Group{replaceGroup}, 10, 5)
 
-	assert.Equal(t, "append_chars", appendGroup.RenderHint, "append_chars at exact cursor position should keep hint")
-	assert.Equal(t, "replace_chars", replaceGroup.RenderHint, "replace_chars at exact cursor position should keep hint")
+	assert.Equal(t, HintAppendChars, appendGroup.RenderHint, "append_chars at exact cursor position should keep hint")
+	assert.Equal(t, HintReplaceChars, replaceGroup.RenderHint, "replace_chars at exact cursor position should keep hint")
 }
 
 func TestFinalizeStageGroups_AppendCharsOnNonCursorLine(t *testing.T) {
@@ -662,11 +677,11 @@ func TestFinalizeStageGroups_AppendCharsOnNonCursorLine(t *testing.T) {
 
 	// Line 5 (cursor line): ColStart == cursorCol, so hint is kept
 	assert.Equal(t, 5, groups[0].BufferLine, "first group on cursor line")
-	assert.Equal(t, "append_chars", groups[0].RenderHint, "cursor line keeps hint when ColStart >= cursorCol")
+	assert.Equal(t, HintAppendChars, groups[0].RenderHint, "cursor line keeps hint when ColStart >= cursorCol")
 
 	// Line 7 (non-cursor line): hint always preserved
 	assert.Equal(t, 7, groups[1].BufferLine, "second group on non-cursor line")
-	assert.Equal(t, "append_chars", groups[1].RenderHint, "non-cursor line keeps append_chars")
+	assert.Equal(t, HintAppendChars, groups[1].RenderHint, "non-cursor line keeps append_chars")
 	assert.Equal(t, 4, groups[1].ColStart, "non-cursor line ColStart")
 	assert.Equal(t, 14, groups[1].ColEnd, "non-cursor line ColEnd")
 }
@@ -710,11 +725,11 @@ func TestFinalizeStageGroups_CursorLineDowngradedNonCursorLineKept(t *testing.T)
 	// Line 10 (cursor line): cursor at 8 is within old content (len 13),
 	// so validation applies. ColStart(13) < cursorCol(8) is false, hint kept.
 	assert.Equal(t, 10, groups[0].BufferLine, "first group on cursor line")
-	assert.Equal(t, "append_chars", groups[0].RenderHint, "cursor line hint kept")
+	assert.Equal(t, HintAppendChars, groups[0].RenderHint, "cursor line hint kept")
 
 	// Line 11 (non-cursor line): keeps append_chars
 	assert.Equal(t, 11, groups[1].BufferLine, "second group on non-cursor line")
-	assert.Equal(t, "append_chars", groups[1].RenderHint, "non-cursor line keeps hint")
+	assert.Equal(t, HintAppendChars, groups[1].RenderHint, "non-cursor line keeps hint")
 }
 
 func TestToLuaFormat_PureInsertionCursorFromGroups(t *testing.T) {
@@ -726,7 +741,7 @@ func TestToLuaFormat_PureInsertionCursorFromGroups(t *testing.T) {
 			1: {Type: ChangeDeletion, Content: "existing line content"},
 		},
 		Groups: []*Group{
-			{Type: "addition", StartLine: 1, EndLine: 1, BufferLine: 7, Lines: []string{""}},
+			{Type: GroupAddition, StartLine: 1, EndLine: 1, BufferLine: 7, Lines: []string{""}},
 		},
 		Lines: []string{""},
 	}
@@ -742,7 +757,7 @@ func TestToLuaFormat_UsesPrecomputedCursor(t *testing.T) {
 	stage := &Stage{
 		CursorLine: 3,
 		CursorCol:  5,
-		Groups:     []*Group{{Type: "addition", StartLine: 1, EndLine: 3, BufferLine: 10, Lines: []string{"a", "b", "c"}}},
+		Groups:     []*Group{{Type: GroupAddition, StartLine: 1, EndLine: 3, BufferLine: 10, Lines: []string{"a", "b", "c"}}},
 		Lines:      []string{"a", "b", "c"},
 	}
 

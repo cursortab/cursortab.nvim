@@ -53,7 +53,7 @@ func parseCompletion(p *Provider, ctx *provider.RequestState, result *openai.Com
 
 func TestBuildPrompt_EmptyLines(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix: "<PRE>",
 			Suffix: "<SUF>",
@@ -71,7 +71,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 
 func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix: "<PRE>",
 			Suffix: "<SUF>",
@@ -91,7 +91,7 @@ func TestBuildPrompt_SingleLineMiddle(t *testing.T) {
 
 func TestBuildPrompt_MultiLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix: "<PRE>",
 			Suffix: "<SUF>",
@@ -113,7 +113,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 
 func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix: "<PRE>",
 			Suffix: "<SUF>",
@@ -131,7 +131,7 @@ func TestBuildPrompt_CursorBeyondLine(t *testing.T) {
 
 func TestParseCompletion_SingleLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -146,7 +146,7 @@ func TestParseCompletion_SingleLine(t *testing.T) {
 
 func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -160,8 +160,8 @@ func TestParseCompletion_MultiLineCompletion(t *testing.T) {
 }
 
 func TestParseCompletion_DropsTruncatedLastLine(t *testing.T) {
-	p := NewProvider(&types.ProviderConfig{ProviderModel: "test-model"})
-	ctx := stateForLines([]string{"hello world"}, 1, 5, &types.ProviderConfig{ProviderModel: "test-model"})
+	p := NewProvider(&types.ProviderConfig{Model: "test-model"})
+	ctx := stateForLines([]string{"hello world"}, 1, 5, &types.ProviderConfig{Model: "test-model"})
 
 	resp := parseCompletion(p, ctx, &openai.CompletionResult{
 		Text:         " there\nincomplete",
@@ -174,7 +174,7 @@ func TestParseCompletion_DropsTruncatedLastLine(t *testing.T) {
 
 func TestBuildPrompt_RepoContext(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix:   "<PRE>",
 			Suffix:   "<SUF>",
@@ -220,7 +220,7 @@ func TestBuildPrompt_RepoContext(t *testing.T) {
 
 func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix: "<PRE>",
 			Suffix: "<SUF>",
@@ -243,7 +243,7 @@ func TestBuildPrompt_NoRepoContextWithoutTokens(t *testing.T) {
 
 func TestBuildPrompt_RepoContextStops(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 		FIMTokens: &types.FIMTokenConfig{
 			Prefix:   "<PRE>",
 			Suffix:   "<SUF>",
@@ -275,8 +275,8 @@ func containsStr(slice []string, s string) bool {
 
 func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-		FIMTokens:     nil,
+		Model:     "test-model",
+		FIMTokens: nil,
 	}
 	p := NewProvider(config)
 
@@ -291,8 +291,8 @@ func TestBuildPromptPromptSuffix_EmptyLines(t *testing.T) {
 
 func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-		FIMTokens:     nil,
+		Model:     "test-model",
+		FIMTokens: nil,
 	}
 	p := NewProvider(config)
 
@@ -307,8 +307,8 @@ func TestBuildPromptPromptSuffix_SingleLine(t *testing.T) {
 
 func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-		FIMTokens:     nil,
+		Model:     "test-model",
+		FIMTokens: nil,
 	}
 	p := NewProvider(config)
 
@@ -323,8 +323,8 @@ func TestBuildPromptPromptSuffix_MultiLine(t *testing.T) {
 
 func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
-		FIMTokens:     nil,
+		Model:     "test-model",
+		FIMTokens: nil,
 	}
 	p := NewProvider(config)
 
@@ -338,7 +338,7 @@ func TestBuildPromptPromptSuffix_CursorBeyondLine(t *testing.T) {
 
 func TestParseCompletion_SingleLineWithAfterCursor(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 

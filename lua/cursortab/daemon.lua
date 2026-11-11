@@ -8,107 +8,73 @@ local daemon = {}
 -- Module state
 ---@type integer|nil
 local chan = nil
+-- State of this editor's session, reset on each connect: the PID of the daemon
+-- once the session runs, or the error of a failed session init.
+---@type integer|nil
+local daemon_pid = nil
+---@type string|nil
+local session_error = nil
 local ns_id = vim.api.nvim_create_namespace("cursortab")
 local is_enabled = true
 
 local is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
-local ffi = require("ffi")
-
-if is_windows then
-	ffi.cdef([[
-		void* __stdcall OpenProcess(uint32_t dwDesiredAccess, int bInheritHandle, uint32_t dwProcessId);
-		int __stdcall CloseHandle(void* hObject);
-		int __stdcall GetExitCodeProcess(void* hProcess, uint32_t* lpExitCode);
-	]])
-end
-
-local function get_ipc_path(state_dir)
-	if is_windows then
-		return state_dir .. "/cursortab.port"
-	else
-		return state_dir .. "/cursortab.sock"
-	end
-end
-
--- Check if process with given PID is running
-local function is_process_running(pid)
-	if is_windows then
-		local PROCESS_QUERY_INFORMATION = 0x0400
-		local STILL_ACTIVE = 259
-		local h = ffi.C.OpenProcess(PROCESS_QUERY_INFORMATION, false, pid)
-		if h == ffi.NULL or h == nil then
-			return false
-		end
-		local exitCode = ffi.new("uint32_t[1]")
-		ffi.C.GetExitCodeProcess(h, exitCode)
-		ffi.C.CloseHandle(h)
-		return exitCode[0] == STILL_ACTIVE
-	else
-		vim.fn.system("kill -0 " .. pid .. " 2>/dev/null")
-		return vim.v.shell_error == 0
-	end
-end
-
--- Read daemon PID from file and check if it's running
----@param pid_path string
----@return integer|nil pid, boolean running
-local function read_daemon_pid(pid_path)
-	if vim.fn.filereadable(pid_path) == 0 then
-		return nil, false
-	end
-	local pid_content = vim.fn.readfile(pid_path)
-	if #pid_content == 0 then
-		return nil, false
-	end
-	local pid = tonumber(pid_content[1])
-	if not pid then
-		return nil, false
-	end
-	return pid, is_process_running(pid)
-end
 
 local function get_binary_path()
 	local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
-	local binary_name = "cursortab"
-	if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
-		binary_name = binary_name .. ".exe"
-	end
-	return plugin_dir .. "/server/" .. binary_name
+	return plugin_dir .. "/server/cursortab" .. (is_windows and ".exe" or "")
 end
 
--- Start the daemon process
-local function start_daemon()
-	local cfg = config.get()
-	local state_dir = cfg.state_dir
+---@type string|nil
+local binary_version = nil
 
-	-- Ensure state directory exists
-	vim.fn.mkdir(state_dir, "p")
-
-	local binary_path = get_binary_path()
-	local ipc_path = get_ipc_path(state_dir)
-	local pid_path = state_dir .. "/cursortab.pid"
-
-	-- Check if binary exists
-	if vim.fn.executable(binary_path) == 0 then
-		vim.notify(
-			"cursortab binary not found at: "
-				.. binary_path
-				.. "\n"
-				.. "Please ensure the Go server was built during installation.\n"
-				.. "If using lazy.nvim, make sure the build step is configured:\n"
-				.. 'build = "cd server && go build"',
-			vim.log.levels.ERROR
-		)
-		return false
+-- Get the installed Go binary version, if available
+---@return string|nil
+function daemon.get_binary_version()
+	if binary_version then
+		return binary_version
 	end
+	local binary_path = get_binary_path()
+	if vim.fn.executable(binary_path) == 0 then
+		return nil
+	end
+	local output = vim.fn.system({ binary_path, "--version" })
+	if vim.v.shell_error ~= 0 then
+		return nil
+	end
+	binary_version = vim.trim(output)
+	return binary_version
+end
 
-	-- Create JSON configuration (matches Go Config struct)
-	-- Note: UI config is Lua-only (for highlights), not sent to Go daemon
-	local v = vim.version()
-	local json_config = vim.json.encode({
-		ns_id = ns_id,
+-- Settings of the daemon, used when this editor starts one. A daemon that
+-- already runs keeps its own settings until it restarts.
+---@param cfg CursortabConfig
+local function daemon_config(cfg)
+	return vim.json.encode({
+		state_dir = cfg.state_dir,
 		log_level = cfg.log_level,
-		state_dir = state_dir,
+		immediate_shutdown = cfg.debug.immediate_shutdown,
+	})
+end
+
+local warned_missing_api_key = false
+
+-- Settings of this editor's session, sent when it connects.
+---@param cfg CursortabConfig
+local function session_config(cfg)
+	local v = vim.version()
+	local api_key = ""
+	if (cfg.provider.api_key_env or "") ~= "" then
+		api_key = vim.env[cfg.provider.api_key_env] or ""
+		if api_key == "" and not warned_missing_api_key then
+			warned_missing_api_key = true
+			vim.notify(
+				"cursortab: api_key_env is set to " .. cfg.provider.api_key_env .. " but the variable is not defined",
+				vim.log.levels.WARN
+			)
+		end
+	end
+	return vim.json.encode({
+		ns_id = ns_id,
 		editor_version = string.format("%d.%d.%d", v.major, v.minor, v.patch),
 		editor_os = vim.uv.os_uname().sysname, ---@diagnostic disable-line: undefined-field
 		contribute_data = cfg.contribute_data,
@@ -128,7 +94,7 @@ local function start_daemon()
 		provider = {
 			type = cfg.provider.type,
 			url = cfg.provider.url,
-			api_key_env = cfg.provider.api_key_env,
+			api_key = api_key,
 			model = cfg.provider.model,
 			temperature = cfg.provider.temperature,
 			context_size = cfg.provider.context_size,
@@ -141,85 +107,114 @@ local function start_daemon()
 			fim_tokens = cfg.provider.fim_tokens,
 			privacy_mode = cfg.provider.privacy_mode,
 		},
-		debug = {
-			immediate_shutdown = cfg.debug.immediate_shutdown,
-		},
 	})
+end
 
-	local env = vim.fn.environ()
-	env.CURSORTAB_CONFIG = json_config
+-- Connections that end within this time count as failed reconnects.
+local stable_connection_ms = 5000
+local max_quick_failures = 3
+local connected_at = 0
+local quick_failures = 0
 
-	-- Check if we need to start the daemon
-	local need_daemon_start = false
-	local config_path = state_dir .. "/cursortab.config.json"
+-- Set while a restart waits for the daemon to stop.
+local restarting = false
 
-	if vim.fn.filereadable(ipc_path) == 0 then
-		-- No socket, need to start daemon
-		need_daemon_start = true
+-- Called once when the next session starts, dropped when it fails.
+---@type fun()|nil
+local on_started = nil
+
+---@type fun()|nil
+local on_disconnect = nil
+
+local start
+
+-- Reconnect after the daemon went away without this editor asking for it, for
+-- example after a restart from another editor or a crash.
+---@param stderr string Output of the relay that ended
+local function reconnect(stderr)
+	if vim.uv.now() - connected_at < stable_connection_ms then
+		quick_failures = quick_failures + 1
 	else
-		-- Socket exists, check if daemon is actually running
-		local _, daemon_running = read_daemon_pid(pid_path)
-
-		if not daemon_running then
-			-- Stale socket, clean up and start fresh
-			vim.fn.delete(ipc_path)
-			if vim.fn.filereadable(pid_path) == 1 then
-				vim.fn.delete(pid_path)
-			end
-			need_daemon_start = true
-		elseif vim.fn.filereadable(config_path) == 1 then
-			-- Daemon is running, check if config has changed
-			local stored = table.concat(vim.fn.readfile(config_path), "\n")
-			if stored ~= json_config then
-				daemon.stop_daemon()
-				need_daemon_start = true
-			end
+		quick_failures = 0
+	end
+	if quick_failures >= max_quick_failures then
+		local detail = stderr ~= "" and (": " .. stderr) or ""
+		vim.notify(
+			"cursortab: lost the connection to the daemon" .. detail .. "\nRun :CursortabRestart",
+			vim.log.levels.ERROR
+		)
+		return
+	end
+	vim.defer_fn(function()
+		if not chan then
+			start()
 		end
+	end, 200 * (quick_failures + 1))
+end
+
+-- Start the relay, which connects to the daemon and starts one when none
+-- runs, and begin this editor's session. Nothing here waits for the daemon;
+-- the daemon reports session errors with vim.notify.
+---@return boolean
+start = function()
+	local binary_path = get_binary_path()
+	if vim.fn.executable(binary_path) == 0 then
+		vim.notify(
+			"cursortab binary not found at: "
+				.. binary_path
+				.. "\n"
+				.. "Please ensure the Go server was built during installation.\n"
+				.. "If using lazy.nvim, make sure the build step is configured:\n"
+				.. 'build = "cd server && go build"',
+			vim.log.levels.ERROR
+		)
+		return false
 	end
 
-	if need_daemon_start then
-		-- Defer process creation so UI renders first (Windows CreateProcess blocks ~1.5s)
-		vim.defer_fn(function()
-			vim.fn.jobstart({ binary_path, "--daemon" }, {
-				env = env,
-				detach = true,
-			})
+	local cfg = config.get()
+	vim.fn.mkdir(cfg.state_dir, "p")
+	local env = vim.fn.environ()
+	env.CURSORTAB_CONFIG = daemon_config(cfg)
 
-			-- Write config so future connections can detect changes
-			vim.fn.writefile({ json_config }, config_path)
-
-			-- Async wait for IPC file, then connect RPC
-			local function try_connect(attempts)
-				if vim.fn.filereadable(ipc_path) == 1 then
-					chan = vim.fn.jobstart({ binary_path }, {
-						rpc = true,
-						env = env,
-					})
-					return
-				end
-				if attempts > 0 then
-					vim.defer_fn(function()
-						try_connect(attempts - 1)
-					end, 100)
-				else
-					vim.notify(
-						"cursortab: daemon failed to create IPC file at " .. ipc_path .. " (timed out after 10s)",
-						vim.log.levels.ERROR
-					)
-				end
-			end
-			try_connect(100)
-		end, 0)
-		return true
-	end
-
-	-- Connect to daemon
-	chan = vim.fn.jobstart({ binary_path }, {
+	local stderr = {}
+	local relay
+	relay = vim.fn.jobstart({ binary_path }, {
 		rpc = true,
 		env = env,
+		on_stderr = function(_, data)
+			vim.list_extend(stderr, data)
+		end,
+		on_exit = function()
+			if chan ~= relay then
+				return
+			end
+			chan = nil
+			if on_disconnect then
+				on_disconnect()
+			end
+			if vim.v.exiting ~= vim.NIL then
+				return
+			end
+			if restarting then
+				restarting = false
+				quick_failures = 0
+				start()
+				return
+			end
+			reconnect(vim.trim(table.concat(stderr, "\n")))
+		end,
 	})
-
-	return chan > 0
+	if relay <= 0 then
+		vim.notify("cursortab: could not start the daemon relay", vim.log.levels.ERROR)
+		return false
+	end
+	chan = relay
+	daemon_pid = nil
+	session_error = nil
+	connected_at = vim.uv.now()
+	vim.rpcnotify(relay, "cursortab_init", session_config(cfg))
+	daemon.send_event("buf_enter")
+	return true
 end
 
 -- Public API
@@ -235,13 +230,8 @@ function daemon.send_event(event_name)
 		return
 	end
 
-	local success = pcall(function()
-		vim.fn.rpcnotify(chan, "cursortab_event", event_name)
-	end)
-
-	if not success then
-		chan = nil
-	end
+	-- A failed notify means the relay is ending; its on_exit reconnects.
+	pcall(vim.fn.rpcnotify, chan, "cursortab_event", event_name, buffer.position())
 end
 
 -- Get the namespace ID
@@ -262,154 +252,79 @@ end
 -- Send reject event directly (for clearing completions)
 function daemon.send_reject()
 	if chan and chan > 0 then
-		pcall(function()
-			vim.fn.rpcnotify(chan, "cursortab_event", "esc")
-		end)
+		pcall(vim.fn.rpcnotify, chan, "cursortab_event", "esc", buffer.position())
 	end
-end
-
--- Check daemon process status
-function daemon.check_daemon_status()
-	local cfg = config.get()
-	local state_dir = cfg.state_dir
-	local ipc_path = get_ipc_path(state_dir)
-	local pid_path = state_dir .. "/cursortab.pid"
-
-	local status = {
-		socket_exists = vim.fn.filereadable(ipc_path) == 1,
-		pid_file_exists = vim.fn.filereadable(pid_path) == 1,
-		daemon_running = false,
-		pid = nil,
-	}
-
-	-- Check if PID file exists and process is running
-	local pid, running = read_daemon_pid(pid_path)
-	if pid then
-		status.pid = pid
-		status.daemon_running = running
-	end
-
-	return status
 end
 
 -- Get channel status
 function daemon.get_channel_status()
 	return {
-		connected = chan and chan > 0,
+		connected = chan ~= nil,
 		channel_id = chan,
+		daemon_pid = daemon_pid,
+		session_error = session_error,
 	}
 end
 
--- Get the installed Go binary version, if available
-function daemon.get_binary_version()
-	local binary_path = get_binary_path()
-	if vim.fn.executable(binary_path) == 0 then
-		return nil
-	end
-
-	local output = vim.fn.system({ binary_path, "--version" })
-	if vim.v.shell_error ~= 0 then
-		return nil
-	end
-
-	return vim.trim(output)
-end
-
--- Clean up stale socket and pid files
-local function cleanup_stale_files()
-	local cfg = config.get()
-	local state_dir = cfg.state_dir
-	local ipc_path = get_ipc_path(state_dir)
-	local pid_path = state_dir .. "/cursortab.pid"
-	local config_path = state_dir .. "/cursortab.config.json"
-
-	-- Remove IPC file if it exists
-	if vim.fn.filereadable(ipc_path) == 1 then
-		vim.fn.delete(ipc_path)
-	end
-
-	-- Remove pid file if it exists
-	if vim.fn.filereadable(pid_path) == 1 then
-		vim.fn.delete(pid_path)
-	end
-
-	-- Remove config file if it exists
-	if vim.fn.filereadable(config_path) == 1 then
-		vim.fn.delete(config_path)
+-- RPC callback: the session of this editor runs in the daemon with this PID.
+---@param pid integer
+function daemon.on_session_started(pid)
+	daemon_pid = pid
+	local done = on_started
+	on_started = nil
+	-- Return the RPC response first: the daemon waits for it.
+	if done then
+		vim.schedule(done)
 	end
 end
 
--- Stop daemon process
-function daemon.stop_daemon()
-	local cfg = config.get()
-	local state_dir = cfg.state_dir
-	local pid_path = state_dir .. "/cursortab.pid"
-	local ipc_path = get_ipc_path(state_dir)
-
-	-- Reset channel regardless of outcome
-	chan = nil
-
-	-- If no PID file, just clean up any stale IPC
-	if vim.fn.filereadable(pid_path) == 0 then
-		if vim.fn.filereadable(ipc_path) == 1 then
-			vim.fn.delete(ipc_path)
-			return true, "Cleaned up stale IPC (no PID file)"
-		end
-		return true, "Daemon not running (no PID file)"
-	end
-
-	local pid, running = read_daemon_pid(pid_path)
-	if not pid then
-		cleanup_stale_files()
-		return true, "Cleaned up stale files (invalid PID)"
-	end
-
-	if not running then
-		cleanup_stale_files()
-		return true, "Cleaned up stale files (process not running)"
-	end
-
-	-- Send TERM signal to daemon
-	local kill_sent
-	if is_windows then
-		vim.fn.system("taskkill /PID " .. pid)
-		kill_sent = vim.v.shell_error == 0
-	else
-		vim.fn.system("kill " .. pid .. " 2>/dev/null")
-		kill_sent = vim.v.shell_error == 0
-	end
-
-	if not kill_sent then
-		cleanup_stale_files()
-		return true, "Cleaned up stale files (could not signal process)"
-	end
-
-	-- Wait for IPC to be removed (daemon cleanup)
-	for _ = 1, 50 do
-		vim.wait(100)
-		if vim.fn.filereadable(ipc_path) == 0 then
-			return true, "Daemon stopped successfully"
-		end
-	end
-
-	-- Process didn't terminate gracefully, force kill
-	if is_process_running(pid) then
-		if is_windows then
-			vim.fn.system("taskkill /F /PID " .. pid)
-		else
-			vim.fn.system("kill -9 " .. pid .. " 2>/dev/null")
-		end
-		-- Brief wait for forced termination
-		vim.wait(100)
-	end
-
-	cleanup_stale_files()
-	return true, "Daemon stopped (forced kill after timeout)"
+-- RPC callback: the daemon could not start the session of this editor. The
+-- connection stays open so that it does not reconnect and fail again.
+---@param message string
+function daemon.on_session_error(message)
+	session_error = message
+	on_started = nil
+	vim.notify("cursortab: " .. message, vim.log.levels.ERROR)
 end
 
--- Force start daemon (for use after stop_daemon)
-function daemon.force_start()
-	return start_daemon()
+-- Called after the connection to the daemon ends.
+---@param handler fun()
+function daemon.set_disconnect_handler(handler)
+	on_disconnect = handler
+end
+
+-- Connect to the daemon, starting it when it is not running.
+function daemon.start()
+	if not chan then
+		start()
+	end
+end
+
+-- Stop the daemon of every editor and connect to a new one, then call done
+-- once the new session runs. Other editors reconnect on their own. A failed
+-- start reports its error.
+---@param done fun()
+function daemon.restart(done)
+	quick_failures = 0
+	on_started = done
+	if not chan then
+		start()
+		return
+	end
+	local relay = chan
+	local pid = daemon_pid
+	restarting = true
+	pcall(vim.fn.rpcnotify, relay, "cursortab_shutdown")
+	-- A daemon that does not stop is killed.
+	vim.defer_fn(function()
+		if chan ~= relay then
+			return
+		end
+		if pid then
+			vim.uv.kill(pid, "sigkill")
+		end
+		vim.fn.jobstop(relay)
+	end, 5000)
 end
 
 return daemon

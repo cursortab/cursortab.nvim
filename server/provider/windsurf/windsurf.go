@@ -414,8 +414,11 @@ func (p *Provider) Parse(state *provider.RequestState, result *windsurfRawResult
 func buildWindsurfRequest(info *buffer.WindsurfInfo, current ctx.CurrentSnapshot, reqID int) windsurfRequest {
 	lineEnding := "\n"
 	language := resolveLanguage(current.File.Path)
-	absFilePath, _ := filepath.Abs(current.File.Path)
 	absWorkspacePath, _ := filepath.Abs(current.WorkspacePath)
+	absFilePath := filepath.Clean(current.File.Path)
+	if !filepath.IsAbs(absFilePath) {
+		absFilePath = filepath.Join(absWorkspacePath, absFilePath)
+	}
 
 	return windsurfRequest{
 		Metadata: windsurfMetadata{

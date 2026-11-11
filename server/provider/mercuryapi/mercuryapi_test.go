@@ -323,7 +323,7 @@ func TestProviderComplete(t *testing.T) {
 	defer server.Close()
 
 	provider := NewProvider(&types.ProviderConfig{
-		ProviderURL:       server.URL,
+		URL:               server.URL,
 		CompletionTimeout: 30000,
 	})
 
@@ -350,8 +350,8 @@ func TestProviderCompleteUsesConfiguredModel(t *testing.T) {
 	defer server.Close()
 
 	provider := NewProvider(&types.ProviderConfig{
-		ProviderURL:       server.URL,
-		ProviderModel:     "custom-model",
+		URL:               server.URL,
+		Model:             "custom-model",
 		CompletionTimeout: 30000,
 	})
 
@@ -369,7 +369,7 @@ func TestProviderCompleteEmpty(t *testing.T) {
 	defer server.Close()
 
 	provider := NewProvider(&types.ProviderConfig{
-		ProviderURL:       server.URL,
+		URL:               server.URL,
 		CompletionTimeout: 30000,
 	})
 
@@ -389,7 +389,7 @@ func TestProviderCompleteNoOp(t *testing.T) {
 	defer server.Close()
 
 	provider := NewProvider(&types.ProviderConfig{
-		ProviderURL:       server.URL,
+		URL:               server.URL,
 		CompletionTimeout: 30000,
 	})
 
@@ -521,7 +521,7 @@ func TestMultilineCompletion(t *testing.T) {
 	defer server.Close()
 
 	provider := NewProvider(&types.ProviderConfig{
-		ProviderURL:       server.URL,
+		URL:               server.URL,
 		CompletionTimeout: 30000,
 	})
 

@@ -117,8 +117,8 @@ type BufferState struct {
 	Col            int
 	ViewportTop    int
 	ViewportBottom int
-	Modified       *bool // nil = default (true)
-	SkipHistory    *bool // nil = default (false)
+	// Modified is false when the buffer matches its on-disk content.
+	Modified bool
 }
 
 // DiffEntryState is a recent-edit history entry (seeded into diff history
@@ -248,14 +248,7 @@ func ParseScenario(data []byte, targets map[string]Target) (*Scenario, error) {
 		n, _ := strconv.Atoi(v)
 		sc.Buffer.ViewportBottom = n
 	}
-	if v, ok := hdr["modified"]; ok {
-		b := v == "true"
-		sc.Buffer.Modified = &b
-	}
-	if v, ok := hdr["skipHistory"]; ok {
-		b := v == "true"
-		sc.Buffer.SkipHistory = &b
-	}
+	sc.Buffer.Modified = hdr["modified"] != "false"
 	if v, ok := hdr["cursor-positions"]; ok {
 		positions, err := parseCursorPositions(v)
 		if err != nil {

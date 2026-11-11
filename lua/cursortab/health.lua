@@ -5,7 +5,6 @@ local M = {}
 
 function M.check()
 	local cfg = config.get()
-	local daemon_status = daemon.check_daemon_status()
 	local channel_status = daemon.get_channel_status()
 
 	-- Identity
@@ -37,12 +36,19 @@ function M.check()
 	end
 	if not daemon.is_enabled() then
 		vim.health.warn("Plugin is disabled")
-	elseif daemon_status.daemon_running and channel_status.connected then
-		vim.health.ok("Running (pid: " .. daemon_status.pid .. ", channel: " .. channel_status.channel_id .. ")")
-	elseif daemon_status.daemon_running then
-		vim.health.warn("Process running (pid: " .. daemon_status.pid .. ") but not connected")
+	elseif channel_status.session_error then
+		vim.health.error(
+			"Session failed: " .. channel_status.session_error,
+			{ "Fix the configuration, then run :CursortabRestart" }
+		)
+	elseif channel_status.daemon_pid then
+		vim.health.ok(
+			"Connected (pid: " .. channel_status.daemon_pid .. ", channel: " .. channel_status.channel_id .. ")"
+		)
+	elseif channel_status.connected then
+		vim.health.warn("Connecting to the daemon")
 	else
-		vim.health.error("Not running", { "Run :CursortabRestart to start the daemon" })
+		vim.health.error("Not connected", { "Run :CursortabRestart to start the daemon" })
 	end
 
 	-- Provider

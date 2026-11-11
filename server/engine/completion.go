@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"slices"
+	"strings"
+
 	"cursortab/logger"
 	"cursortab/metrics"
 	"cursortab/text"
@@ -20,7 +23,7 @@ func (e *Engine) handleCompletionReadyImpl(response *types.CompletionResponse, m
 		return
 	}
 
-	switch e.processCompletionWithManual(response, manual) {
+	switch e.processCompletion(response, manual) {
 	case completionShown:
 		return
 	case completionSuppressed:
@@ -69,114 +72,82 @@ func (e *Engine) handleTextChangeImpl() {
 	e.startTextChangeTimer()
 }
 
-// checkTypingMatchesPrediction checks if the current buffer state (after user typed)
-// matches the prediction, meaning the user typed content consistent with the completion.
-// Returns (matches, hasRemaining) where:
-// - matches: true if the current buffer is a valid prefix of the target
-// - hasRemaining: true if there's still content left to predict
-func (e *Engine) checkTypingMatchesPrediction() (bool, bool) {
-	originalLines := e.display.oldLines()
-	if !e.display.hasCompletion() || len(originalLines) == 0 {
+// checkTypingMatchesPrediction reports whether the user's typing in the
+// displayed completion's range follows the completion: every typed line is a
+// prefix of its completion line, and the typing grew a line or added one.
+// hasRemaining reports whether some of the completion is still untyped.
+func (e *Engine) checkTypingMatchesPrediction() (matches, hasRemaining bool) {
+	if !e.display.hasCompletion() {
+		return false, false
+	}
+	typed, ok := e.typedRange()
+	target, original := e.display.current().Lines, e.display.oldLines()
+	if !ok || len(typed) == 0 || len(typed) > len(target) || len(target) < len(original) {
 		return false, false
 	}
 
-	completion := e.display.current()
-	targetLines := completion.Lines
-	bufferLines := e.buffer.Lines()
-
-	if len(targetLines) == 0 {
-		return false, false
-	}
-
-	startIdx := completion.StartLine - 1
-	if startIdx < 0 || startIdx >= len(bufferLines) {
-		return false, false
-	}
-
-	if len(targetLines) < len(originalLines) {
-		return false, false
-	}
-
-	targetEndIdx := startIdx + len(targetLines) - 1
-	var currentLines []string
-	for i := startIdx; i <= targetEndIdx && i < len(bufferLines); i++ {
-		currentLines = append(currentLines, bufferLines[i])
-	}
-
-	if len(currentLines) == 0 {
-		return false, false
-	}
-
-	madeProgress := false
-	for i, currentLine := range currentLines {
-		if i >= len(targetLines) {
+	progress := len(typed) > len(original)
+	for i, line := range typed {
+		if !strings.HasPrefix(target[i], line) {
 			return false, false
 		}
-
-		targetLine := targetLines[i]
-
-		if len(currentLine) > len(targetLine) {
-			return false, false
+		if i < len(original) && len(line) > len(original[i]) {
+			progress = true
 		}
-		if currentLine != targetLine[:len(currentLine)] {
-			return false, false
-		}
-
-		if i < len(originalLines) {
-			if currentLine != originalLines[i] && len(currentLine) > len(originalLines[i]) {
-				madeProgress = true
-			}
-		} else if currentLine != "" {
-			madeProgress = true
+		if len(line) < len(target[i]) {
+			hasRemaining = true
 		}
 	}
-
-	if !madeProgress {
+	if !progress {
 		return false, false
 	}
-
-	hasRemaining := len(currentLines) < len(targetLines)
-	if !hasRemaining {
-		for i := range currentLines {
-			if i < len(targetLines) && len(currentLines[i]) < len(targetLines[i]) {
-				hasRemaining = true
-				break
-			}
-		}
-	}
-
-	return true, hasRemaining
+	return true, hasRemaining || len(typed) < len(target)
 }
 
-func (e *Engine) rerenderActiveCompletion() completionOutcome {
-	if !e.display.hasCompletion() {
-		return completionNoChanges
+// typedRange returns the buffer lines that now stand in the displayed
+// completion's range. Typing changes only the range, so it is what lies
+// between the lines before the range and the lines that followed it.
+func (e *Engine) typedRange() ([]string, bool) {
+	lines := e.buffer.Lines()
+	start, end := e.display.current().StartLine-1, len(lines)-e.display.linesAfter
+	if start < 0 || end < start {
+		return nil, false
+	}
+	return lines[start:end], true
+}
+
+// rerenderActiveCompletion shows the rest of the displayed completion after
+// typing or a partial accept changed its range. Later stages shift by the
+// change in line count. When nothing is left, the stage is complete.
+func (e *Engine) rerenderActiveCompletion() {
+	typed, ok := e.typedRange()
+	if !ok {
+		e.reject()
+		return
+	}
+	completion := e.display.current()
+	if slices.Equal(typed, completion.Lines) {
+		e.completeCurrentStage()
+		return
 	}
 
 	var tail []*text.Stage
 	manual := false
-	if e.stagedCompletion != nil {
-		manual = e.stagedCompletion.Manual
-		next := e.stagedCompletion.CurrentIdx + 1
-		if next >= 0 && next < len(e.stagedCompletion.Stages) {
-			tail = append(tail, e.stagedCompletion.Stages[next:]...)
+	if sc := e.stagedCompletion; sc != nil {
+		manual = sc.Manual
+		tail = sc.Stages[min(sc.CurrentIdx+1, len(sc.Stages)):]
+		changed := &text.Stage{BufferStart: completion.StartLine, BufferEnd: completion.EndLineInc, Lines: typed}
+		text.ShiftAfter(tail, changed)
+		if t := e.cursorTarget; t != nil && int(t.LineNumber) > changed.BufferEnd {
+			t.LineNumber += int32(changed.LineDelta())
 		}
 	}
 
-	var metricsInfo *types.MetricsInfo
-	if e.currentMetrics.ID != "" || e.currentMetrics.Additions != 0 || e.currentMetrics.Deletions != 0 {
-		metricsInfo = &types.MetricsInfo{
-			ID:        e.currentMetrics.ID,
-			Additions: e.currentMetrics.Additions,
-			Deletions: e.currentMetrics.Deletions,
-		}
-	}
-
-	outcome := e.processCompletionCandidate(e.display.current(), e.cursorTarget, metricsInfo, manual)
-	if outcome == completionShown && e.stagedCompletion != nil && len(tail) > 0 {
+	e.pendingMetricsInfo = nil
+	outcome := e.stageCompletion(completion.StartLine, slices.Clone(typed), completion.Lines, e.cursorTarget, manual)
+	if outcome == completionShown && e.stagedCompletion != nil {
 		e.stagedCompletion.Stages = append(e.stagedCompletion.Stages, tail...)
 	}
-	return outcome
 }
 
 func (e *Engine) handleCursorTarget() {
@@ -224,9 +195,7 @@ func (e *Engine) handleCursorTarget() {
 }
 
 func (e *Engine) clearCompletionUIOnly() {
-	if e.display.hasCompletion() {
-		e.sendMetric(metrics.EventIgnored)
-	}
+	e.sendMetric(metrics.EventIgnored)
 	e.cancelCurrentRequest()
 	e.stagedCompletion = nil
 	e.resetCompletionFields()
@@ -268,9 +237,8 @@ func (e *Engine) showCurrentStage() {
 	e.cursorTarget = stage.CursorTarget
 	e.state = stateHasCompletion
 
-	// Deep copy groups so that partial accept mutations (advanceGroupsAfterAccept)
-	// don't corrupt the stage's original Groups, which advanceStagedCompletion
-	// needs for correct isPureInsertion/offset calculations.
+	// Partial accept mutates the displayed groups, so display a copy and keep
+	// the stage intact.
 	e.setDisplayedStage(stage, text.CopyGroups(stage.Groups))
 	e.recordMetricsShown(e.pendingMetricsInfo, manual) // nil for streaming
 	e.pendingMetricsInfo = nil
@@ -296,19 +264,11 @@ func (e *Engine) setDisplayedStage(stage *text.Stage, groups []*text.Group) {
 			stage.Lines,
 			groups,
 		),
-		e.displayOriginalLines(stage.BufferStart, stage.BufferEnd),
+		slices.Clone(text.LineRange(e.buffer.Lines(), stage.BufferStart, stage.BufferEnd)),
+		len(e.buffer.Lines())-stage.BufferEnd,
 		groups,
 		e.rejectedCompletionFor(completion),
 	)
-}
-
-func (e *Engine) displayOriginalLines(startLine, endLineInc int) []string {
-	bufferLines := e.buffer.Lines()
-	var originalLines []string
-	for i := startLine; i <= endLineInc && i-1 < len(bufferLines); i++ {
-		originalLines = append(originalLines, bufferLines[i-1])
-	}
-	return originalLines
 }
 
 func (e *Engine) getStage(idx int) *text.Stage {
@@ -336,74 +296,31 @@ const (
 	completionSuppressed
 )
 
-func (e *Engine) processCompletion(response *types.CompletionResponse) completionOutcome {
-	return e.processCompletionWithManual(response, false)
-}
-
-func (e *Engine) processCompletionWithManual(response *types.CompletionResponse, manual bool) completionOutcome {
+// processCompletion stages a completion against the current buffer and shows
+// its first stage.
+func (e *Engine) processCompletion(response *types.CompletionResponse, manual bool) completionOutcome {
 	defer logger.Trace("engine.processCompletion")()
 	if response == nil || response.Completion == nil {
 		return completionNoChanges
 	}
+	completion, cursorTarget := response.Completion, response.CursorTarget
 
-	completion := response.Completion
-	return e.processCompletionCandidate(completion, response.CursorTarget, response.MetricsInfo, manual)
+	e.pendingMetricsInfo = response.MetricsInfo
+
+	if !hasChanges(e.buffer.Lines(), completion) {
+		return completionNoChanges
+	}
+
+	originalLines, newLines := reconcileRange(e.buffer.Lines(), completion)
+	return e.stageCompletion(completion.StartLine, originalLines, newLines, cursorTarget, manual)
 }
 
-func (e *Engine) processCompletionCandidate(completion *types.Completion, cursorTarget *types.CursorPredictionTarget, metricsInfo *types.MetricsInfo, manual bool) completionOutcome {
-	if completion == nil {
-		return completionNoChanges
-	}
-
-	e.pendingMetricsInfo = metricsInfo
-
-	if !e.buffer.HasChanges(completion.StartLine, completion.EndLineInc, completion.Lines) {
-		return completionNoChanges
-	}
-
-	bufferLines := e.buffer.Lines()
-	var originalLines []string
-	endLine := completion.EndLineInc
-	// Extend the old range only when buffer lines beyond EndLineInc match the
-	// corresponding completion lines. This handles the case where a streaming
-	// stage accept already applied part of the completion to the buffer, making
-	// EndLineInc stale. Without matching, unrelated buffer lines get pulled in
-	// and appear as spurious deletions.
-	for i := endLine + 1; i < completion.StartLine+len(completion.Lines) && i-1 < len(bufferLines); i++ {
-		compIdx := i - completion.StartLine
-		if compIdx < len(completion.Lines) && bufferLines[i-1] == completion.Lines[compIdx] {
-			endLine = i
-		} else {
-			break
-		}
-	}
-	for i := completion.StartLine; i <= endLine && i-1 < len(bufferLines); i++ {
-		originalLines = append(originalLines, bufferLines[i-1])
-	}
-
-	// Trim trailing completion lines that duplicate post-editable buffer content.
-	// The model sometimes generates beyond the editable range; trim the suffix
-	// of the completion that matches the buffer past endLine.
-	if len(completion.Lines) > len(originalLines) {
-		excess := len(completion.Lines) - len(originalLines)
-		trimCount := 0
-		for i := excess - 1; i >= 0; i-- {
-			compIdx := len(originalLines) + i
-			bufIdx := endLine + i // 0-indexed: bufferLines[endLine+i] is post-editable
-			if bufIdx < len(bufferLines) && completion.Lines[compIdx] == bufferLines[bufIdx] {
-				trimCount++
-			} else {
-				break
-			}
-		}
-		if trimCount > 0 {
-			completion.Lines = completion.Lines[:len(completion.Lines)-trimCount]
-		}
-	}
-
+// stageCompletion stages the replacement of originalLines, starting at
+// startLine, by newLines and shows its first stage.
+func (e *Engine) stageCompletion(startLine int, originalLines, newLines []string, cursorTarget *types.CursorPredictionTarget, manual bool) completionOutcome {
 	viewportTop, viewportBottom := e.buffer.ViewportBounds()
 	originalText := text.JoinLines(originalLines)
-	newText := text.JoinLines(completion.Lines)
+	newText := text.JoinLines(newLines)
 	diffResult := text.ComputeDiff(originalText, newText)
 
 	stagingResult := text.CreateStages(&text.StagingParams{
@@ -412,12 +329,12 @@ func (e *Engine) processCompletionCandidate(completion *types.Completion, cursor
 		CursorCol:          e.buffer.Col(),
 		ViewportTop:        viewportTop,
 		ViewportBottom:     viewportBottom,
-		BaseLineOffset:     completion.StartLine,
+		BaseLineOffset:     startLine,
 		ProximityThreshold: e.config.CursorPrediction.ProximityThreshold,
 		MaxLines:           e.config.MaxVisibleLines,
 		AvailableWidth:     e.buffer.AvailableWidth(),
 		FilePath:           e.buffer.Path(),
-		NewLines:           completion.Lines,
+		NewLines:           newLines,
 		OldLines:           originalLines,
 	})
 
@@ -453,4 +370,52 @@ func (e *Engine) processCompletionCandidate(completion *types.Completion, cursor
 	}
 
 	return completionNoChanges
+}
+
+// reconcileRange returns the buffer lines the completion replaces and the
+// lines that replace them.
+//
+// The replaced range extends past EndLineInc while the following buffer lines
+// equal the corresponding completion lines: an accepted streaming stage may
+// already have applied part of the completion, which makes EndLineInc stale.
+// Extending only on matches keeps unrelated lines from showing as deletions.
+//
+// Trailing completion lines that repeat the buffer right after the range are
+// dropped: models sometimes generate past the editable region.
+func reconcileRange(lines []string, completion *types.Completion) (oldLines, newLines []string) {
+	start := completion.StartLine
+	newLines = completion.Lines
+
+	end := completion.EndLineInc
+	for end+1 < start+len(newLines) && end < len(lines) && lines[end] == newLines[end+1-start] {
+		end++
+	}
+	oldLines = text.LineRange(lines, start, end)
+
+	excess := len(newLines) - len(oldLines)
+	trim := 0
+	for trim < excess {
+		next := end + excess - 1 - trim // 0-indexed buffer line after the range
+		if next >= len(lines) || newLines[len(newLines)-1-trim] != lines[next] {
+			break
+		}
+		trim++
+	}
+	return oldLines, newLines[:len(newLines)-trim]
+}
+
+// hasChanges reports whether applying completion would change lines.
+func hasChanges(lines []string, completion *types.Completion) bool {
+	if completion.StartLine+len(completion.Lines)-1 > completion.EndLineInc {
+		return true
+	}
+	for i := completion.StartLine; i <= completion.EndLineInc; i++ {
+		rel := i - completion.StartLine
+		inBuffer := i >= 1 && i <= len(lines)
+		inCompletion := rel < len(completion.Lines)
+		if inBuffer != inCompletion || (inBuffer && lines[i-1] != completion.Lines[rel]) {
+			return true
+		}
+	}
+	return false
 }

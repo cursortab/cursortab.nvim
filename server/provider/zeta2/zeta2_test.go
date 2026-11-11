@@ -14,8 +14,8 @@ import (
 
 func newTestProvider() *Provider {
 	return NewProvider(&types.ProviderConfig{
-		ProviderModel:     "zeta2",
-		ProviderMaxTokens: 2048,
+		Model:     "zeta2",
+		MaxTokens: 2048,
 	})
 }
 
@@ -285,6 +285,20 @@ func TestBuildEditHistory_NewestLastOrder(t *testing.T) {
 	idx300 := strings.Index(result, "-v3")
 	assert.True(t, idx100 < idx200 && idx200 < idx300,
 		"oldest-first in prompt output (newest-last)")
+}
+
+func TestBuildEditHistory_EqualTimestampsKeepHistoryOrder(t *testing.T) {
+	history := []*types.FileDiffHistory{
+		{
+			FileName: "a.go",
+			DiffHistory: []*types.DiffEntry{
+				{Original: "v1", Updated: "v2", TimestampNs: 100},
+				{Original: "v2", Updated: "v3", TimestampNs: 100, Source: types.DiffSourcePredicted},
+			},
+		},
+	}
+	result := buildEditHistory(history)
+	assert.True(t, strings.Index(result, "-v1") < strings.Index(result, "-v2"), "later entry is newer")
 }
 
 func TestBuildEditHistory_CappedToMaxEvents(t *testing.T) {

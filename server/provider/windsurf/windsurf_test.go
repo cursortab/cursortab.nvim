@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"cursortab/assert"
+	"cursortab/buffer"
 	"cursortab/ctx"
 )
 
@@ -323,4 +324,18 @@ func TestConvertSingleItem_ReconstructsBlockCompletionParts(t *testing.T) {
 	comp := p.convertSingleItem(item, current, 0)
 	assert.NotNil(t, comp, "completion")
 	assert.Equal(t, []string{"if true {", "\twork()", "}"}, comp.Lines, "reconstructed block completion")
+}
+
+func TestBuildWindsurfRequestResolvesPathsInWorkspace(t *testing.T) {
+	info := &buffer.WindsurfInfo{APIKey: "key"}
+	current := makeCurrent([]string{"package main"}, 1, 0)
+
+	current.File.Path = "cmd/main.go"
+	req := buildWindsurfRequest(info, current, 1)
+	assert.Equal(t, "file:///test/cmd/main.go", req.Document.AbsoluteURI, "relative path joins the workspace")
+	assert.Equal(t, "file:///test", req.Document.WorkspaceURI, "workspace URI")
+
+	current.File.Path = "/elsewhere/main.go"
+	req = buildWindsurfRequest(info, current, 1)
+	assert.Equal(t, "file:///elsewhere/main.go", req.Document.AbsoluteURI, "absolute path kept")
 }

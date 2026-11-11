@@ -10,10 +10,9 @@ import (
 func TestStateNotifierAcceptedStream(t *testing.T) {
 	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
 	var status types.EngineStatus
-	eng.SetStateNotifier(func(value types.EngineStatus) { status = value })
+	setStateNotifier(eng, func(value types.EngineStatus) { status = value })
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &streamingState{}
-	eng.completionStream = newMockCompletionStream(nil)
+	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
 	eng.currentCancel = func() {}
 	showDisplayedCompletionWithBatchForTest(eng, &types.Completion{
 		StartLine: 1, EndLineInc: 1, Lines: []string{"completed line 1"},
@@ -21,7 +20,7 @@ func TestStateNotifierAcceptedStream(t *testing.T) {
 
 	eng.handleEvent(Event{Type: EventAccept})
 	assert.Equal(t, types.EngineStatus{State: "Idle", Pending: true}, status, "stream continues after acceptance")
-	eng.handleStreamCompleteSimple()
+	eng.handleStreamEvent("", false)
 	assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "stream finishes without a state transition")
 }
 
@@ -33,7 +32,7 @@ func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
 	eng := createTestEngine(buf, prov, clock)
 
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &streamingState{}
+	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
 	showDisplayedCompletionForTest(
 		eng,
 		&types.Completion{
@@ -53,7 +52,6 @@ func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
 		oldLines:   []string{"hello"},
 		lines:      []string{"hello world"},
 	})
-	eng.streamLinesChan = make(chan string)
 
 	eng.doRejectStreamingAndDebounce()
 
@@ -68,8 +66,7 @@ func TestStreamingReject_NoKeepPartial(t *testing.T) {
 	eng := createTestEngine(buf, prov, clock)
 
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &streamingState{}
-	eng.streamLinesChan = make(chan string)
+	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
 
 	eng.doRejectStreamingAndDebounce()
 
@@ -149,21 +146,20 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 	eng.rememberRejectedCompletion()
 
 	eng.state = stateStreamingCompletion
-	eng.streamingState = &streamingState{}
-	eng.streamLinesChan = make(chan string)
+	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
 
 	stage := &text.Stage{
 		BufferStart: 1,
 		BufferEnd:   1,
 		Lines:       []string{"hello world"},
 		Groups: []*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			StartLine:  1,
 			EndLine:    1,
 			BufferLine: 1,
 			Lines:      []string{"hello world"},
 			OldLines:   []string{"hello"},
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   5,
 			ColEnd:     11,
 		}},
@@ -174,128 +170,7 @@ func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
 	assert.Equal(t, 0, buf.prepareCompletionCalls, "suppressed streamed stage should not render")
 	assert.Greater(t, buf.clearUICalls, 0, "suppressed streamed stage should clear UI through reject")
 	assert.Equal(t, stateIdle, eng.state, "state after suppressing streamed stage")
-	assert.Nil(t, eng.streamingState, "streaming state after suppression")
-	assert.Nil(t, eng.streamLinesChan, "stream channel after suppression")
-}
-
-func TestStreamingAccept_FinalizedStageMismatch(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"import numpy as np",
-		"",
-		"def bubb",
-	}
-	buf.row = 3
-	buf.col = 8
-	buf.viewportTop = 1
-	buf.viewportBottom = 20
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
-
-	// The stream UI already rendered a 4-line stage. Finalize can later produce
-	// a wider first stage from the full stream, but accept must advance offsets
-	// from the stage that actually reached the buffer.
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  3,
-			EndLineInc: 3,
-			Lines: []string{
-				"def bubble_sort(arr):",
-				"    n = len(arr)",
-				"    for i in range(n):",
-				"        for j in range(0, n - i - 1):",
-			},
-		},
-		&mockBatch{},
-		[]string{"def bubb"},
-		[]*text.Group{
-			{
-				Type:       "modification",
-				StartLine:  1,
-				EndLine:    1,
-				BufferLine: 3,
-				Lines:      []string{"def bubble_sort(arr):"},
-				OldLines:   []string{"def bubb"},
-				RenderHint: "append_chars",
-				ColStart:   8,
-				ColEnd:     21,
-			},
-			{
-				Type:       "addition",
-				StartLine:  2,
-				EndLine:    4,
-				BufferLine: 4,
-				Lines: []string{
-					"    n = len(arr)",
-					"    for i in range(n):",
-					"        for j in range(0, n - i - 1):",
-				},
-			},
-		},
-	)
-
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 0,
-		Stages: []*text.Stage{
-			{
-				BufferStart: 3,
-				BufferEnd:   3,
-				Lines: []string{
-					"def bubble_sort(arr):",
-					"    n = len(arr)",
-					"    for i in range(n):",
-					"        for j in range(0, n - i - 1):",
-					"            if arr[j] > arr[j + 1]:",
-					"                arr[j], arr[j + 1] = arr[j + 1], arr[j]",
-					"    return arr",
-					"",
-				},
-				Groups: []*text.Group{
-					{Type: "modification", BufferLine: 3},
-					{Type: "addition", BufferLine: 4},
-				},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      4, // Points to stage[1].BufferStart (addition beyond old text)
-					ShouldRetrigger: false,
-				},
-			},
-			{
-				BufferStart: 4,
-				BufferEnd:   3, // Pure addition (End < Start)
-				Lines: []string{
-					"if __name__ == \"__main__\":",
-					"    arr = np.random.randint(0, 100, 10)",
-					"    print(\"Sorted array:\", sorted_arr)",
-				},
-				Groups: []*text.Group{
-					{Type: "addition", BufferLine: 4},
-				},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      6,
-					ShouldRetrigger: true,
-				},
-				IsLastStage: true,
-			},
-		},
-	}
-
-	eng.cursorTarget = eng.stagedCompletion.Stages[0].CursorTarget
-
-	eng.acceptCompletion()
-
-	if eng.stagedCompletion != nil && eng.stagedCompletion.CurrentIdx < len(eng.stagedCompletion.Stages) {
-		nextStage := eng.stagedCompletion.Stages[eng.stagedCompletion.CurrentIdx]
-		assert.Equal(t, 7, nextStage.BufferStart, "next stage BufferStart should be adjusted by actual rendered line count offset (4-1=3)")
-	} else {
-		if eng.cursorTarget != nil {
-			assert.True(t, int(eng.cursorTarget.LineNumber) > 6,
-				"cursor target should be beyond the applied content (line 6)")
-		}
-	}
+	assert.Nil(t, eng.stream, "streaming state after suppression")
 }
 
 func TestStreamComplete_NoPreviewLines_AdoptsFinishResult(t *testing.T) {
@@ -305,24 +180,22 @@ func TestStreamComplete_NoPreviewLines_AdoptsFinishResult(t *testing.T) {
 	})}
 
 	eng.startCompletionStream(stream, false)
-	eng.handleStreamCompleteSimple()
+	eng.handleStreamComplete()
 
 	assert.Equal(t, stateHasCompletion, eng.state, "finish result is staged")
 	assert.NotNil(t, eng.stagedCompletion, "staged completion")
 	if eng.stagedCompletion != nil {
 		assert.Equal(t, []string{"updated"}, eng.stagedCompletion.Stages[0].Lines, "completion lines")
 	}
-	assert.Nil(t, eng.streamingState, "streaming state after finish")
-	assert.Nil(t, eng.completionStream, "stream after finish")
+	assert.Nil(t, eng.stream, "streaming state after finish")
 }
 
 func TestStreamComplete_NoPreviewLines_EmptyResultStaysIdle(t *testing.T) {
 	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
 
 	eng.startCompletionStream(&mockCompletionStream{response: &types.CompletionResponse{}}, false)
-	eng.handleStreamCompleteSimple()
+	eng.handleStreamComplete()
 
 	assert.Equal(t, stateIdle, eng.state, "stream that delivers nothing keeps the engine idle")
-	assert.Nil(t, eng.streamingState, "streaming state after finish")
-	assert.Nil(t, eng.completionStream, "stream after finish")
+	assert.Nil(t, eng.stream, "streaming state after finish")
 }

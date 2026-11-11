@@ -191,8 +191,8 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	for i, step := range sc.Steps {
 		label := fmt.Sprintf("step[%d] %s", i, step.Action)
@@ -214,7 +214,7 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 				EndLineInc: step.Completion.EndLineInc,
 				Lines:      step.Completion.Lines,
 			}
-			result := eng.processCompletion(completionResponse(comp)) == completionShown
+			result := eng.processCompletion(completionResponse(comp), false) == completionShown
 			if step.Expect != nil && step.Expect.Shown != nil {
 				assert.Equal(t, *step.Expect.Shown, result, label+" shown")
 			}
@@ -251,7 +251,7 @@ func runEngineScenario(t *testing.T, sc *engineScenario) {
 				stage := eng.getStage(eng.stagedCompletion.CurrentIdx)
 				if stage != nil {
 					buf.mu.Lock()
-					buf.lines = applyStageToLines(buf.lines, stage)
+					buf.lines = stage.Apply(buf.lines)
 					buf.mu.Unlock()
 				}
 			}

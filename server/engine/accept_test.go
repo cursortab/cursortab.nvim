@@ -34,28 +34,26 @@ func TestReject(t *testing.T) {
 
 // TestReject_DropsLeftoverStreamFromAcceptDuringStreaming verifies that reject
 // cancels any in-flight stream from a prior accept-during-streaming. Without
-// this, the leftover stream eventually completes and handleStreamCompleteSimple
-// sees acceptedDuringStreaming=true, which calls handleStreamCompleteAfterAccept
+// this, the leftover stream eventually completes and handleStreamComplete
+// sees stream.acceptedDuring=true, which calls handleStreamCompleteAfterAccept
 // and resurrects a completion or cursor target the user just rejected.
 func TestReject_DropsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
 	defer streamCancel()
-	eng.streamingState = &streamingState{}
-	eng.completionStream = newMockCompletionStream(streamCancel)
-	eng.acceptedDuringStreaming = true
+	eng.stream = &activeStream{stream: newMockCompletionStream(streamCancel)}
+	eng.stream.acceptedDuring = true
 	eng.state = stateHasCompletion
 
 	eng.reject()
 
-	assert.Nil(t, eng.streamingState, "streamingState should be cleared")
-	assert.Nil(t, eng.completionStream, "completionStream should be cleared")
-	assert.False(t, eng.acceptedDuringStreaming, "acceptedDuringStreaming flag should be cleared")
+	assert.Nil(t, eng.stream, "streamingState should be cleared")
+	assert.Nil(t, eng.stream, "leftover stream should be cleared")
 
 	select {
 	case <-streamCtx.Done():
@@ -105,9 +103,9 @@ func TestPartialAccept_AppendChars_SingleWord(t *testing.T) {
 		},
 		[]string{"func"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   4,
 			Lines:      []string{"function foo()"},
 		}},
@@ -138,9 +136,9 @@ func TestPartialAccept_AppendChars_Punctuation(t *testing.T) {
 		},
 		[]string{"foo"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   3,
 			Lines:      []string{"foo.bar.baz"},
 		}},
@@ -171,9 +169,9 @@ func TestPartialAccept_AppendChars_NoRemaining(t *testing.T) {
 		},
 		[]string{"hello"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   5,
 			Lines:      []string{"hello!"},
 		}},
@@ -181,7 +179,7 @@ func TestPartialAccept_AppendChars_NoRemaining(t *testing.T) {
 
 	eng.partialAcceptCompletion()
 
-	assert.Equal(t, "!", buf.lastInsertedText, "inserted text")
+	assert.Equal(t, []string{"hello!"}, buf.lines, "buffer after accepting the last word")
 	assert.Equal(t, stateIdle, eng.state, "state when nothing remaining")
 }
 
@@ -203,7 +201,7 @@ func TestPartialAccept_MultiLine_FirstLine(t *testing.T) {
 		},
 		[]string{"line 1", "line 2", "line 3"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
 			Lines:      []string{"new line 1", "new line 2", "new line 3"},
 		}},
@@ -211,12 +209,9 @@ func TestPartialAccept_MultiLine_FirstLine(t *testing.T) {
 
 	eng.partialAcceptCompletion()
 
-	assert.Equal(t, 1, buf.lastReplacedLine, "replaced line number")
-	assert.Equal(t, "new line 1", buf.lastReplacedContent, "replaced content")
+	assert.Equal(t, []string{"new line 1", "line 2", "line 3"}, buf.lines, "buffer after one line")
 	assert.Equal(t, stateHasCompletion, eng.state, "state after partial line accept")
-	assert.Equal(t, 2, len(eng.display.current().Lines), "remaining lines")
-	assert.Equal(t, 2, eng.display.current().StartLine, "updated start line")
-	assert.Equal(t, 3, eng.display.current().EndLineInc, "end line unchanged for equal line count")
+	assert.Equal(t, &types.Completion{StartLine: 2, EndLineInc: 3, Lines: []string{"new line 2", "new line 3"}}, eng.display.current(), "remaining completion")
 }
 
 func TestPartialAccept_MultiLine_LastLine(t *testing.T) {
@@ -237,7 +232,7 @@ func TestPartialAccept_MultiLine_LastLine(t *testing.T) {
 		},
 		[]string{"old line"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
 			Lines:      []string{"new line"},
 		}},
@@ -245,7 +240,7 @@ func TestPartialAccept_MultiLine_LastLine(t *testing.T) {
 
 	eng.partialAcceptCompletion()
 
-	assert.Equal(t, "new line", buf.lastReplacedContent, "replaced content")
+	assert.Equal(t, []string{"new line"}, buf.lines, "buffer after accepting the last line")
 	assert.Equal(t, stateIdle, eng.state, "state after accepting last line")
 }
 
@@ -268,9 +263,9 @@ func TestPartialAccept_WithUserTyping(t *testing.T) {
 		},
 		[]string{"func"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   4,
 			Lines:      []string{"function foo()"},
 		}},
@@ -341,7 +336,7 @@ func TestPartialAccept_AdditionGroup(t *testing.T) {
 		},
 		[]string{"func main() {", "}"},
 		[]*text.Group{{
-			Type:       "addition",
+			Type:       text.GroupAddition,
 			BufferLine: 2,
 			StartLine:  2,
 			EndLine:    2,
@@ -351,12 +346,8 @@ func TestPartialAccept_AdditionGroup(t *testing.T) {
 
 	eng.partialAcceptCompletion()
 
-	assert.Equal(t, 1, buf.lastReplacedLine, "replaced line number")
-	assert.Equal(t, "func main() {", buf.lastReplacedContent, "replaced content")
-	assert.Equal(t, stateHasCompletion, eng.state, "state after first partial")
-	assert.Equal(t, 2, len(eng.display.current().Lines), "remaining lines")
-	assert.Equal(t, 2, eng.display.current().StartLine, "updated start line")
-	assert.Equal(t, 2, eng.display.current().EndLineInc, "end line preserved from original")
+	assert.Equal(t, []string{"func main() {", "    fmt.Println(\"hello\")", "}"}, buf.lines, "the addition is the first change")
+	assert.Equal(t, stateIdle, eng.state, "accepting the only change accepts the completion")
 }
 
 // TestPartialAccept_AppendCharsWithAddition tests that when a multi-line stage
@@ -384,18 +375,18 @@ func TestPartialAccept_AppendCharsWithAddition(t *testing.T) {
 		[]string{"def bubble_sort(arr):"},
 		[]*text.Group{
 			{
-				Type:       "modification",
+				Type:       text.GroupModification,
 				BufferLine: 3,
 				StartLine:  1,
 				EndLine:    1,
 				Lines:      []string{"def bubble_sort(arr):"},
 				OldLines:   []string{"def bubble_sort(arr):"},
-				RenderHint: "append_chars",
+				RenderHint: text.HintAppendChars,
 				ColStart:   21,
 				ColEnd:     21,
 			},
 			{
-				Type:       "addition",
+				Type:       text.GroupAddition,
 				BufferLine: 4,
 				StartLine:  2,
 				EndLine:    2,
@@ -439,18 +430,18 @@ func TestPartialAccept_StagedCompletion_UsesCurrentGroups(t *testing.T) {
 				// These groups are STALE - first group is append_chars for line 3
 				Groups: []*text.Group{
 					{
-						Type:       "modification",
+						Type:       text.GroupModification,
 						BufferLine: 3,
 						StartLine:  1,
 						EndLine:    1,
 						Lines:      []string{"def bubble_sort(arr):"},
 						OldLines:   []string{"def bubb"},
-						RenderHint: "append_chars",
+						RenderHint: text.HintAppendChars,
 						ColStart:   8,
 						ColEnd:     21,
 					},
 					{
-						Type:       "addition",
+						Type:       text.GroupAddition,
 						BufferLine: 4,
 						StartLine:  2,
 						EndLine:    2,
@@ -464,7 +455,7 @@ func TestPartialAccept_StagedCompletion_UsesCurrentGroups(t *testing.T) {
 				BufferEnd:   5,
 				Lines:       []string{"    for i in range(n):"},
 				Groups: []*text.Group{{
-					Type:       "addition",
+					Type:       text.GroupAddition,
 					BufferLine: 5,
 					Lines:      []string{"    for i in range(n):"},
 				}},
@@ -479,12 +470,12 @@ func TestPartialAccept_StagedCompletion_UsesCurrentGroups(t *testing.T) {
 		eng,
 		&types.Completion{
 			StartLine:  4,
-			EndLineInc: 4,
+			EndLineInc: 3,
 			Lines:      []string{"    n = len(arr)"},
 		},
 		nil,
 		[]*text.Group{{
-			Type:       "addition",
+			Type:       text.GroupAddition,
 			BufferLine: 4,
 			StartLine:  1,
 			EndLine:    1,
@@ -520,9 +511,9 @@ func TestPartialAccept_FinishSyncsBuffer_NonStaged(t *testing.T) {
 		},
 		[]string{"test"},
 		[]*text.Group{{
-			Type:       "modification",
+			Type:       text.GroupModification,
 			BufferLine: 1,
-			RenderHint: "append_chars",
+			RenderHint: text.HintAppendChars,
 			ColStart:   4,
 			Lines:      []string{"test!"},
 		}},
@@ -547,8 +538,8 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 		buf.row = 1
 		prov := newMockProvider()
 		clock := newMockClock()
-		eng, cancel := createTestEngineWithContext(buf, prov, clock)
-		defer cancel()
+		eng := createTestEngine(buf, prov, clock)
+		defer eng.Close()
 
 		eng.state = stateHasCompletion
 		showDisplayedCompletionWithBatchForTest(
@@ -561,10 +552,10 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 			&mockBatch{},
 			buf.lines,
 			[]*text.Group{
-				{Type: "modification", BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"new line 1"}, OldLines: []string{"old line 1"}},
-				{Type: "modification", BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"new line 2"}, OldLines: []string{"old line 2"}},
-				{Type: "modification", BufferLine: 3, StartLine: 3, EndLine: 3, Lines: []string{"new line 3"}, OldLines: []string{"old line 3"}},
-				{Type: "modification", BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"new line 4"}, OldLines: []string{"old line 4"}},
+				{Type: text.GroupModification, BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"new line 1"}, OldLines: []string{"old line 1"}},
+				{Type: text.GroupModification, BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"new line 2"}, OldLines: []string{"old line 2"}},
+				{Type: text.GroupModification, BufferLine: 3, StartLine: 3, EndLine: 3, Lines: []string{"new line 3"}, OldLines: []string{"old line 3"}},
+				{Type: text.GroupModification, BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"new line 4"}, OldLines: []string{"old line 4"}},
 			},
 		)
 
@@ -586,8 +577,8 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 		buf.row = 1
 		prov := newMockProvider()
 		clock := newMockClock()
-		eng, cancel := createTestEngineWithContext(buf, prov, clock)
-		defer cancel()
+		eng := createTestEngine(buf, prov, clock)
+		defer eng.Close()
 
 		eng.state = stateHasCompletion
 		showDisplayedCompletionForTest(
@@ -599,10 +590,10 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 			},
 			buf.lines,
 			[]*text.Group{
-				{Type: "modification", BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"new line 1"}, OldLines: []string{"old line 1"}},
-				{Type: "modification", BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"new line 2"}, OldLines: []string{"old line 2"}},
-				{Type: "modification", BufferLine: 3, StartLine: 3, EndLine: 3, Lines: []string{"new line 3"}, OldLines: []string{"old line 3"}},
-				{Type: "modification", BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"new line 4"}, OldLines: []string{"old line 4"}},
+				{Type: text.GroupModification, BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"new line 1"}, OldLines: []string{"old line 1"}},
+				{Type: text.GroupModification, BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"new line 2"}, OldLines: []string{"old line 2"}},
+				{Type: text.GroupModification, BufferLine: 3, StartLine: 3, EndLine: 3, Lines: []string{"new line 3"}, OldLines: []string{"old line 3"}},
+				{Type: text.GroupModification, BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"new line 4"}, OldLines: []string{"old line 4"}},
 			},
 		)
 
@@ -637,8 +628,8 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 		buf.row = 1
 		prov := newMockProvider()
 		clock := newMockClock()
-		eng, cancel := createTestEngineWithContext(buf, prov, clock)
-		defer cancel()
+		eng := createTestEngine(buf, prov, clock)
+		defer eng.Close()
 
 		cursorTarget := int32(12)
 		eng.state = stateHasCompletion
@@ -651,10 +642,10 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 			},
 			buf.lines,
 			[]*text.Group{
-				{Type: "modification", BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"X"}, OldLines: []string{"x"}},
-				{Type: "modification", BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"Y"}, OldLines: []string{"y"}},
-				{Type: "modification", BufferLine: 3, StartLine: 3, EndLine: 3, Lines: []string{"Z"}, OldLines: []string{"z"}},
-				{Type: "modification", BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"W"}, OldLines: []string{"w"}},
+				{Type: text.GroupModification, BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"X"}, OldLines: []string{"x"}},
+				{Type: text.GroupModification, BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"Y"}, OldLines: []string{"y"}},
+				{Type: text.GroupModification, BufferLine: 3, StartLine: 3, EndLine: 3, Lines: []string{"Z"}, OldLines: []string{"z"}},
+				{Type: text.GroupModification, BufferLine: 4, StartLine: 4, EndLine: 4, Lines: []string{"W"}, OldLines: []string{"w"}},
 			},
 		)
 		eng.cursorTarget = &types.CursorPredictionTarget{
@@ -681,14 +672,14 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 		buf.row = 1
 		prov := newMockProvider()
 		clock := newMockClock()
-		eng, cancel := createTestEngineWithContext(buf, prov, clock)
-		defer cancel()
+		eng := createTestEngine(buf, prov, clock)
+		defer eng.Close()
 
 		stage1 := &text.Stage{
 			BufferStart: 1,
 			BufferEnd:   2,
 			Lines:       []string{"A", "B"},
-			Groups:      []*text.Group{{Type: "modification", BufferLine: 1}},
+			Groups:      []*text.Group{{Type: text.GroupModification, BufferLine: 1}},
 			CursorLine:  1,
 			CursorCol:   0,
 			IsLastStage: false,
@@ -702,7 +693,7 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 			BufferStart: 3,
 			BufferEnd:   4,
 			Lines:       []string{"C", "D"},
-			Groups:      []*text.Group{{Type: "modification", BufferLine: 3}},
+			Groups:      []*text.Group{{Type: text.GroupModification, BufferLine: 3}},
 			CursorLine:  1,
 			CursorCol:   0,
 			IsLastStage: true,
@@ -723,8 +714,8 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 			&mockBatch{},
 			[]string{"a", "b"},
 			[]*text.Group{
-				{Type: "modification", BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"A"}, OldLines: []string{"a"}},
-				{Type: "modification", BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"B"}, OldLines: []string{"b"}},
+				{Type: text.GroupModification, BufferLine: 1, StartLine: 1, EndLine: 1, Lines: []string{"A"}, OldLines: []string{"a"}},
+				{Type: text.GroupModification, BufferLine: 2, StartLine: 2, EndLine: 2, Lines: []string{"B"}, OldLines: []string{"b"}},
 			},
 		)
 		eng.stagedCompletion = &text.StagedCompletion{
@@ -740,9 +731,8 @@ func TestPartialAccept_MultiLineCompletion_CursorTargetConsistency(t *testing.T)
 }
 
 // TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines verifies
-// that cumulative offset is computed correctly when a stage has only addition
-// groups but spans multiple old lines (BufferStart != BufferEnd). The stage
-// replaces old lines, so oldLineCount must reflect the replaced range.
+// that later stages shift by the lines a stage added when it has only addition
+// groups but replaces several old lines.
 func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testing.T) {
 	buf := newMockBuffer()
 	prov := newMockProvider()
@@ -755,8 +745,8 @@ func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testi
 		BufferEnd:   7,
 		Lines:       []string{"", "", "def min_max(data):", "    return min(data)", ""},
 		Groups: []*text.Group{
-			{Type: "addition", StartLine: 1, EndLine: 2, BufferLine: 6},
-			{Type: "addition", StartLine: 5, EndLine: 5, BufferLine: 8},
+			{Type: text.GroupAddition, StartLine: 1, EndLine: 2, BufferLine: 6},
+			{Type: text.GroupAddition, StartLine: 5, EndLine: 5, BufferLine: 8},
 		},
 		CursorTarget: &types.CursorPredictionTarget{LineNumber: 13},
 	}
@@ -766,7 +756,7 @@ func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testi
 		BufferEnd:   10,
 		Lines:       []string{"", ""},
 		Groups: []*text.Group{
-			{Type: "addition", StartLine: 1, EndLine: 2, BufferLine: 10},
+			{Type: text.GroupAddition, StartLine: 1, EndLine: 2, BufferLine: 10},
 		},
 		CursorTarget: &types.CursorPredictionTarget{LineNumber: 15},
 	}
@@ -779,8 +769,6 @@ func TestAdvanceStagedCompletion_AdditionGroupsSpanningMultipleOldLines(t *testi
 	eng.advanceStagedCompletion()
 
 	// Stage 1 replaced 2 old lines with 5 new lines → offset = 5 - 2 = 3
-	// CumulativeOffset is applied to remaining stages then reset to 0
-	assert.Equal(t, 0, eng.stagedCompletion.CumulativeOffset, "offset reset after applying")
 	// Stage 2 should be shifted by 3 (from 10 to 13)
 	assert.Equal(t, 13, stage2.BufferStart, "stage 2 BufferStart shifted by 3")
 	assert.Equal(t, 13, stage2.BufferEnd, "stage 2 BufferEnd shifted by 3")
@@ -806,7 +794,7 @@ func TestShowOrNavigateToNextStage_CapturesRejectedCompletionCandidate(t *testin
 			BufferEnd:   10,
 			Lines:       []string{"new line 10"},
 			Groups: []*text.Group{{
-				Type:       "modification",
+				Type:       text.GroupModification,
 				BufferLine: 10,
 				StartLine:  1,
 				EndLine:    1,
@@ -823,11 +811,10 @@ func TestShowOrNavigateToNextStage_CapturesRejectedCompletionCandidate(t *testin
 	assert.NotNil(t, eng.display.rejectionCandidate(), "next-stage cursor target should capture rejection candidate")
 }
 
-// TestPartialAccept_StagedOffset_PureAddition tests that after partially accepting
-// through a pure addition stage, the cumulative offset for subsequent stages is
-// computed correctly. When all groups are additions and BufferStart==BufferEnd,
-// the stage is a pure insertion (oldLineCount=0). Partial accept mutates the
-// shared Group structs, which must not corrupt the isPureInsertion check.
+// TestPartialAccept_StagedOffset_PureAddition tests that after partially
+// accepting through a pure insertion stage, later stages shift by the inserted
+// lines. Partial accept mutates the shared Group structs, which must not change
+// the stage's insertion range.
 func TestPartialAccept_StagedOffset_PureAddition(t *testing.T) {
 	buf := newMockBuffer()
 	// Buffer has 5 lines. Stage 1 is at line 3 (pure addition of 3 lines).
@@ -836,28 +823,28 @@ func TestPartialAccept_StagedOffset_PureAddition(t *testing.T) {
 	buf.row = 3
 	prov := newMockProvider()
 	clock := newMockClock()
-	eng, cancel := createTestEngineWithContext(buf, prov, clock)
-	defer cancel()
+	eng := createTestEngine(buf, prov, clock)
+	defer eng.Close()
 
 	// Stage 1: pure addition at line 3 — insert 3 new lines, replace 0 old lines
 	stage1 := &text.Stage{
 		BufferStart: 3,
-		BufferEnd:   3,
+		BufferEnd:   2,
 		Lines:       []string{"    a = 1", "    b = 2", "    c = 3"},
 		Groups: []*text.Group{
-			{Type: "addition", BufferLine: 3, StartLine: 1, EndLine: 3,
+			{Type: text.GroupAddition, BufferLine: 3, StartLine: 1, EndLine: 3,
 				Lines: []string{"    a = 1", "    b = 2", "    c = 3"}},
 		},
 		CursorTarget: &types.CursorPredictionTarget{LineNumber: 6, ShouldRetrigger: false},
 	}
 
-	// Stage 2: at line 4
+	// Stage 2: insertion at line 4
 	stage2 := &text.Stage{
 		BufferStart: 4,
-		BufferEnd:   4,
+		BufferEnd:   3,
 		Lines:       []string{"extra"},
 		Groups: []*text.Group{
-			{Type: "addition", BufferLine: 4, StartLine: 1, EndLine: 1,
+			{Type: text.GroupAddition, BufferLine: 4, StartLine: 1, EndLine: 1,
 				Lines: []string{"extra"}},
 		},
 	}
@@ -873,10 +860,10 @@ func TestPartialAccept_StagedOffset_PureAddition(t *testing.T) {
 		eng,
 		&types.Completion{
 			StartLine:  3,
-			EndLineInc: 3,
+			EndLineInc: 2,
 			Lines:      []string{"    a = 1", "    b = 2", "    c = 3"},
 		},
-		[]string{"line3"},
+		nil,
 		text.CopyGroups(stage1.Groups),
 	)
 
@@ -891,5 +878,104 @@ func TestPartialAccept_StagedOffset_PureAddition(t *testing.T) {
 	// Stage 1 was a pure insertion: 0 old lines → 3 new lines → offset = +3
 	// Stage 2 original BufferStart=4 should shift to 4+3=7
 	assert.Equal(t, 7, stage2.BufferStart, "stage 2 BufferStart should be offset by +3")
-	assert.Equal(t, 7, stage2.BufferEnd, "stage 2 BufferEnd should be offset by +3")
+	assert.Equal(t, 6, stage2.BufferEnd, "stage 2 BufferEnd should be offset by +3")
+}
+
+func TestAcceptCompletionRecordsPredictedEdit(t *testing.T) {
+	buf := newMockBuffer()
+	buf.path = "a.go"
+	buf.lines = []string{"a", "b", "c"}
+	buf.row = 2
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+	buf.switchOnSync = true
+	eng.handleEvent(Event{Type: EventBufEnter})
+
+	completion := &types.Completion{StartLine: 2, EndLineInc: 2, Lines: []string{"B"}}
+	assert.Equal(t, completionShown, eng.processCompletion(&types.CompletionResponse{Completion: completion}, false), "completion shown")
+	eng.acceptCompletion()
+
+	assert.Equal(t, []string{"a", "B", "c"}, buf.lines, "edit applied")
+	diffs := eng.history.Diffs("a.go")
+	assert.Equal(t, 1, len(diffs), "one recorded edit")
+	assert.Equal(t, "b", diffs[0].Original, "replaced line")
+	assert.Equal(t, "B", diffs[0].Updated, "accepted line")
+	assert.Equal(t, types.DiffSourcePredicted, diffs[0].Source, "recorded as predicted")
+}
+
+func TestAcceptRecordsTypingBeforeThePrediction(t *testing.T) {
+	buf := newMockBuffer()
+	buf.path = "a.go"
+	buf.lines = []string{"hello"}
+	buf.col = 5
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+	buf.switchOnSync = true
+	eng.handleEvent(Event{Type: EventBufEnter})
+
+	buf.lines = []string{"hello!"} // Typed in insert mode, no InsertLeave yet
+	completion := &types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"hello! big world"}}
+	assert.Equal(t, completionShown, eng.processCompletion(&types.CompletionResponse{Completion: completion}, false), "completion shown")
+	eng.acceptCompletion()
+
+	diffs := eng.history.Diffs("a.go")
+	assert.Equal(t, 2, len(diffs), "typing and prediction recorded separately")
+	assert.Equal(t, types.DiffSourceManual, diffs[0].Source, "typing first")
+	assert.Equal(t, "hello", diffs[0].Original, "typing original")
+	assert.Equal(t, "hello!", diffs[0].Updated, "typing result")
+	assert.Equal(t, types.DiffSourcePredicted, diffs[1].Source, "prediction second")
+	assert.Equal(t, "hello!", diffs[1].Original, "prediction applies to typed content")
+	assert.Equal(t, "hello! big world", diffs[1].Updated, "prediction result")
+}
+
+func TestPartialAcceptRecordsPrediction(t *testing.T) {
+	buf := newMockBuffer()
+	buf.path = "a.go"
+	buf.lines = []string{"func"}
+	buf.col = 4
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+	buf.switchOnSync = true
+	eng.handleEvent(Event{Type: EventBufEnter})
+
+	completion := &types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"function foo()"}}
+	assert.Equal(t, completionShown, eng.processCompletion(&types.CompletionResponse{Completion: completion}, false), "completion shown")
+	for i := 0; i < 5 && eng.display.hasCompletion(); i++ {
+		eng.partialAcceptCompletion()
+	}
+
+	assert.Equal(t, []string{"function foo()"}, buf.lines, "completion fully accepted")
+	diffs := eng.history.Diffs("a.go")
+	assert.Equal(t, 1, len(diffs), "one recorded edit")
+	assert.Equal(t, types.DiffSourcePredicted, diffs[0].Source, "partial accepts are predicted edits")
+	assert.Equal(t, "func", diffs[0].Original, "original line")
+	assert.Equal(t, "function foo()", diffs[0].Updated, "accepted line")
+}
+
+func TestPartialAcceptThenAcceptShiftsLaterStagesByWholeStage(t *testing.T) {
+	buf := newMockBuffer()
+	buf.lines = []string{"line1", "line2", "line3", "line4", "line5"}
+	buf.row = 3
+	eng := createTestEngine(buf, newMockProvider(), newMockClock())
+	defer eng.Close()
+
+	added := []string{"    a = 1", "    b = 2", "    c = 3"}
+	stage1 := &text.Stage{
+		BufferStart: 3, BufferEnd: 2, Lines: added,
+		Groups: []*text.Group{{Type: text.GroupAddition, BufferLine: 3, StartLine: 1, EndLine: 3, Lines: added}},
+	}
+	stage2 := &text.Stage{
+		BufferStart: 5, BufferEnd: 5, Lines: []string{"LINE5"},
+		Groups: []*text.Group{{Type: text.GroupModification, BufferLine: 5, StartLine: 1, EndLine: 1, Lines: []string{"LINE5"}, OldLines: []string{"line5"}}},
+	}
+	eng.stagedCompletion = &text.StagedCompletion{Stages: []*text.Stage{stage1, stage2}}
+	eng.state = stateHasCompletion
+	eng.showCurrentStage()
+
+	eng.partialAcceptCompletion()
+	assert.Equal(t, stateHasCompletion, eng.state, "rest of stage 1 still shown")
+	eng.acceptCompletion()
+
+	assert.Equal(t, []string{"line1", "line2", "    a = 1", "    b = 2", "    c = 3", "line3", "line4", "line5"}, buf.lines, "stage 1 fully applied")
+	assert.Equal(t, 8, stage2.BufferStart, "stage 2 shifted by all three inserted lines")
 }

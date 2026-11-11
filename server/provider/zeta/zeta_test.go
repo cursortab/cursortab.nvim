@@ -147,7 +147,7 @@ func TestBuildInstructionPrompt_NoOptionalSections(t *testing.T) {
 
 func TestParseCompletion_WithEditableRegion(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -161,7 +161,7 @@ func TestParseCompletion_WithEditableRegion(t *testing.T) {
 
 func TestParseCompletion_NoEditableMarker(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -175,7 +175,7 @@ func TestParseCompletion_NoEditableMarker(t *testing.T) {
 
 func TestParseCompletion_StripsMarkers(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -192,7 +192,7 @@ func TestParseCompletion_StripsMarkers(t *testing.T) {
 
 func TestParseCompletion_IdenticalContent(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 

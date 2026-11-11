@@ -49,9 +49,9 @@ func parseCompletion(p *Provider, ctx *provider.RequestState, result *openai.Com
 
 func TestBuildPrompt_EmptyLines(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel:       "test-model",
-		ProviderTemperature: 0.5,
-		ProviderMaxTokens:   50,
+		Model:       "test-model",
+		Temperature: 0.5,
+		MaxTokens:   50,
 	}
 	p := NewProvider(config)
 
@@ -67,7 +67,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 
 func TestBuildPrompt_SingleLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -80,7 +80,7 @@ func TestBuildPrompt_SingleLine(t *testing.T) {
 
 func TestBuildPrompt_MultiLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -94,7 +94,7 @@ func TestBuildPrompt_MultiLine(t *testing.T) {
 
 func TestBuildPrompt_CursorBeyondLineLength(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -107,7 +107,7 @@ func TestBuildPrompt_CursorBeyondLineLength(t *testing.T) {
 
 func TestParseCompletion(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -121,7 +121,7 @@ func TestParseCompletion(t *testing.T) {
 
 func TestParseCompletion_CursorClamped(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -132,8 +132,8 @@ func TestParseCompletion_CursorClamped(t *testing.T) {
 }
 
 func TestParseCompletion_RejectsTruncatedResult(t *testing.T) {
-	p := NewProvider(&types.ProviderConfig{ProviderModel: "test-model"})
-	ctx := stateForLines([]string{"abc"}, 1, 3, &types.ProviderConfig{ProviderModel: "test-model"})
+	p := NewProvider(&types.ProviderConfig{Model: "test-model"})
+	ctx := stateForLines([]string{"abc"}, 1, 3, &types.ProviderConfig{Model: "test-model"})
 
 	resp := parseCompletion(p, ctx, &openai.CompletionResult{
 		Text:         "def",
@@ -149,7 +149,7 @@ func TestParseCompletion_RejectsTruncatedResult(t *testing.T) {
 // prompt ends with indentation, as it considers the line already "complete").
 func TestBuildPrompt_StripsCursorLineTrailingWhitespace(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -173,7 +173,7 @@ func TestBuildPrompt_StripsCursorLineTrailingWhitespace(t *testing.T) {
 // so newLine = "" + "    n = len(arr)" = "    n = len(arr)".
 func TestParseCompletion_WhitespaceOnlyCursorLine(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 

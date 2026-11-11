@@ -1,8 +1,9 @@
 package text
 
 import (
+	"cmp"
 	"cursortab/logger"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -31,50 +32,38 @@ const (
 	ChangeReplaceChars
 )
 
-// String returns the string representation of ChangeType
+// String returns the name of the change type.
 func (ct ChangeType) String() string {
+	if hint := ct.RenderHint(); hint != HintNone {
+		return string(hint)
+	}
+	return string(ct.GroupType())
+}
+
+// RenderHint returns the character-level render hint of the change type, or
+// HintNone for whole-line changes.
+func (ct ChangeType) RenderHint() RenderHint {
 	switch ct {
-	case ChangeDeletion:
-		return "deletion"
-	case ChangeAddition:
-		return "addition"
-	case ChangeModification:
-		return "modification"
 	case ChangeAppendChars:
-		return "append_chars"
+		return HintAppendChars
 	case ChangeDeleteChars:
-		return "delete_chars"
+		return HintDeleteChars
 	case ChangeReplaceChars:
-		return "replace_chars"
+		return HintReplaceChars
 	default:
-		return "unknown"
+		return HintNone
 	}
 }
 
-// RenderHint returns the render hint string for character-level change types.
-// Returns empty string for non-character-level changes.
-func (ct ChangeType) RenderHint() string {
-	switch ct {
-	case ChangeAppendChars:
-		return "append_chars"
-	case ChangeDeleteChars:
-		return "delete_chars"
-	case ChangeReplaceChars:
-		return "replace_chars"
-	default:
-		return ""
-	}
-}
-
-// GroupType returns the group type string for rendering.
-func (ct ChangeType) GroupType() string {
+// GroupType returns the kind of group the change renders in.
+func (ct ChangeType) GroupType() GroupType {
 	switch ct {
 	case ChangeAddition:
-		return "addition"
+		return GroupAddition
 	case ChangeDeletion:
-		return "deletion"
+		return GroupDeletion
 	default:
-		return "modification"
+		return GroupModification
 	}
 }
 
@@ -270,33 +259,24 @@ func ComputeDiff(text1, text2 string) *DiffResult {
 }
 
 // LineSimilarity computes a similarity score between two lines (0.0 to 1.0)
-// using Levenshtein ratio: 1 - (levenshtein_distance / max_length)
+// using Levenshtein ratio: 1 - (levenshtein_distance / max_length), in runes.
 // Higher score means more similar. Empty lines have 0 similarity with non-empty lines.
 func LineSimilarity(line1, line2 string) float64 {
-	// Empty lines
 	if line1 == "" && line2 == "" {
 		return 1.0
 	}
 	if line1 == "" || line2 == "" {
 		return 0.0
 	}
-
-	// Use Levenshtein ratio for intuitive similarity scoring
-	dmp := diffmatchpatch.New()
-	diffs := dmp.DiffMain(line1, line2, false)
-	levenshteinDist := dmp.DiffLevenshtein(diffs)
-
-	maxLen := max(len(line1), len(line2))
-	if maxLen == 0 {
-		return 0.0
-	}
-
-	return 1.0 - float64(levenshteinDist)/float64(maxLen)
+	maxLen := max(utf8.RuneCountInString(line1), utf8.RuneCountInString(line2))
+	return 1.0 - float64(levenshtein(line1, line2))/float64(maxLen)
 }
 
 // matchScore computes a match score between two lines, combining prefix matching
 // and Levenshtein similarity into a single score. Prefix matches get a bonus to
 // ensure "partial" → "partial content completed" always wins over fuzzy matches.
+// Pairs whose length difference alone puts them below SimilarityThreshold
+// score 0 without computing the distance.
 func matchScore(oldLine, newLine string) float64 {
 	if oldLine == "" || newLine == "" {
 		return 0.0
@@ -304,6 +284,10 @@ func matchScore(oldLine, newLine string) float64 {
 	trimmed := strings.TrimRight(oldLine, " \t")
 	if trimmed != "" && strings.HasPrefix(newLine, trimmed) {
 		return 1.0
+	}
+	oldLen, newLen := utf8.RuneCountInString(oldLine), utf8.RuneCountInString(newLine)
+	if bound := float64(min(oldLen, newLen)) / float64(max(oldLen, newLen)); bound < SimilarityThreshold {
+		return 0.0
 	}
 	return LineSimilarity(oldLine, newLine)
 }
@@ -420,16 +404,9 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 				oldToNew[oldIdx] = newIdx + 1 // 1-indexed
 			}
 
-			if deletedLines[j] != "" && insertedLines[j] != "" {
-				// Both non-empty: modification
-				result.addModification(oldIdx+1, newIdx+1, deletedLines[j], insertedLines[j])
-			} else if deletedLines[j] != "" {
-				// Only old has content: deletion
-				result.addDeletion(oldIdx+1, newIdx+1, deletedLines[j])
-			} else if insertedLines[j] != "" {
-				// Empty line filled with content: modification (categorizes as append_chars)
-				result.addModification(oldIdx+1, newIdx+1, "", insertedLines[j])
-			}
+			// Paired lines stay lines: a line whose content is cleared is a
+			// modification, not a deletion, so the empty line is kept.
+			result.addModification(oldIdx+1, newIdx+1, deletedLines[j], insertedLines[j])
 		}
 		return
 	}
@@ -459,12 +436,12 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 		}
 	}
 	// Sort descending by score so best matches are assigned first
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
+	slices.SortStableFunc(candidates, func(a, b candidate) int {
+		return cmp.Compare(b.score, a.score)
 	})
 	usedDeletes := make(map[int]bool)
 	for _, c := range candidates {
-		if usedDeletes[c.delIdx] || usedInserts[c.insIdx] {
+		if usedDeletes[c.delIdx] || usedInserts[c.insIdx] || crosses(matches, c.delIdx, c.insIdx) {
 			continue
 		}
 		matches[c.delIdx] = c.insIdx
@@ -499,8 +476,6 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 	}
 
 	// Emit unmatched additions, anchored to the nearest preceding matched old line.
-	// When an empty addition shares a map key with a deletion, the deletion already
-	// covers the line removal — skip the addition to avoid a spurious empty change.
 	for i, insertedLine := range insertedLines {
 		if usedInserts[i] {
 			continue
@@ -509,23 +484,19 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 		mapKey := newIdx + 1
 
 		// Check for deletion collision: if an unmatched deletion exists at the
-		// same map key, merge into modification (non-empty) or skip (empty).
+		// same map key, merge the pair into a modification.
 		collidedDel := -1
 		for j := range deletedLines {
 			if _, matched := matches[j]; matched {
 				continue
 			}
 			oldIdx := oldLineStart + j
-			if oldIdx+1 == mapKey {
+			if oldIdx+1 == mapKey && !crosses(matches, j, i) {
 				collidedDel = j
 				break
 			}
 		}
 		if collidedDel >= 0 {
-			if insertedLine == "" {
-				continue // empty addition + deletion → keep deletion
-			}
-			// Non-empty addition + deletion → merge into modification
 			oldIdx := oldLineStart + collidedDel
 			if newIdx < newLineCount {
 				newToOld[newIdx] = oldIdx + 1
@@ -550,6 +521,18 @@ func handleModificationsWithMapping(deletedLines, insertedLines []string,
 		}
 		result.addAddition(anchorOld, newIdx+1, insertedLine)
 	}
+}
+
+// crosses reports whether pairing deleted line del with inserted line ins
+// would cross an existing pair. Pairs must keep both orders, or no sequence
+// of line edits turns the old lines into the new ones.
+func crosses(matches map[int]int, del, ins int) bool {
+	for d, i := range matches {
+		if (d < del) != (i < ins) {
+			return true
+		}
+	}
+	return false
 }
 
 // ChangedByteSpan returns the changed byte ranges without splitting UTF-8 characters.
@@ -591,12 +574,12 @@ func categorizeLineChangeWithColumns(oldLine, newLine string) (ChangeType, int, 
 	oldMiddle := oldEnd - changeStart
 	newMiddle := newEnd - changeStart
 
-	if changeStart == 0 && oldEnd == len(oldLine) && newEnd == len(newLine) {
-		return ChangeModification, 0, 0
-	}
-
 	if newMiddle == 0 && oldMiddle > 0 {
 		return ChangeDeleteChars, changeStart, oldEnd
+	}
+
+	if changeStart == 0 && oldEnd == len(oldLine) && newEnd == len(newLine) {
+		return ChangeModification, 0, 0
 	}
 
 	// ReplaceChars for localized changes within the line.

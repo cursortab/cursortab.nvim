@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"cursortab/buffer"
+	"cursortab/history"
 	"cursortab/types"
 	"cursortab/utils"
 )
@@ -91,7 +91,7 @@ func (EditHistory) collect(_ context.Context, input ContextSourceInput) (materia
 	var result EditHistory
 	for i := len(input.Snapshot.RecentFiles) - 1; i >= 0; i-- {
 		file := input.Snapshot.RecentFiles[i]
-		diffs := buffer.ProcessDiffHistory(file.DiffHistories, input.Snapshot.NowNs)
+		diffs := history.Process(file.DiffHistories, input.Snapshot.NowNs)
 		if len(diffs) == 0 {
 			continue
 		}
@@ -102,7 +102,7 @@ func (EditHistory) collect(_ context.Context, input ContextSourceInput) (materia
 	}
 
 	if input.Current.File.Path != "" {
-		diffs := buffer.ProcessDiffHistory(input.Snapshot.CurrentDiffHistories, input.Snapshot.NowNs)
+		diffs := history.Process(input.Snapshot.CurrentDiffHistories, input.Snapshot.NowNs)
 		if input.Limits.MaxDiffTokens > 0 {
 			diffs = utils.TrimDiffEntries(diffs, input.Limits.MaxDiffTokens)
 		}

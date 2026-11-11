@@ -1,83 +1,49 @@
+// Package buffer is the Neovim side of a session: it reads the current editor
+// state, renders completions, and applies edits through RPC.
 package buffer
 
 import (
-	"cursortab/logger"
-	"cursortab/text"
-	"cursortab/types"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
+	"cursortab/history"
+	"cursortab/logger"
+	"cursortab/text"
+	"cursortab/types"
+
+	"github.com/neovim/go-client/msgpack/rpc"
 	"github.com/neovim/go-client/nvim"
-	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
-type Config struct {
-	NsID int
-}
-
+// NvimBuffer caches the state of the current Neovim buffer and window. Sync
+// refreshes it; edits and rendering go straight to Neovim.
 type NvimBuffer struct {
-	client *nvim.Nvim // stored internally, set via SetClient
+	client *nvim.Nvim
+	nsID   int
 
-	// Private state
+	id            nvim.Buffer
+	tick          int // b:changedtick of the synced lines
 	lines         []string
 	row           int // 1-indexed
 	col           int // 0-indexed
 	path          string
-	version       int
-	diffHistories []*types.DiffEntry // Structured diff history for provider consumption
-	previousLines []string           // Buffer content before the most recent edit (for sweep provider)
+	workspacePath string
+	modified      bool
 
-	originalLines    []string // Checkpoint for extracting granular diffs (reset on each commit)
-	diskLines        []string // File content as last written to disk (reset only on ClearDiffHistory)
-	lastModifiedLine int      // Track which line was last modified
-	id               nvim.Buffer
-	scrollOffsetX    int // Horizontal scroll offset (leftcol)
-
-	// Viewport bounds (1-indexed line numbers)
-	viewportTop    int // First visible line (1-indexed)
-	viewportBottom int // Last visible line (1-indexed)
+	viewportTop    int // 1-indexed
+	viewportBottom int // 1-indexed
 	availableWidth int // Window width minus sign/number column (textoff)
 
-	config Config
-
-	// Pending completion state (committed only on accept)
-	pending *PendingEdit
 }
 
-// PendingEdit holds pending completion state committed only on accept
-type PendingEdit struct {
-	StartLine        int
-	EndLineInclusive int
-	Lines            []string
+// New returns a buffer that talks to Neovim through client and draws in the
+// nsID namespace.
+func New(client *nvim.Nvim, nsID int) *NvimBuffer {
+	return &NvimBuffer{client: client, nsID: nsID, row: 1}
 }
-
-func New(config Config) *NvimBuffer {
-	return &NvimBuffer{
-		lines:            []string{},
-		row:              1,
-		col:              0,
-		path:             "",
-		version:          0,
-		diffHistories:    []*types.DiffEntry{},
-		previousLines:    []string{},
-		originalLines:    []string{},
-		lastModifiedLine: -1,
-		id:               nvim.Buffer(0),
-		scrollOffsetX:    0,
-		config:           config,
-	}
-}
-
-// SetClient stores the nvim client for all buffer operations
-func (b *NvimBuffer) SetClient(n *nvim.Nvim) {
-	b.client = n
-}
-
-// Accessor methods implementing engine.Buffer interface
 
 func (b *NvimBuffer) Lines() []string { return b.lines }
 
@@ -85,9 +51,14 @@ func (b *NvimBuffer) Row() int { return b.row }
 
 func (b *NvimBuffer) Col() int { return b.col }
 
+// Path is the buffer path relative to the Neovim working directory.
 func (b *NvimBuffer) Path() string { return b.path }
 
-func (b *NvimBuffer) Version() int { return b.version }
+// Modified reports whether the buffer has changes since it was last written.
+func (b *NvimBuffer) Modified() bool { return b.modified }
+
+// WorkspacePath is the Neovim working directory.
+func (b *NvimBuffer) WorkspacePath() string { return b.workspacePath }
 
 func (b *NvimBuffer) ViewportBounds() (top, bottom int) {
 	return b.viewportTop, b.viewportBottom
@@ -95,267 +66,142 @@ func (b *NvimBuffer) ViewportBounds() (top, bottom int) {
 
 func (b *NvimBuffer) AvailableWidth() int { return b.availableWidth }
 
-func (b *NvimBuffer) PreviousLines() []string { return b.previousLines }
-
-func (b *NvimBuffer) OriginalLines() []string { return b.originalLines }
-
-func (b *NvimBuffer) DiskLines() []string { return b.diskLines }
-
-func (b *NvimBuffer) DiffHistories() []*types.DiffEntry { return b.diffHistories }
-
-// ClearDiffHistory resets the diff history and checkpoint to current state.
-// Called on file save to establish a clean baseline.
-func (b *NvimBuffer) ClearDiffHistory() {
-	b.diffHistories = []*types.DiffEntry{}
-	b.originalLines = make([]string, len(b.lines))
-	copy(b.originalLines, b.lines)
-	b.diskLines = make([]string, len(b.lines))
-	copy(b.diskLines, b.lines)
-}
-
-// IsModified returns true if the buffer content differs from what's on disk.
-func (b *NvimBuffer) IsModified() bool {
-	if len(b.lines) != len(b.diskLines) {
-		return true
-	}
-	for i := range b.lines {
-		if b.lines[i] != b.diskLines[i] {
-			return true
-		}
-	}
-	return false
-}
-
-// noHistoryFiles is the list of filenames for which diff history is not recorded.
-var noHistoryFiles = []string{
-	"COMMIT_EDITMSG",
-}
-
-// SkipHistory returns true for files where diff history should not be recorded.
-func (b *NvimBuffer) SkipHistory() bool {
-	base := filepath.Base(b.path)
-	for _, name := range noHistoryFiles {
-		if base == name {
-			return true
-		}
-	}
-	return false
-}
-
-// FileContext holds the state to restore when switching to a file.
-type FileContext struct {
-	PreviousLines []string
-	OriginalLines []string
-	DiskLines     []string
-	DiffHistories []*types.DiffEntry
-}
-
-// SetFileContext restores file-specific state when switching to a file.
-func (b *NvimBuffer) SetFileContext(ctx FileContext) {
-	b.previousLines = copySlice(ctx.PreviousLines)
-	b.originalLines = copySlice(ctx.OriginalLines)
-	b.diskLines = copySlice(ctx.DiskLines)
-
-	if ctx.DiffHistories != nil {
-		b.diffHistories = make([]*types.DiffEntry, len(ctx.DiffHistories))
-		copy(b.diffHistories, ctx.DiffHistories)
-	} else {
-		b.diffHistories = []*types.DiffEntry{}
-	}
-}
-
-func copySlice(s []string) []string {
-	if s == nil {
-		return nil
-	}
-	out := make([]string, len(s))
-	copy(out, s)
-	return out
-}
-
-// Sync reads current state from the editor
-func (b *NvimBuffer) Sync(workspacePath string) (*SyncResult, error) {
+// Sync reads the current editor state in one round trip. It reports whether
+// the current buffer changed since the previous sync. The lines are sent only
+// when the buffer or its b:changedtick differs from the synced ones.
+func (b *NvimBuffer) Sync() (bool, error) {
 	defer logger.Trace("buffer.Sync")()
-	if b.client == nil {
-		return nil, fmt.Errorf("nvim client not set")
-	}
 
-	// Use batch API to make all calls in a single round-trip
+	var (
+		currentBuf nvim.Buffer
+		path       string
+		lines      [][]byte // nil when the synced lines are current
+		cursor     [2]int
+		cwd        string
+		modified   bool
+		tick       int
+		// Window height instead of w$ so that short files still report the
+		// full visible area (w$ only returns the last line with content).
+		viewport [3]int
+	)
 	batch := b.client.NewBatch()
-
-	var currentBuf nvim.Buffer
-	var path string
-	var lines [][]byte
-	var window nvim.Window
-	var cursor [2]int
-	var scrollOffset int
-	var nvimCwd string
-
 	batch.CurrentBuffer(&currentBuf)
-	batch.BufferName(nvim.Buffer(0), &path) // Use 0 for current buffer
-	batch.BufferLines(nvim.Buffer(0), 0, -1, false, &lines)
-	batch.CurrentWindow(&window)
-	batch.WindowCursor(nvim.Window(0), &cursor) // Use 0 for current window
-
-	// Get Neovim's current working directory
-	batch.ExecLua(`return vim.fn.getcwd()`, &nvimCwd, nil)
-
-	// Get horizontal scroll offset (leftcol) from current window
+	batch.BufferName(nvim.Buffer(0), &path)
 	batch.ExecLua(`
-		local view = vim.fn.winsaveview()
-		return view.leftcol or 0
-	`, &scrollOffset, nil)
-
-	// Get vertical viewport bounds and available text width.
-	// Use window height instead of w$ so that short files still report the full
-	// visible area (w$ only returns the last line with content).
-	var viewportInfo [3]int
+		local buf, tick = ...
+		if vim.api.nvim_get_current_buf() == buf and vim.b.changedtick == tick then
+			return nil
+		end
+		return vim.api.nvim_buf_get_lines(0, 0, -1, false)
+	`, &lines, int(b.id), b.tick)
+	batch.WindowCursor(nvim.Window(0), &cursor)
+	batch.ExecLua(`return vim.fn.getcwd()`, &cwd, nil)
+	batch.ExecLua(`return vim.bo.modified`, &modified, nil)
+	batch.ExecLua(`return vim.b.changedtick`, &tick, nil)
 	batch.ExecLua(`
 		local top = vim.fn.line("w0")
 		local height = vim.api.nvim_win_get_height(0)
 		local win_width = vim.api.nvim_win_get_width(0)
 		local textoff = vim.fn.getwininfo(vim.api.nvim_get_current_win())[1].textoff or 0
 		return {top, top + height - 1, win_width - textoff}
-	`, &viewportInfo, nil)
-
+	`, &viewport, nil)
 	if err := batch.Execute(); err != nil {
-		logger.Error("error executing sync batch: %v", err)
-		return nil, err
+		return false, err
 	}
 
-	linesStr := make([]string, len(lines))
-	for i, line := range lines {
-		linesStr[i] = string(line[:])
+	// A buffer always has a line, so no lines means the cached ones are current.
+	if lines != nil {
+		b.lines = make([]string, len(lines))
+		for i, line := range lines {
+			b.lines[i] = string(line)
+		}
 	}
+	b.row, b.col = cursor[0], cursor[1]
+	b.viewportTop, b.viewportBottom, b.availableWidth = viewport[0], viewport[1], viewport[2]
+	b.workspacePath = cwd
+	b.modified = modified
+	b.tick = tick
+	b.path = relativeToWorkspace(path, cwd)
 
-	// Store old path before updating
-	oldPath := b.path
-
-	// Update buffer state
-	b.lines = linesStr
-	b.row = cursor[0]              // Line (vertical position, 1-based in nvim cursor)
-	b.col = cursor[1]              // Column (horizontal position, 0-based in nvim cursor)
-	b.scrollOffsetX = scrollOffset // Horizontal scroll offset
-
-	// Update viewport bounds (1-indexed)
-	b.viewportTop = viewportInfo[0]
-	b.viewportBottom = viewportInfo[1]
-	b.availableWidth = viewportInfo[2]
-
-	// Convert absolute path to relative workspace path using Neovim's actual cwd
-	relativePath := makeRelativeToWorkspace(path, nvimCwd)
-	b.path = relativePath
-
-	// Handle buffer change
-	if b.id != currentBuf {
-		// New buffer - update buffer ID and reset basic state
-		// Note: previousLines, diffHistories, and originalLines are managed by the engine
-		// to enable proper context restoration when switching back to this file
-		b.id = currentBuf
-		b.lastModifiedLine = -1
-		b.version = 0
-
-		return &SyncResult{
-			BufferChanged: true,
-			OldPath:       oldPath,
-			NewPath:       relativePath,
-		}, nil
-	}
-
-	// Same buffer - no change
-	return &SyncResult{
-		BufferChanged: false,
-		OldPath:       oldPath,
-		NewPath:       relativePath,
-	}, nil
+	switched := b.id != currentBuf
+	b.id = currentBuf
+	return switched, nil
 }
 
-// Helper function to convert absolute path to relative workspace path
-func makeRelativeToWorkspace(absolutePath, workspacePath string) string {
+func relativeToWorkspace(absolutePath, workspacePath string) string {
+	if absolutePath == "" {
+		return ""
+	}
 	absolutePath = filepath.Clean(absolutePath)
 	workspacePath = filepath.Clean(workspacePath)
-
-	// If the file is within the workspace, make it relative
-	if relativePath, found := strings.CutPrefix(absolutePath, workspacePath); found {
-		relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
-		return relativePath
+	if rel, found := strings.CutPrefix(absolutePath, workspacePath); found {
+		return strings.TrimPrefix(rel, string(filepath.Separator))
 	}
-
 	return absolutePath
 }
 
-// HasChanges checks if the proposed completion would introduce actual changes
-func (b *NvimBuffer) HasChanges(startLine, endLineInclusive int, lines []string) bool {
-	// Check the original replacement range for changes
-	for i := startLine; i <= endLineInclusive; i++ {
-		relativeLineIdx := i - startLine
-
-		var l *string
-		var realL *string
-
-		if i-1 >= 0 && i-1 < len(b.lines) {
-			realL = &b.lines[i-1]
-		}
-
-		if relativeLineIdx < len(lines) {
-			l = &lines[relativeLineIdx]
-		}
-
-		if (l != nil && realL != nil && *l != *realL) ||
-			(l != nil && realL == nil) ||
-			(l == nil && realL != nil) {
-			return true
-		}
+// finishEdit ends a batch that edits the buffer or moves the cursor, after
+// the edits queued before it. It tells the editor that the edit is cursortab's
+// own, then reads b:changedtick, the cursor and the lines that replace edit's
+// range. Only the range and line count of edit are used: the returned
+// function stores the lines Neovim holds, so the snapshot is the edited
+// buffer. A nil edit changed no lines.
+func (b *NvimBuffer) finishEdit(batch *nvim.Batch, edit *history.Edit) func() {
+	var (
+		lines  [][]byte
+		tick   int
+		cursor [2]int
+	)
+	batch.ExecLua("require('cursortab.events').on_edit_applied()", nil, nil)
+	if edit != nil {
+		start := max(edit.StartLine-1, 0)
+		batch.BufferLines(b.id, start, start+len(edit.Lines), false, &lines)
 	}
-
-	// Check if there are additional lines beyond the replacement range (insertions)
-	if startLine+len(lines)-1 > endLineInclusive {
-		return true
+	batch.BufferChangedTick(b.id, &tick)
+	batch.WindowCursor(0, &cursor)
+	return func() {
+		if edit != nil {
+			read := history.Edit{StartLine: edit.StartLine, EndLineInc: edit.EndLineInc, Lines: make([]string, len(lines))}
+			for i, line := range lines {
+				read.Lines[i] = string(line)
+			}
+			b.lines = read.Apply(b.lines)
+		}
+		b.tick = tick
+		b.row, b.col = cursor[0], cursor[1]
 	}
-
-	return false
 }
 
-// nvimBatch wraps nvim.Batch to implement the Batch interface
+// nvimBatch applies a completion in Neovim and to the snapshot.
 type nvimBatch struct {
 	batch *nvim.Batch
+	buf   *NvimBuffer
+	edit  history.Edit
+	store func()
 }
 
 func (nb *nvimBatch) Execute() error {
-	if nb.batch == nil {
-		return nil
+	if err := nb.batch.Execute(); err != nil {
+		return err
 	}
-	return nb.batch.Execute()
+	nb.store()
+	return nil
 }
 
-// PrepareCompletion prepares a completion for display and returns a batch to apply it
+// PrepareCompletion renders a completion and returns the batch that applies it.
 func (b *NvimBuffer) PrepareCompletion(startLine, endLineInc int, lines []string, groups []*text.Group) Batch {
-	if b.client == nil {
-		return &nvimBatch{batch: nil}
-	}
+	diffResult := text.ComputeDiff(text.JoinLines(text.LineRange(b.lines, startLine, endLineInc)), text.JoinLines(lines))
+	applyBatch := b.getApplyBatch(startLine, endLineInc, lines, groups, diffResult)
 
-	// Compute diff
-	diffResult := b.getDiffResult(startLine, endLineInc, lines)
-
-	// Get original lines for grouping
-	var originalLines []string
-	for i := startLine; i <= endLineInc && i-1 < len(b.lines); i++ {
-		originalLines = append(originalLines, b.lines[i-1])
-	}
-
-	// Groups are pre-computed by staging with BufferLine already set
-
-	replaceEnd := computeReplaceEnd(startLine, endLineInc, lines, groups)
-	applyBatch := b.getApplyBatch(startLine, replaceEnd, lines, groups, diffResult)
-
-	// Convert to Lua format
 	luaDiffResult := text.ToLuaFormat(&text.Stage{
 		Changes: diffResult.ChangesMap(),
 		Groups:  groups,
 		Lines:   lines,
 	}, startLine)
+	// Neovim drops the render when the buffer changed after this snapshot.
+	luaDiffResult["bufnr"] = int(b.id)
+	luaDiffResult["changedtick"] = b.tick
 
-	// Debug logging for data sent to Lua
 	if jsonData, err := json.Marshal(luaDiffResult); err == nil {
 		logger.Debug("sending to lua on_completion_ready:\n  startLine: %d\n  endLineInclusive: %d\n  lines: %d\n  diffResult: %s",
 			startLine, endLineInc, len(lines), string(jsonData))
@@ -363,254 +209,92 @@ func (b *NvimBuffer) PrepareCompletion(startLine, endLineInc int, lines []string
 
 	b.executeLuaFunction("require('cursortab').on_completion_ready(...)", luaDiffResult)
 
-	return &nvimBatch{batch: applyBatch}
-}
-
-// CommitPending applies the pending edit to buffer state, increments version,
-// and appends structured diff entries showing before/after content. No-op if no pending edit.
-func (b *NvimBuffer) CommitPending() {
-	if b.pending == nil {
-		return
+	return &nvimBatch{
+		batch: applyBatch,
+		buf:   b,
+		edit:  history.Edit{StartLine: startLine, EndLineInc: endLineInc, Lines: slices.Clone(lines)},
+		store: b.finishEdit(applyBatch, &history.Edit{StartLine: startLine, EndLineInc: endLineInc, Lines: lines}),
 	}
-
-	startLine := b.pending.StartLine
-	endLineInclusive := b.pending.EndLineInclusive
-	lines := b.pending.Lines
-
-	// Extract only the affected original lines (the range being replaced)
-	var originalRangeLines []string
-	for i := startLine; i <= endLineInclusive && i-1 < len(b.originalLines); i++ {
-		originalRangeLines = append(originalRangeLines, b.originalLines[i-1])
-	}
-
-	// Extract granular diffs - one DiffEntry per contiguous changed region
-	diffEntries := extractGranularDiffs(originalRangeLines, lines, startLine)
-	stampEntries(diffEntries, types.DiffSourcePredicted, time.Now().UnixNano())
-	if !b.SkipHistory() {
-		b.diffHistories = appendAndCoalesce(b.diffHistories, diffEntries)
-	}
-
-	// Compute the final buffer state after applying the completion
-	newLines := make([]string, 0, len(b.lines)-((endLineInclusive-startLine)+1)+len(lines))
-	if startLine-1 > 0 && startLine-1 <= len(b.lines) {
-		newLines = append(newLines, b.lines[:startLine-1]...)
-	}
-	newLines = append(newLines, lines...)
-	if endLineInclusive < len(b.lines) {
-		newLines = append(newLines, b.lines[endLineInclusive:]...)
-	}
-
-	// Reset checkpoint to current state for next working diff
-	b.originalLines = make([]string, len(newLines))
-	copy(b.originalLines, newLines)
-
-	// Save current lines as previous state BEFORE updating (for sweep provider)
-	b.previousLines = make([]string, len(b.lines))
-	copy(b.previousLines, b.lines)
-
-	// Commit the new content and bump version
-	b.lines = make([]string, len(newLines))
-	copy(b.lines, newLines)
-	b.version++
-
-	b.pending = nil
-}
-
-// CommitUserEdits extracts diffs between originalLines checkpoint and current lines,
-// appends them to diffHistories, and resets the checkpoint.
-// Call this when leaving insert mode to capture manual edits.
-// Returns true if any changes were committed, false if no changes.
-func (b *NvimBuffer) CommitUserEdits() bool {
-	// Quick check: if lengths differ, there are changes
-	if len(b.lines) != len(b.originalLines) {
-		return b.commitUserEditsInternal()
-	}
-
-	// Check for content differences
-	for i := range b.lines {
-		if b.lines[i] != b.originalLines[i] {
-			return b.commitUserEditsInternal()
-		}
-	}
-
-	return false // No changes
-}
-
-func (b *NvimBuffer) commitUserEditsInternal() bool {
-	// Extract granular diffs between checkpoint and current state
-	diffEntries := extractGranularDiffs(b.originalLines, b.lines, 1)
-	stampEntries(diffEntries, types.DiffSourceManual, time.Now().UnixNano())
-	if len(diffEntries) == 0 {
-		return false
-	}
-
-	if !b.SkipHistory() {
-		b.diffHistories = appendAndCoalesce(b.diffHistories, diffEntries)
-	}
-
-	// Save checkpoint as previous state (for sweep provider)
-	b.previousLines = make([]string, len(b.originalLines))
-	copy(b.previousLines, b.originalLines)
-
-	// Reset checkpoint to current state
-	b.originalLines = make([]string, len(b.lines))
-	copy(b.originalLines, b.lines)
-
-	b.version++
-	return true
 }
 
 // ShowCursorTarget displays a cursor prediction indicator at the given line
-func (b *NvimBuffer) ShowCursorTarget(line int) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
+func (b *NvimBuffer) ShowCursorTarget(line int) {
 	logger.Debug("sending to lua on_cursor_prediction_ready: line=%d", line)
 	b.executeLuaFunction("require('cursortab').on_cursor_prediction_ready(...)", line)
-	return nil
 }
 
 // ClearUI clears the completion UI
-func (b *NvimBuffer) ClearUI() error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
-	// Clear pending state to prevent stale data from being committed
-	b.pending = nil
-
+func (b *NvimBuffer) ClearUI() {
 	logger.Debug("sending to lua on_reject")
 	b.executeLuaFunction("require('cursortab').on_reject()")
-	return nil
 }
 
 // MoveCursor moves the cursor to the start of the specified line
 func (b *NvimBuffer) MoveCursor(line int, center bool, mark bool) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
 	batch := b.client.NewBatch()
 	applyCursorMove(batch, line, 0, center, mark)
 	batch.ExecLua("vim.cmd('normal! ^')", nil, nil) // Move cursor to start of line
-	return batch.Execute()
-}
-
-// InsertText inserts text at the specified position (1-indexed line, 0-indexed col)
-func (b *NvimBuffer) InsertText(line, col int, text string, keepUI bool) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
-	// Get current line content
-	batch := b.client.NewBatch()
-	var lines [][]byte
-	batch.BufferLines(b.id, line-1, line, true, &lines)
+	store := b.finishEdit(batch, nil)
 	if err := batch.Execute(); err != nil {
 		return err
 	}
-
-	if len(lines) == 0 {
-		return nil
-	}
-
-	currentLine := string(lines[0])
-	if col > len(currentLine) {
-		col = len(currentLine)
-	}
-
-	// Build new line with inserted text
-	newLine := currentLine[:col] + text + currentLine[col:]
-
-	batch = b.client.NewBatch()
-	if !keepUI {
-		b.clearNamespace(batch, b.config.NsID)
-	}
-	batch.SetBufferLines(b.id, line-1, line, false, [][]byte{[]byte(newLine)})
-
-	// Move cursor to end of inserted text
-	newCol := col + len(text)
-	applyCursorMove(batch, line, newCol, false, true)
-
-	return batch.Execute()
+	store()
+	return nil
 }
 
-// ReplaceLine replaces a single line (1-indexed)
-func (b *NvimBuffer) ReplaceLine(line int, content string, keepUI bool) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
+// AppendText appends text to the end of line (1-indexed) and moves the cursor
+// after it.
+func (b *NvimBuffer) AppendText(line int, text string) error {
 	batch := b.client.NewBatch()
-	if !keepUI {
-		b.clearNamespace(batch, b.config.NsID)
-	}
-	batch.SetBufferLines(b.id, line-1, line, false, [][]byte{[]byte(content)})
-
-	// Move cursor to end of line
-	applyCursorMove(batch, line, len(content), false, true)
-
-	return batch.Execute()
-}
-
-// InsertLine inserts a new line at the given position (1-indexed), pushing existing lines down
-func (b *NvimBuffer) InsertLine(line int, content string, keepUI bool) error {
-	if b.client == nil {
-		return fmt.Errorf("nvim client not set")
-	}
-
-	batch := b.client.NewBatch()
-	if !keepUI {
-		b.clearNamespace(batch, b.config.NsID)
-	}
-	// Insert at line-1 without removing any lines (start == end)
-	batch.SetBufferLines(b.id, line-1, line-1, false, [][]byte{[]byte(content)})
+	batch.ExecLua(`
+		local buf, row, text = ...
+		local col = #vim.api.nvim_buf_get_lines(buf, row - 1, row, true)[1]
+		vim.api.nvim_buf_set_text(buf, row - 1, col, row - 1, col, { text })
+		vim.fn.setpos("''", vim.fn.getpos("."))
+		vim.api.nvim_win_set_cursor(0, { row, col + #text })
+	`, nil, int(b.id), line, text)
+	store := b.finishEdit(batch, &history.Edit{StartLine: line, EndLineInc: line, Lines: []string{text}})
 	if err := batch.Execute(); err != nil {
 		return err
 	}
+	store()
+	return nil
+}
 
-	// Second batch: move cursor (must be after line is inserted)
-	cursorBatch := b.client.NewBatch()
-	applyCursorMove(cursorBatch, line, len(content), false, true)
-	return cursorBatch.Execute()
+// SetLines applies edit and moves the cursor to the end of its last line.
+func (b *NvimBuffer) SetLines(edit history.Edit) error {
+	line, col := edit.StartLine, 0
+	if n := len(edit.Lines); n > 0 {
+		line, col = edit.StartLine+n-1, len(edit.Lines[n-1])
+	}
+	batch := b.client.NewBatch()
+	setBufferLines(batch, b.id, edit.StartLine, edit.EndLineInc, edit.Lines)
+	applyCursorMove(batch, max(1, min(line, len(edit.Apply(b.lines)))), col, false, true)
+	store := b.finishEdit(batch, &edit)
+	if err := batch.Execute(); err != nil {
+		return err
+	}
+	store()
+	return nil
 }
 
 // Diagnostics retrieves LSP diagnostics for the current buffer.
 // Returns raw Neovim diagnostic data; providers handle formatting.
 func (b *NvimBuffer) Diagnostics() *types.Diagnostics {
-	if b.client == nil {
-		return nil
-	}
-
-	batch := b.client.NewBatch()
-	var hasLsp bool
-
-	batch.ExecLua(fmt.Sprintf(`
-		local clients = vim.lsp.get_clients and vim.lsp.get_clients({bufnr = %d}) or vim.lsp.get_active_clients({bufnr = %d})
-		return #clients > 0
-	`, int(b.id), int(b.id)), &hasLsp, nil)
-
-	if err := batch.Execute(); err != nil {
-		logger.Error("error checking LSP availability: %v", err)
-		return nil
-	}
-
-	if !hasLsp {
-		return nil
-	}
-
-	batch = b.client.NewBatch()
 	var rawDiags []map[string]any
-
-	batch.ExecLua(fmt.Sprintf(`
-		return vim.diagnostic.get(%d)
-	`, int(b.id)), &rawDiags, nil)
-
+	batch := b.client.NewBatch()
+	batch.ExecLua(`
+		local bufnr = ...
+		local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
+		if #get_clients({ bufnr = bufnr }) == 0 then
+			return {}
+		end
+		return vim.diagnostic.get(bufnr)
+	`, &rawDiags, int(b.id))
 	if err := batch.Execute(); err != nil {
 		logger.Error("error getting diagnostics: %v", err)
 		return nil
 	}
-
 	if len(rawDiags) == 0 {
 		return nil
 	}
@@ -653,10 +337,6 @@ func (b *NvimBuffer) Diagnostics() *types.Diagnostics {
 
 // CursorScopes returns treesitter node types from the cursor position to the root.
 func (b *NvimBuffer) CursorScopes() []string {
-	if b.client == nil {
-		return nil
-	}
-
 	var result []string
 	batch := b.client.NewBatch()
 	batch.ExecLua(
@@ -675,10 +355,6 @@ func (b *NvimBuffer) CursorScopes() []string {
 // TreesitterSymbols retrieves treesitter scope context around the cursor position.
 // Returns nil gracefully if no treesitter parser is available for the buffer.
 func (b *NvimBuffer) TreesitterSymbols(row, col, maxSiblings int) *types.TreesitterContext {
-	if b.client == nil {
-		return nil
-	}
-
 	var result map[string]any
 	batch := b.client.NewBatch()
 	batch.ExecLua(
@@ -749,16 +425,14 @@ func (b *NvimBuffer) NotifyState(status types.EngineStatus) {
 }
 
 func (b *NvimBuffer) executeLuaFunction(luaCode string, args ...any) {
-	if b.client == nil {
-		return
-	}
 	batch := b.client.NewBatch()
 	if len(args) > 0 {
 		batch.ExecLua(luaCode, nil, args...)
 	} else {
 		batch.ExecLua(luaCode, nil, nil)
 	}
-	if err := batch.Execute(); err != nil {
+	// A closed session only happens while the session shuts down.
+	if err := batch.Execute(); err != nil && !errors.Is(err, rpc.ErrClosed) {
 		logger.Error("error executing lua function: %v", err)
 	}
 }
@@ -776,51 +450,6 @@ func applyCursorMove(batch *nvim.Batch, line, col int, center bool, mark bool) {
 	}
 }
 
-func (b *NvimBuffer) getDiffResult(startLine, endLineInclusive int, lines []string) *text.DiffResult {
-	originalLines := []string{}
-	for i := startLine; i <= endLineInclusive && i-1 < len(b.lines); i++ {
-		originalLines = append(originalLines, b.lines[i-1])
-	}
-	oldText := text.JoinLines(originalLines)
-	newText := text.JoinLines(lines)
-	return text.ComputeDiff(oldText, newText)
-}
-
-// isPureInsertion returns true if all groups are additions (no modifications or deletions).
-// Pure insertion stages insert content without replacing existing lines.
-func isPureInsertion(groups []*text.Group) bool {
-	if len(groups) == 0 {
-		return false
-	}
-	for _, g := range groups {
-		if g.Type != "addition" {
-			return false
-		}
-	}
-	return true
-}
-
-// computeReplaceEnd returns the end line for nvim_buf_set_lines. For pure
-// insertions (all addition groups whose total line count matches the stage
-// lines, on a single old line), it returns startLine-1 so nvim inserts
-// without replacing. Otherwise it returns endLineInc to replace the old
-// line range.
-func computeReplaceEnd(startLine, endLineInc int, lines []string, groups []*text.Group) int {
-	if isPureInsertion(groups) && startLine == endLineInc {
-		// Verify that all lines are accounted for by addition groups.
-		// When the stage absorbs unchanged old lines between additions,
-		// len(lines) exceeds the group line count and it's a replacement.
-		groupLines := 0
-		for _, g := range groups {
-			groupLines += g.EndLine - g.StartLine + 1
-		}
-		if len(lines) == groupLines {
-			return startLine - 1
-		}
-	}
-	return endLineInc
-}
-
 type bufferTextEdit struct {
 	row         int
 	startCol    int
@@ -833,7 +462,7 @@ func textEditForCharGroup(group *text.Group) (bufferTextEdit, bool) {
 		return bufferTextEdit{}, false
 	}
 	switch group.RenderHint {
-	case "append_chars", "replace_chars", "delete_chars":
+	case text.HintAppendChars, text.HintReplaceChars, text.HintDeleteChars:
 	default:
 		return bufferTextEdit{}, false
 	}
@@ -900,7 +529,7 @@ func setBufferLines(batch *nvim.Batch, buf nvim.Buffer, startLine, replaceEnd in
 func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, groups []*text.Group, diffResult *text.DiffResult) *nvim.Batch {
 	applyBatch := b.client.NewBatch()
 
-	b.clearNamespace(applyBatch, b.config.NsID)
+	b.clearNamespace(applyBatch, b.nsID)
 
 	if edits, ok := charLevelTextEdits(groups); ok {
 		for _, edit := range edits {
@@ -908,12 +537,6 @@ func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, gr
 		}
 	} else {
 		setBufferLines(applyBatch, b.id, startLine, replaceEnd, lines)
-	}
-
-	b.pending = &PendingEdit{
-		StartLine:        startLine,
-		EndLineInclusive: replaceEnd,
-		Lines:            slices.Clone(lines),
 	}
 
 	// Apply cursor positioning from diff changes
@@ -928,74 +551,6 @@ func (b *NvimBuffer) getApplyBatch(startLine, replaceEnd int, lines []string, gr
 
 func (b *NvimBuffer) clearNamespace(batch *nvim.Batch, nsID int) {
 	batch.ClearBufferNamespace(b.id, nsID, 0, -1)
-}
-
-// extractGranularDiffs analyzes old and new lines and returns DiffEntry records
-// for each contiguous region that changed. baseLine is the 1-indexed buffer line
-// where the old content starts. Returned entries have StartLine set but no
-// Source or TimestampNs — callers stamp those via stampEntries.
-func extractGranularDiffs(oldLines, newLines []string, baseLine int) []*types.DiffEntry {
-	oldText := text.JoinLines(oldLines)
-	newText := text.JoinLines(newLines)
-
-	if oldText == newText {
-		return nil
-	}
-
-	dmp := diffmatchpatch.New()
-	chars1, chars2, lineArray := dmp.DiffLinesToChars(oldText, newText)
-	diffs := dmp.DiffMain(chars1, chars2, false)
-	lineDiffs := dmp.DiffCharsToLines(diffs, lineArray)
-
-	var entries []*types.DiffEntry
-	currentLine := baseLine
-
-	for i := 0; i < len(lineDiffs); i++ {
-		diff := lineDiffs[i]
-		lineCount := strings.Count(diff.Text, "\n")
-
-		switch diff.Type {
-		case diffmatchpatch.DiffEqual:
-			currentLine += lineCount
-			continue
-
-		case diffmatchpatch.DiffDelete:
-			startLine := currentLine
-			deletedText := strings.TrimSuffix(diff.Text, "\n")
-			insertedText := ""
-
-			// Check if followed by an insert (modification pattern)
-			if i+1 < len(lineDiffs) && lineDiffs[i+1].Type == diffmatchpatch.DiffInsert {
-				insertedText = strings.TrimSuffix(lineDiffs[i+1].Text, "\n")
-				i++ // Skip the insert in next iteration
-			}
-
-			entries = append(entries, &types.DiffEntry{
-				Original:  deletedText,
-				Updated:   insertedText,
-				StartLine: startLine,
-			})
-			currentLine += lineCount
-
-		case diffmatchpatch.DiffInsert:
-			insertedText := strings.TrimSuffix(diff.Text, "\n")
-			entries = append(entries, &types.DiffEntry{
-				Original:  "",
-				Updated:   insertedText,
-				StartLine: currentLine,
-			})
-		}
-	}
-
-	return entries
-}
-
-// stampEntries sets Source and TimestampNs on all entries.
-func stampEntries(entries []*types.DiffEntry, source types.DiffSource, timestampNs int64) {
-	for _, e := range entries {
-		e.Source = source
-		e.TimestampNs = timestampNs
-	}
 }
 
 // Helper function to safely get string from map

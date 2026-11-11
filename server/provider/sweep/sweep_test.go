@@ -58,7 +58,7 @@ func parseCompletionForTest(p *Provider, ctx *provider.RequestState, result *ope
 
 func TestBuildPrompt_EmptyLines(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -73,7 +73,7 @@ func TestBuildPrompt_EmptyLines(t *testing.T) {
 
 func TestBuildPrompt_WithContent(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -86,7 +86,7 @@ func TestBuildPrompt_WithContent(t *testing.T) {
 
 func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -110,7 +110,7 @@ func TestBuildPrompt_WithDiffHistory(t *testing.T) {
 
 func TestParseCompletion_NoChange(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -124,7 +124,7 @@ func TestParseCompletion_NoChange(t *testing.T) {
 
 func TestParseCompletion_WithChange(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -139,7 +139,7 @@ func TestParseCompletion_WithChange(t *testing.T) {
 
 func TestParseCompletion_StripsStopMarkers(t *testing.T) {
 	config := &types.ProviderConfig{
-		ProviderModel: "test-model",
+		Model: "test-model",
 	}
 	p := NewProvider(config)
 
@@ -176,8 +176,8 @@ func TestStreamCompletion_EditBelowPrefill(t *testing.T) {
 		"}",
 	}
 	p := NewProvider(&types.ProviderConfig{
-		ProviderURL:       server.URL,
-		ProviderMaxTokens: 512,
+		URL:               server.URL,
+		MaxTokens:         512,
 		CompletionTimeout: 5000,
 	})
 

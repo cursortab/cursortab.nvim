@@ -3,8 +3,28 @@ package text
 import "sort"
 
 // Group represents consecutive changes of the same type for rendering
+// GroupType is the kind of change a group renders.
+type GroupType string
+
+const (
+	GroupAddition     GroupType = "addition"
+	GroupModification GroupType = "modification"
+	GroupDeletion     GroupType = "deletion"
+)
+
+// RenderHint selects character-level rendering for a single-line
+// modification. HintNone renders the whole line.
+type RenderHint string
+
+const (
+	HintNone         RenderHint = ""
+	HintAppendChars  RenderHint = "append_chars"
+	HintReplaceChars RenderHint = "replace_chars"
+	HintDeleteChars  RenderHint = "delete_chars"
+)
+
 type Group struct {
-	Type      string   // "modification", "addition", "deletion"
+	Type      GroupType
 	StartLine int      // 1-indexed, relative to stage content
 	EndLine   int      // 1-indexed, inclusive
 	Lines     []string // New content
@@ -15,9 +35,9 @@ type Group struct {
 	BufferLine int
 
 	// Character-level rendering hints (single-line only)
-	RenderHint string // "", "append_chars", "replace_chars", "delete_chars"
-	ColStart   int    // For character-level changes
-	ColEnd     int    // For character-level changes
+	RenderHint RenderHint
+	ColStart   int // For character-level changes
+	ColEnd     int // For character-level changes
 }
 
 // GroupChanges groups consecutive same-type changes for efficient rendering.
@@ -41,22 +61,26 @@ func GroupChanges(changes map[int]LineChange) []*Group {
 
 	var groups []*Group
 	var currentGroup *Group
+	prevOldLine := 0 // Old line of the last change in currentGroup
 
 	for _, lineNum := range lineNums {
 		change := changes[lineNum]
 		groupType := change.Type.GroupType()
-		changeHasHint := change.Type.RenderHint() != ""
+		changeHasHint := change.Type.RenderHint() != HintNone
 
 		// Determine if we should extend current group or start new one.
 		// Render hints are single-line only: a hinted change can only extend a
 		// modification group if the incoming change itself has NO hint (the group's
 		// existing hint is cleared on extend). Two consecutive hinted modifications
-		// stay separate so each gets its own char-level rendering.
-		isModification := groupType == "modification"
+		// stay separate so each gets its own char-level rendering. A
+		// modification group renders over consecutive buffer lines, so its old
+		// lines must be consecutive too.
+		isModification := groupType == GroupModification
 		shouldStartNew := currentGroup == nil ||
 			currentGroup.Type != groupType ||
 			lineNum != currentGroup.EndLine+1 ||
-			(!isModification && (currentGroup.RenderHint != "" || changeHasHint)) ||
+			(isModification && change.OldLineNum != prevOldLine+1) ||
+			(!isModification && (currentGroup.RenderHint != HintNone || changeHasHint)) ||
 			(isModification && changeHasHint)
 
 		if shouldStartNew {
@@ -82,11 +106,12 @@ func GroupChanges(changes map[int]LineChange) []*Group {
 			if isModification {
 				currentGroup.OldLines = append(currentGroup.OldLines, change.OldContent)
 				// Multi-line modification groups cannot use a single-line render hint
-				currentGroup.RenderHint = ""
+				currentGroup.RenderHint = HintNone
 				currentGroup.ColStart = 0
 				currentGroup.ColEnd = 0
 			}
 		}
+		prevOldLine = change.OldLineNum
 	}
 
 	// Flush final group
@@ -122,7 +147,7 @@ func CopyGroups(groups []*Group) []*Group {
 // setRenderHint sets the render hint for character-level optimizations
 func setRenderHint(group *Group, change LineChange) {
 	group.RenderHint = change.Type.RenderHint()
-	if group.RenderHint != "" {
+	if group.RenderHint != HintNone {
 		group.ColStart = change.ColStart
 		group.ColEnd = change.ColEnd
 	} else {
@@ -142,18 +167,18 @@ func ValidateRenderHintsForCursor(groups []*Group, cursorRow, cursorCol int) {
 			continue
 		}
 		switch g.RenderHint {
-		case "append_chars":
+		case HintAppendChars:
 			// Skip when cursor is at or past end of old content — append only
 			// adds after existing text, so there's nothing for the overlay to hide.
 			if len(g.OldLines) == 1 && cursorCol >= len(g.OldLines[0]) {
 				continue
 			}
 			if g.ColStart < cursorCol {
-				g.RenderHint = ""
+				g.RenderHint = HintNone
 			}
-		case "replace_chars":
+		case HintReplaceChars:
 			if g.ColStart < cursorCol {
-				g.RenderHint = ""
+				g.RenderHint = HintNone
 			}
 		}
 	}

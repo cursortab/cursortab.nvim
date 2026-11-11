@@ -19,8 +19,8 @@ import (
 
 func newZeta21TestProvider() *Provider21 {
 	return NewProvider21(&types.ProviderConfig{
-		ProviderModel:     "zeta-2.1",
-		ProviderMaxTokens: 2048,
+		Model:     "zeta-2.1",
+		MaxTokens: 2048,
 	})
 }
 
@@ -343,7 +343,7 @@ func TestZeta21StreamCompletion_PreservesFullReplacement(t *testing.T) {
 	}))
 	defer server.Close()
 	p := NewProvider21(&types.ProviderConfig{
-		ProviderURL: server.URL, ProviderModel: "zeta-2.1", ProviderMaxTokens: 2048,
+		URL: server.URL, Model: "zeta-2.1", MaxTokens: 2048,
 	})
 	input := sourcectx.CompletionInput{Current: sourcectx.CurrentSnapshot{
 		File:           sourcectx.FileSnapshot{Path: "main.go", Lines: []string{"old"}},

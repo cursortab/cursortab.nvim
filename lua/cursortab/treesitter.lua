@@ -24,6 +24,9 @@ local import_types = {
 	import_spec_list = true,
 }
 
+-- Number of top-level nodes scanned for imports.
+local max_import_scan = 500
+
 ---Get treesitter scope context around the cursor position.
 ---@param bufnr integer Buffer number
 ---@param row integer 1-indexed cursor row
@@ -63,40 +66,60 @@ function M.get_context(bufnr, row, col, max_siblings)
 		enclosing_sig = line
 	end
 
-	-- Get sibling scope nodes from the enclosing scope's parent
+	-- Collect the max_siblings scope nodes nearest to the enclosing scope,
+	-- walking outward from it so the cost does not grow with the file. They
+	-- are returned in source order.
 	local siblings = {}
-	local parent = enclosing and enclosing:parent()
-	if parent then
-		for child in parent:iter_children() do
-			if scope_types[child:type()] and child ~= enclosing then
-				local s_row = child:start()
-				local line = vim.api.nvim_buf_get_lines(bufnr, s_row, s_row + 1, false)[1] or ""
-				local name = ""
-				local name_node = child:field("name")[1]
-				if name_node then
-					name = vim.treesitter.get_node_text(name_node, bufnr)
+	if enclosing then
+		local function symbol(n)
+			local s_row = n:start()
+			local line = vim.api.nvim_buf_get_lines(bufnr, s_row, s_row + 1, false)[1] or ""
+			local name_node = n:field("name")[1]
+			local name = name_node and vim.treesitter.get_node_text(name_node, bufnr) or ""
+			return { name = name, signature = line, line = s_row + 1 }
+		end
+		local function next_scope(n, forward)
+			repeat
+				if forward then
+					n = n:next_sibling()
+				else
+					n = n:prev_sibling()
 				end
-				table.insert(siblings, { name = name, signature = line, line = s_row + 1 })
+			until not n or scope_types[n:type()]
+			return n
+		end
+		local before = next_scope(enclosing, false)
+		local after = next_scope(enclosing, true)
+		while #siblings < max_siblings and (before or after) do
+			if before and (not after or row - before:start() <= after:start() - row) then
+				table.insert(siblings, symbol(before))
+				before = next_scope(before, false)
+			else
+				table.insert(siblings, symbol(after))
+				after = next_scope(after, true)
 			end
 		end
-		if #siblings > max_siblings then
-			table.sort(siblings, function(a, b)
-				return math.abs(a.line - 1 - row) < math.abs(b.line - 1 - row)
-			end)
-			local trimmed = {}
-			for i = 1, max_siblings do
-				trimmed[i] = siblings[i]
-			end
-			siblings = trimmed
-		end
+		table.sort(siblings, function(x, y)
+			return x.line < y.line
+		end)
 	end
 
-	-- Collect imports from root
+	-- Collect imports from the first max_import_scan nodes of root, so the
+	-- cost stays bounded in huge files.
 	local imports = {}
 	local root = parser:trees()[1]:root()
+	local scanned = 0
 	for child in root:iter_children() do
+		scanned = scanned + 1
+		if scanned > max_import_scan then
+			break
+		end
 		if import_types[child:type()] then
-			local s_row, _, e_row = child:start(), nil, child:end_()
+			local s_row, _, e_row, e_col = child:range()
+			-- A node that ends at column 0 ends with the line break before it.
+			if e_col == 0 and e_row > s_row then
+				e_row = e_row - 1
+			end
 			local lines = vim.api.nvim_buf_get_lines(bufnr, s_row, e_row + 1, false)
 			table.insert(imports, table.concat(lines, "\n"))
 		end

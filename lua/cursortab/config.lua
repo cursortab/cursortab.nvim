@@ -45,7 +45,7 @@
 ---@field context_size integer Max input context size in tokens (used for input trimming; 0 = use max_tokens)
 ---@field max_tokens integer Max tokens to generate
 ---@field top_k integer
----@field top_p number Top-p sampling in (0, 1]; 0 leaves the provider default
+---@field top_p number Top-p sampling in [0, 1]; 0 leaves the provider default
 ---@field completion_timeout integer
 ---@field max_diff_history_tokens integer
 ---@field completion_path string API endpoint path (e.g., "/v1/completions")

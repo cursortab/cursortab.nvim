@@ -49,6 +49,7 @@ type ProviderConfig struct {
 	ContextSize          int              `json:"context_size"` // Max input context size in tokens (0 = use max_tokens)
 	MaxTokens            int              `json:"max_tokens"`   // Max tokens to generate
 	TopK                 int              `json:"top_k"`
+	TopP                 float64          `json:"top_p"`              // 0 leaves the provider default
 	CompletionTimeout    int              `json:"completion_timeout"` // in milliseconds
 	MaxDiffHistoryTokens int              `json:"max_diff_history_tokens"`
 	CompletionPath       string           `json:"completion_path"`
@@ -113,6 +114,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Provider.MaxDiffHistoryTokens < 0 {
 		return fmt.Errorf("invalid provider.max_diff_history_tokens %d: must be >= 0", c.Provider.MaxDiffHistoryTokens)
+	}
+	if c.Provider.TopP < 0 || c.Provider.TopP > 1 {
+		return fmt.Errorf("invalid provider.top_p %v: must be between 0 and 1", c.Provider.TopP)
 	}
 
 	// Validate completion_path starts with /

@@ -527,3 +527,18 @@ func TestDoLineStream_WithAPIKey(t *testing.T) {
 
 	assert.Equal(t, "Bearer sk-line-stream-key", capturedAuth, "Authorization header")
 }
+
+// TopP of 0 means "leave the provider default", so the field must be absent
+// from the wire rather than sent as 0.
+func TestCompletionRequest_TopP(t *testing.T) {
+	marshal := func(req *CompletionRequest) map[string]any {
+		body, err := json.Marshal(req)
+		assert.NoError(t, err, "marshal request")
+		var payload map[string]any
+		assert.NoError(t, json.Unmarshal(body, &payload), "unmarshal payload")
+		return payload
+	}
+
+	assert.Nil(t, marshal(&CompletionRequest{Prompt: "hello"})["top_p"], "top_p omitted when unset")
+	assert.Equal(t, 1.0, marshal(&CompletionRequest{Prompt: "hello", TopP: 1.0})["top_p"], "top_p sent when set")
+}

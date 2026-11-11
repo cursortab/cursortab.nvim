@@ -211,6 +211,7 @@ require("cursortab").setup({
     context_size = 0,                     -- Max input context in tokens (0 = use max_tokens; inline/fim default: 1024)
     max_tokens = 512,                     -- Max tokens to generate (inline default: 64, fim default: 128)
     top_k = 50,                           -- Top-k sampling
+    top_p = 0.0,                          -- Top-p sampling (0 = provider default)
     completion_timeout = 5000,            -- Timeout in ms for completion requests
     max_diff_history_tokens = 512,        -- Max tokens for diff history (0 = no limit)
     completion_path = "/v1/completions",  -- API endpoint path

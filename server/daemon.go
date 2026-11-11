@@ -62,6 +62,7 @@ func NewDaemon(config Config) (*Daemon, error) {
 		ProviderContextSize: config.Provider.ContextSize,
 		ProviderMaxTokens:   config.Provider.MaxTokens,
 		ProviderTopK:        config.Provider.TopK,
+		ProviderTopP:        config.Provider.TopP,
 		CompletionPath:      config.Provider.CompletionPath,
 		CompletionTimeout:   config.Provider.CompletionTimeout,
 		PrivacyMode:         config.Provider.PrivacyMode,

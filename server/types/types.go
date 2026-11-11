@@ -218,6 +218,7 @@ type ProviderConfig struct {
 	ProviderContextSize int             // Max input context size in tokens (0 = use ProviderMaxTokens)
 	ProviderMaxTokens   int             // Max tokens to generate
 	ProviderTopK        int             // Top-k sampling (used by some providers)
+	ProviderTopP        float64         // Top-p sampling (0 leaves the provider default)
 	CompletionPath      string          // API endpoint path (e.g., "/v1/completions")
 	FIMTokens           *FIMTokenConfig // nil = prompt+suffix mode; non-nil = tokenized FIM
 	CompletionTimeout   int             // Timeout for completion requests in milliseconds

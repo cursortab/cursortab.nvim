@@ -32,4 +32,9 @@ expect_error({ type = "fim", fim_tokens = vim.tbl_extend("force", tokens, { typo
 expect_error({ type = "fim", fim_tokens = vim.tbl_extend("force", tokens, { repo_name = false }) }, "provider.fim_tokens.repo_name must be a string")
 expect_error({ type = "fim", typo = true }, "Unknown config option: provider.typo")
 assert(config.setup({ provider = { type = "fim" } }).provider.fim_tokens == nil)
+
+-- top_p is passed to providers that accept it; 0 leaves the provider default.
+assert(config.setup({ provider = { type = "fim", top_p = 1 } }).provider.top_p == 1)
+expect_error({ type = "fim", top_p = 1.5 }, "provider.top_p must be between 0 and 1")
+expect_error({ type = "fim", top_p = -0.1 }, "provider.top_p must be between 0 and 1")
 print("config tests passed")

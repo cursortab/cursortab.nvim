@@ -301,7 +301,8 @@ PROVIDER OPTIONS                                    *cursortab-config-provider*
 
   `api_key_env`
       Environment variable name containing the API key for authenticated
-      requests. The value is read from the environment at daemon startup.
+      requests. Neovim reads the value from its environment when it
+      connects to the daemon, and shows a warning when it is not set.
       Example: "OPENAI_API_KEY" reads from $OPENAI_API_KEY. Leave empty
       for unauthenticated local servers.
 
@@ -424,7 +425,8 @@ COMMANDS                                                   *cursortab-commands*
     Clear the daemon log file.
 
 :CursortabRestart                                          *:CursortabRestart*
-    Stop and restart the daemon process.
+    Stop the daemon and start a new one. Every open Neovim that uses the
+    same build reconnects to it.
 
 ==============================================================================
 BLINK.CMP INTEGRATION                            *cursortab-blink-integration*

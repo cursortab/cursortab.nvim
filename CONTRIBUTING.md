@@ -85,9 +85,9 @@ package store
 ```
 
 Metadata fields: `id`, `language`, `file`, `row`, `col`, `fim-row`, `fim-col`,
-`viewportTop`, `viewportBottom`, `modified` (default true), `skipHistory`,
-`targets` (comma-separated), `cursor-positions` (expands one scenario into
-multiple at different positions).
+`viewportTop`, `viewportBottom`, `modified` (default true), `targets`
+(comma-separated), `cursor-positions` (expands one scenario into multiple at
+different positions).
 
 Omit `-- expected --` to create a suppress scenario (tests that the provider
 correctly produces nothing).

@@ -669,21 +669,22 @@ The `copilot` provider is known to be slower than the rest.
 <summary>How do I update the plugin?</summary>
 
 Use your Neovim plugin manager to pull the latest changes, then restart Neovim.
-The daemon will automatically restart if the configuration has changed. You can
-also run `:CursortabRestart` to force a restart.
+Each build of the plugin runs its own daemon, so a restarted Neovim uses the
+new build. The old daemon exits once no Neovim uses it. `:CursortabRestart`
+restarts the daemon for every open Neovim that uses the same build.
 
 </details>
 
 <details>
 <summary>Why isn't my API key or environment variable being picked up?</summary>
 
-The plugin runs a background daemon that persists after Neovim closes.
-Environment variables are only loaded when the daemon starts. If you add or
-change an environment variable (e.g., `OPENAI_API_KEY` in your `.zshrc`), run
-`:CursortabRestart` to restart the daemon with the new environment variables.
+Neovim reads the variable named by `provider.api_key_env` from its own
+environment when it connects to the daemon. If you add or change the variable
+(e.g., `OPENAI_API_KEY` in your `.zshrc`), restart Neovim from a shell that has
+it.
 
-Note: If you change plugin configuration (e.g., switch providers), the daemon
-will automatically restart on the next `setup()` call.
+Provider and behavior settings are also sent when Neovim connects, so a changed
+configuration applies to the next Neovim or after `:CursortabRestart`.
 
 </details>
 

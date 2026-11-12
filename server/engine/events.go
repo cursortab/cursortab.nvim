@@ -96,8 +96,8 @@ var transitions = map[state]map[EventType]func(*Engine){
 		EventCursorMoved:       (*Engine).doResetIdleTimer,
 		EventInsertEnter:       (*Engine).stopIdleTimer,
 		EventInsertLeave:       (*Engine).startIdleTimer,
-		EventEsc:               (*Engine).stopIdleTimer,
-		EventTextChanged:       (*Engine).startTextChangeTimer,
+		EventEsc:               (*Engine).doDropPrefetchAndStopIdleTimer,
+		EventTextChanged:       (*Engine).doDropPrefetchAndDebounce,
 	},
 	statePendingCompletion: {
 		EventTextChanged: (*Engine).doTextChangePending,
@@ -292,6 +292,20 @@ func (e *Engine) doRequestIdleCompletion() {
 func (e *Engine) doResetIdleTimer() {
 	e.reject()
 	e.resetIdleTimer()
+}
+
+// doDropPrefetchAndDebounce drops the prefetch, whose answer is for the
+// buffer before the edit.
+func (e *Engine) doDropPrefetchAndDebounce() {
+	e.cancelPrefetch()
+	e.startTextChangeTimer()
+}
+
+// doDropPrefetchAndStopIdleTimer drops the prefetch: the user dismissed what
+// it would show.
+func (e *Engine) doDropPrefetchAndStopIdleTimer() {
+	e.cancelPrefetch()
+	e.stopIdleTimer()
 }
 
 func (e *Engine) doTextChangePending() {

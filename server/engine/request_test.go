@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -131,4 +132,41 @@ func TestPrefetchOfLastStageSeesItApplied(t *testing.T) {
 	want := []string{"x = 10", "", "def f():", "    return 1", "", "if True:", "    pass"}
 	assert.Equal(t, want, h.buf.lines, "buffer after the last stage")
 	assert.Equal(t, want, prov.input(1).Current.File.Lines, "prefetch input")
+}
+
+// A prefetch asks for the edit after the buffer as it was. Typing or Esc
+// while it runs makes its answer stale: it shows no cursor target.
+func TestUserActionDropsRunningPrefetch(t *testing.T) {
+	for _, action := range []string{"type", "esc"} {
+		t.Run(action, func(t *testing.T) {
+			prov := newMockProvider()
+			prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"line one"}})
+			prov.push(&types.Completion{StartLine: 10, EndLineInc: 10, Lines: []string{"line ten"}})
+			buf := newMockBuffer("line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8", "line 9", "line 10")
+			h := newHarness(t, buf, prov)
+			h.send("trigger_completion")
+
+			prov.hold(t)
+			h.post("accept")
+			waitFor(t, func() bool { return prov.calls() == 2 }, "prefetch started")
+			switch action {
+			case "type":
+				buf.mu.Lock()
+				buf.lines = slices.Clone(buf.lines)
+				buf.lines[0] += "!"
+				buf.col = len(buf.lines[0])
+				buf.mu.Unlock()
+				h.post("text_changed")
+			case "esc":
+				h.post("esc")
+			}
+			prov.release()
+			waitFor(t, func() bool { return !h.status().Pending }, "prefetch answered")
+
+			assert.Equal(t, "Idle", h.status().State, "nothing shown")
+			buf.mu.Lock()
+			assert.Equal(t, 0, buf.target, "no cursor target from the stale prefetch")
+			buf.mu.Unlock()
+		})
+	}
 }

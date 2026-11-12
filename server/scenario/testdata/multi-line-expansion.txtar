@@ -1,0 +1,29 @@
+Completion expanding 1 line into 3 lines of implementation via the completion action.
+row: 2
+col: 4
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def main():
+    pass
+
+main()
+-- steps --
+respond 2-2
+  | "    x = 10"
+  | "    y = 20"
+  | "    print(x + y)"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2 replace_chars
+    | addition 3 x2
+accept
+expect hidden target=none
+  buffer:
+    | "def main():"
+    | "    x = 10"
+    | "    y = 20"
+    | "    print(x + y)"
+    | ""
+    | "main()"

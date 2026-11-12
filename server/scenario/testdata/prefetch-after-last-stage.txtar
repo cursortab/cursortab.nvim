@@ -1,0 +1,70 @@
+While the last stage of a completion is shown, a prefetch predicts the next edit, which is shown as a cursor target once the stage is accepted.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 30
+-- buffer.txt --
+function a() {
+  return 1;
+}
+
+function b() {
+  return 2;
+}
+
+function c() {
+  return 3;
+}
+-- steps --
+respond 1-7
+  | "function a() {"
+  | "  return 10;"
+  | "}"
+  | ""
+  | "function b() {"
+  | "  return 20;"
+  | "}"
+respond 10-10
+  | "  return 30;"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2 replace_chars
+accept
+expect hidden target=6
+accept
+expect shown requests=2
+  display:
+    | modification 6 replace_chars
+accept
+expect hidden target=10 state=HasCursorTarget
+  buffer:
+    | "function a() {"
+    | "  return 10;"
+    | "}"
+    | ""
+    | "function b() {"
+    | "  return 20;"
+    | "}"
+    | ""
+    | "function c() {"
+    | "  return 3;"
+    | "}"
+accept
+expect shown
+  display:
+    | modification 10 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "function a() {"
+    | "  return 10;"
+    | "}"
+    | ""
+    | "function b() {"
+    | "  return 20;"
+    | "}"
+    | ""
+    | "function c() {"
+    | "  return 30;"
+    | "}"

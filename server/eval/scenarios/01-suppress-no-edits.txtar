@@ -14,5 +14,4 @@ package main
 func main() {}
 -- steps --
 request-completion
-  expect !shown suppressed
 

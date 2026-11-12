@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"cursortab/eval/cassette"
-	"cursortab/eval/harness"
+	"cursortab/scenario"
 
 	"github.com/neovim/go-client/nvim"
 )
@@ -131,7 +131,7 @@ func dialNvim(path string) (*nvim.Nvim, func(), error) {
 // nvim buffer. For each accept it applies the last captured edits to the
 // buffer so subsequent requests see the updated state. Returns a cassette
 // with one interaction per request-completion step.
-func captureCopilotForScenario(n *nvim.Nvim, sc *harness.Scenario, attachWait, reqTimeout time.Duration) (*cassette.Cassette, error) {
+func captureCopilotForScenario(n *nvim.Nvim, sc *scenario.Scenario, attachWait, reqTimeout time.Duration) (*cassette.Cassette, error) {
 	buf, err := n.CreateBuffer(true, false)
 	if err != nil {
 		return nil, fmt.Errorf("create buffer: %w", err)
@@ -183,7 +183,7 @@ func captureCopilotForScenario(n *nvim.Nvim, sc *harness.Scenario, attachWait, r
 
 	for _, step := range sc.Steps {
 		switch step.Action {
-		case harness.ActionRequestCompletion:
+		case scenario.ActionRequestCompletion:
 			start := time.Now()
 			var out string
 			if err := n.ExecLua(copilotSyncLua, &out, reqTimeout.Milliseconds()); err != nil {
@@ -215,7 +215,7 @@ func captureCopilotForScenario(n *nvim.Nvim, sc *harness.Scenario, attachWait, r
 			lastEditsJSON = out
 			interactionIdx++
 
-		case harness.ActionAccept:
+		case scenario.ActionAccept:
 			if lastEditsJSON == "" || lastEditsJSON == "[]" {
 				continue
 			}

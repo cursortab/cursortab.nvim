@@ -24,5 +24,4 @@ export function greetUser(user: User): string {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

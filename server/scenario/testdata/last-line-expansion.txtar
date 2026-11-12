@@ -1,0 +1,26 @@
+Completion at the last line expanding it with new content past the buffer end.
+row: 2
+col: 4
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def main():
+    pass
+-- steps --
+respond 2-2
+  | "    pass"
+  | ""
+  | "def helper():"
+  | "    return 42"
+request-completion manual
+expect shown requests=1
+  display:
+    | addition 3 x3
+accept
+expect hidden target=none
+  buffer:
+    | "def main():"
+    | "    pass"
+    | ""
+    | "def helper():"
+    | "    return 42"

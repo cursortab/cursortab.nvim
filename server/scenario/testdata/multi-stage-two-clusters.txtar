@@ -1,0 +1,43 @@
+Two changes far apart (gap > proximity threshold) split into two stages. The stage nearest the cursor is shown first.
+provider: scripted
+row: 6
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function a() {
+  return 1;
+}
+
+function b() {
+  return 2;
+}
+-- steps --
+respond 1-7
+  | "function a() {"
+  | "  return 10;"
+  | "}"
+  | ""
+  | "function b() {"
+  | "  return 20;"
+  | "}"
+request-completion manual
+expect shown
+  display:
+    | modification 6 replace_chars
+accept
+expect hidden target=2 state=HasCursorTarget
+accept
+expect shown
+  display:
+    | modification 2 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "function a() {"
+    | "  return 10;"
+    | "}"
+    | ""
+    | "function b() {"
+    | "  return 20;"
+    | "}"

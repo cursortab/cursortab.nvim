@@ -75,6 +75,8 @@ type Engine struct {
 	// queue holds events raised while an event is handled. They run right
 	// after it, so the engine never blocks sending to its own channel.
 	queue []Event
+	// settleWaiters receive a snapshot once the engine settled.
+	settleWaiters []chan<- Snapshot
 
 	lifecycle sync.Mutex
 	running   bool

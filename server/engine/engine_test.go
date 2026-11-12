@@ -2,117 +2,123 @@ package engine
 
 import (
 	"errors"
-	"slices"
-	"sync"
 	"testing"
 
 	"cursortab/assert"
+	"cursortab/metrics"
 	"cursortab/types"
 )
 
-func TestEngineCreation(t *testing.T) {
-	buf := newMockBuffer()
-	prov := newMockProvider()
-	clock := newMockClock()
-
-	eng := createTestEngine(buf, prov, clock)
-
-	assert.NotNil(t, eng, "New")
-	assert.Equal(t, stateIdle, eng.state, "initial state")
-}
-
 func TestStateNotifier(t *testing.T) {
-	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-	var mu sync.Mutex
-	var statuses []types.EngineStatus
-	setStateNotifier(eng, func(value types.EngineStatus) {
-		mu.Lock()
-		defer mu.Unlock()
-		statuses = append(statuses, value)
-	})
-	last := func() (types.EngineStatus, int) {
-		mu.Lock()
-		defer mu.Unlock()
-		if len(statuses) == 0 {
-			return types.EngineStatus{}, 0
-		}
-		return statuses[len(statuses)-1], len(statuses)
-	}
-	go eng.Run()
-	defer eng.Close()
+	prov := newMockProvider()
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"line one"}})
+	h := newHarness(t, newMockBuffer(), prov)
+	assert.Equal(t, types.EngineStatus{State: "Idle"}, h.status(), "initial status")
 
-	waitFor(t, func() bool { _, n := last(); return n == 1 }, "initial status is published")
-	eng.send(Event{Type: EventTrigger})
-	waitFor(t, func() bool { s, _ := last(); return s.State == "HasCompletion" }, "request finishes with a suggestion")
-	status, count := last()
-	assert.False(t, status.Pending, "nothing pending once the suggestion is shown")
-	mu.Lock()
-	assert.True(t, slices.Contains(statuses, types.EngineStatus{State: "PendingCompletion", Pending: true}), "request start is published")
-	mu.Unlock()
+	h.send("trigger_completion")
+	assert.True(t, h.published(types.EngineStatus{State: "PendingCompletion", Pending: true}), "request start is published")
+	assert.Equal(t, types.EngineStatus{State: "HasCompletion"}, h.status(), "nothing pending once the completion is shown")
 
-	eng.send(Event{Type: EventInsertEnter})
-	eng.send(Event{Type: EventEsc})
-	waitFor(t, func() bool { s, _ := last(); return s.State == "Idle" }, "suggestion rejected")
-	_, n := last()
-	assert.Equal(t, count+1, n, "unchanged status is not repeated")
+	h.mu.Lock()
+	count := len(h.statuses)
+	h.mu.Unlock()
+	h.send("insert_enter", "esc")
+	assert.Equal(t, types.EngineStatus{State: "Idle"}, h.status(), "completion rejected")
+	h.mu.Lock()
+	assert.Equal(t, count+1, len(h.statuses), "unchanged status is not repeated")
+	h.mu.Unlock()
 }
 
-func TestStateNotifierRequestResults(t *testing.T) {
-	for _, result := range []EventType{EventCompletionReady, EventCompletionError} {
-		t.Run(string(result), func(t *testing.T) {
-			eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-			var status types.EngineStatus
-			setStateNotifier(eng, func(value types.EngineStatus) { status = value })
-			eng.state = statePendingCompletion
-			eng.completionRequestID = 2
-			eng.currentCancel = func() {}
-			eng.handleEvent(Event{Type: result, RequestID: 1, Err: errors.New("request failed")})
-			assert.True(t, status.Pending, "old result cannot finish the current request")
-			eng.handleEvent(Event{Type: result, RequestID: 2, Err: errors.New("request failed")})
-			assert.False(t, status.Pending, "current result finishes the request")
-		})
+// A result of a request that was replaced cannot finish the current request.
+func TestStaleRequestResultIsIgnored(t *testing.T) {
+	for _, staleErr := range []error{nil, errors.New("request failed")} {
+		prov := newMockProvider()
+		prov.hold(t)
+		prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"stale"}})
+		prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"current"}})
+		buf := newMockBuffer()
+		h := newHarness(t, buf, prov)
+
+		prov.err = staleErr
+		h.post("trigger_completion")
+		waitFor(t, func() bool { return prov.calls() == 1 }, "first request started")
+		prov.mu.Lock()
+		prov.err = nil
+		prov.mu.Unlock()
+		h.post("esc", "trigger_completion")
+		waitFor(t, func() bool { return prov.calls() == 2 }, "second request started")
+
+		prov.release()
+		prov.release()
+		snapshot := h.settle()
+
+		assert.Equal(t, "HasCompletion", snapshot.State, "current request shown")
+		assert.Equal(t, []string{"current", "line 2", "line 3"}, snapshot.StagedLines, "current completion")
 	}
 }
 
-func TestStateNotifierOverlappingRequests(t *testing.T) {
-	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-	var status types.EngineStatus
-	setStateNotifier(eng, func(value types.EngineStatus) { status = value })
-	eng.state = statePendingCompletion
-	eng.completionRequestID = 1
-	eng.currentCancel = func() {}
-	seedInflightPrefetch(eng, prefetchNoWait)
-	prefetchID := seedInflightPrefetch(eng, prefetchNoWait)
-	eng.handleEvent(Event{Type: EventCompletionReady, RequestID: 1})
-	assert.Equal(t, types.EngineStatus{State: "Idle", Pending: true}, status, "prefetch keeps idle engine pending")
-	eng.handleEvent(Event{Type: EventPrefetchReady, RequestID: prefetchID - 1})
-	assert.True(t, status.Pending, "stale prefetch result is ignored")
-	eng.handleEvent(Event{Type: EventPrefetchReady, RequestID: prefetchID, Response: &types.CompletionResponse{}})
-	assert.False(t, status.Pending, "last request finished")
+// A prefetch after an accept keeps the idle engine pending until it returns.
+func TestStateNotifierPrefetch(t *testing.T) {
+	prov := newMockProvider()
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"line one"}})
+	h := newHarness(t, newMockBuffer(), prov)
+	h.send("trigger_completion")
+
+	prov.hold(t)
+	h.post("accept")
+	waitFor(t, func() bool { return h.published(types.EngineStatus{State: "Idle", Pending: true}) }, "prefetch keeps the engine pending")
+	prov.release()
+	h.settle()
+
+	assert.Equal(t, types.EngineStatus{State: "Idle"}, h.status(), "prefetch finished")
 }
 
 func TestStateNotifierCancellation(t *testing.T) {
 	for _, action := range []string{"reject", "file-switch", "stop"} {
 		t.Run(action, func(t *testing.T) {
-			eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-			var status types.EngineStatus
-			setStateNotifier(eng, func(value types.EngineStatus) { status = value })
-			eng.state = stateStreamingCompletion
-			eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
-			eng.currentCancel = func() {}
-			seedInflightPrefetch(eng, prefetchNoWait)
-			eng.notifyStateChange(false)
-			assert.True(t, status.Pending, "active requests")
+			prov := newMockProvider()
+			prov.hold(t)
+			buf := newMockBuffer()
+			h := newHarness(t, buf, prov)
+			h.post("trigger_completion")
+			waitFor(t, func() bool { return h.status().Pending }, "request pending")
+
 			switch action {
 			case "reject":
-				eng.handleEvent(Event{Type: EventEsc})
+				h.send("esc")
 			case "file-switch":
-				eng.handleFileSwitch()
-				eng.notifyStateChange(false)
+				buf.mu.Lock()
+				buf.switchOnSync = true
+				buf.mu.Unlock()
+				h.send("buf_enter")
 			case "stop":
-				eng.Close()
+				h.eng.Close()
 			}
-			assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "cancellation clears all activity")
+
+			assert.Equal(t, types.EngineStatus{State: "Idle"}, h.status(), "cancellation clears all activity")
+			prov.mu.Lock()
+			assert.NotNil(t, prov.ctxs[0].Err(), "request cancelled")
+			prov.mu.Unlock()
 		})
+	}
+}
+
+// Metrics queued when the engine stops are still delivered, with a live
+// context.
+func TestQueuedMetricsAreDeliveredAfterClose(t *testing.T) {
+	sender := &recordingSender{hold: make(chan struct{})}
+	prov := newMockProvider()
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"line one"}})
+	h := newHarness(t, newMockBuffer(), prov, func(d *Deps, _ *Config) { d.Metrics = sender })
+	h.send("trigger_completion")
+	h.send("accept")
+	h.eng.Close()
+	close(sender.hold)
+
+	waitFor(t, func() bool { return sender.find(metrics.EventAccepted) != nil }, "accept delivered")
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	for _, err := range sender.errs {
+		assert.Nil(t, err, "delivery context is not cancelled by Close")
 	}
 }

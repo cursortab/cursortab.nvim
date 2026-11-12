@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"cursortab/eval/harness"
 	"cursortab/eval/metrics"
+	"cursortab/scenario"
 )
 
 // perScenarioScore holds a row of the per-scenario report table.
@@ -46,23 +46,23 @@ func runCmd(args []string) error {
 
 	filter := splitCSV(*filterFlag)
 
-	cfg := harness.Config{
+	cfg := scenario.Config{
 		TargetFilter:       filter,
-		Mode:               harness.ModeReplay,
+		Mode:               scenario.ModeReplay,
 		StrictModelVersion: *strictModel,
 	}
 
 	// Run all scenarios in parallel with a bounded worker pool.
-	outcomes := make([]*harness.ScenarioOutcome, len(scenarios))
+	outcomes := make([]*scenario.ScenarioOutcome, len(scenarios))
 	sem := make(chan struct{}, runtime.NumCPU())
 	var wg sync.WaitGroup
 	for i, sc := range scenarios {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(i int, sc *harness.Scenario) {
+		go func(i int, sc *scenario.Scenario) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			outcomes[i] = harness.Run(sc, cfg)
+			outcomes[i] = scenario.Run(sc, cfg)
 		}(i, sc)
 	}
 	wg.Wait()
@@ -163,10 +163,10 @@ func runCmd(args []string) error {
 	return nil
 }
 
-func loadScenarios(dir string) ([]*harness.Scenario, error) {
-	targets := harness.DefaultTargets()
+func loadScenarios(dir string) ([]*scenario.Scenario, error) {
+	targets := scenario.DefaultTargets()
 
-	var out []*harness.Scenario
+	var out []*scenario.Scenario
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -177,7 +177,7 @@ func loadScenarios(dir string) ([]*harness.Scenario, error) {
 		if !strings.HasSuffix(path, ".txtar") {
 			return nil
 		}
-		scenarios, err := harness.LoadScenario(path, targets)
+		scenarios, err := scenario.LoadScenario(path, targets)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}

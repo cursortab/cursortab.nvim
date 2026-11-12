@@ -1,0 +1,24 @@
+Replacing 2 lines with 2 different lines (same line count, all content different).
+row: 1
+col: 5
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+a = 1
+b = 2
+print(a + b)
+-- steps --
+respond 1-2
+  | "a = 10"
+  | "b = 20"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 1 append_chars
+    | modification 2 append_chars
+accept
+expect hidden target=none
+  buffer:
+    | "a = 10"
+    | "b = 20"
+    | "print(a + b)"

@@ -1,0 +1,23 @@
+Completion contracting 3 lines into 1 line, producing deletion groups.
+row: 1
+col: 5
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+x = 1
+y = 2
+z = 3
+print(x + y + z)
+-- steps --
+respond 1-3
+  | "total = 6"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 1
+    | deletion 2 x2
+accept
+expect hidden target=none
+  buffer:
+    | "total = 6"
+    | "print(x + y + z)"

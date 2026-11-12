@@ -1,1052 +1,134 @@
 package engine
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"cursortab/assert"
 	"cursortab/ctx"
-	"cursortab/text"
+	"cursortab/metrics"
 	"cursortab/types"
 )
 
-func TestDeferredCursorTargetRequest(t *testing.T) {
-	buf := newMockBuffer()
-	buf.col = len(buf.lines[0])
-	eng := createTestEngine(buf, newMockProvider(), newMockClock())
-	defer eng.Close()
-	eng.cursorTarget = &types.CursorPredictionTarget{LineNumber: 1, ShouldRetrigger: true}
-	eng.handleDeferredCursorTarget()
-	assert.Equal(t, statePendingCompletion, eng.state, "fallback request is pending")
-	select {
-	case event := <-eng.events:
-		eng.handleEvent(event)
-	case <-time.After(time.Second):
-		t.Fatal("fallback completion did not return")
-	}
-	assert.Equal(t, stateHasCompletion, eng.state, "fallback response is displayed")
-}
-
-func TestRequestCompletion_CancelsLeftoverStreamFromAcceptDuringStreaming(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"existing"}
-	buf.row = 1
-	buf.col = 0
+func TestRequestErrorReturnsToIdle(t *testing.T) {
 	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
+	prov.err = errors.New("provider failed")
+	h := newHarness(t, newMockBuffer(), prov)
 
-	streamCtx, streamCancel := context.WithCancel(context.Background())
-	defer streamCancel()
-	eng.stream = &activeStream{stream: newMockCompletionStream(streamCancel)}
-	eng.stream.acceptedDuring = true
-	eng.state = stateIdle
+	snapshot := h.send("trigger_completion")
 
-	eng.requestCompletion(types.CompletionSourceTyping, true)
-
-	assert.Nil(t, eng.stream, "leftover stream should be cleared")
-
-	select {
-	case <-streamCtx.Done():
-	default:
-		t.Errorf("stream context should be cancelled before new request starts")
-	}
+	assert.Equal(t, "Idle", snapshot.State, "provider error finishes the request")
+	assert.Equal(t, types.EngineStatus{State: "Idle"}, h.status(), "nothing pending")
 }
 
-func TestRequestCompletion_ErrorReturnsToIdle(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"existing"}
-	buf.row = 1
-	buf.col = 0
-	prov := newMockProvider()
-	prov.completionErr = errors.New("provider failed")
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.requestCompletion(types.CompletionSourceTyping, true)
-
-	select {
-	case event := <-eng.events:
-		eng.handleEvent(event)
-	case <-time.After(time.Second):
-		t.Fatal("completion error event timed out")
-	}
-
-	assert.Equal(t, stateIdle, eng.state, "provider error should finish the pending request")
-}
-
-func TestEvalRequestCompletion_UsesBatchProviderPath(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"existing"}
-	buf.row = 1
-	buf.col = 0
-	stream := newMockCompletionStream(nil)
-	stream.err = errors.New("stream failed")
-	close(stream.lines)
-	prov := newMockStreamingProvider(stream)
-	prov.completionResp = completionResponse(&types.Completion{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"updated"},
-	})
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	res, err := eng.EvalRequestCompletion(context.Background(), true)
-
-	assert.NoError(t, err, "eval should use batch provider path")
-	assert.True(t, res.Shown, "batch completion should be shown")
-	assert.Equal(t, 1, prov.completionCalls, "eval should call Complete")
-}
-
-func TestRequestCompletion_CollectsOnlyRequiredMaterials(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"existing"}
-	buf.row = 1
-	buf.col = 0
+func TestRequestCollectsOnlyRequiredMaterials(t *testing.T) {
+	buf := newMockBuffer("existing")
 	buf.diagnostics = &types.Diagnostics{FilePath: "test.go"}
 	buf.treesitter = &types.TreesitterContext{EnclosingSignature: "func main()"}
-
 	prov := newMockProvider()
 	prov.materials = ctx.Materials{ctx.Diagnostics{}}
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
+	h := newHarness(t, buf, prov)
 
-	eng.requestCompletion(types.CompletionSourceTyping, true)
+	h.send("trigger_completion")
 
-	select {
-	case event := <-eng.events:
-		assert.Equal(t, EventCompletionReady, event.Type, "completion should be ready")
-	case <-time.After(time.Second):
-		t.Fatal("completion ready event timed out")
-	}
-
-	assert.Equal(t, 1, prov.completionCalls, "provider should be called")
-	assert.Equal(t, 1, buf.diagnosticsCalls, "diagnostics should be collected")
-	assert.Equal(t, 0, buf.treesitterCalls, "treesitter should not be collected")
-
-	diagnostics, ok := ctx.Find[ctx.Diagnostics](prov.lastInput.Materials)
-	assert.True(t, ok, "diagnostics material should be passed to provider")
+	assert.Equal(t, 1, prov.calls(), "provider called")
+	assert.Equal(t, 1, buf.diagnosticsCalls, "diagnostics collected")
+	assert.Equal(t, 0, buf.treesitterCalls, "treesitter not collected")
+	diagnostics, ok := ctx.Find[ctx.Diagnostics](prov.input(0).Materials)
+	assert.True(t, ok, "diagnostics passed to the provider")
 	assert.Equal(t, buf.diagnostics, diagnostics.Data, "diagnostics data")
 }
 
-func TestCompletionError_IgnoresStaleRequest(t *testing.T) {
-	for _, requestID := range []uint64{0, 1} {
-		buf := newMockBuffer()
-		buf.lines = []string{"existing"}
-		buf.row = 1
-		buf.col = 0
-		prov := newMockProvider()
-		clock := newMockClock()
-		eng := createTestEngine(buf, prov, clock)
+// A provider that needs the live editor state cannot predict the next edit
+// from the buffer as it will be after an accept.
+func TestAcceptDoesNotPrefetchWithLiveEditorStateProvider(t *testing.T) {
+	prov := newMockProvider()
+	prov.syntheticCurrent = false
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"hello world"}})
+	h := newHarness(t, newMockBuffer("hello"), prov)
 
-		eng.state = statePendingCompletion
-		eng.completionRequestID = 1
-		eng.currentCancel = func() {}
+	h.send("trigger_completion")
+	h.send("accept")
 
-		eng.handleEvent(Event{Type: EventTextChanged})
-
-		eng.state = statePendingCompletion
-		eng.completionRequestID = 2
-		cancelledNewRequest := false
-		eng.currentCancel = func() { cancelledNewRequest = true }
-
-		eng.handleEvent(Event{
-			Type:      EventCompletionError,
-			Err:       errors.New("old request failed"),
-			RequestID: requestID,
-		})
-
-		assert.Equal(t, statePendingCompletion, eng.state, "stale completion error should not finish current pending request")
-		assert.False(t, cancelledNewRequest, "stale completion error should not cancel current request")
-		eng.Close()
-	}
+	assert.Equal(t, 1, prov.calls(), "no prefetch after accept")
 }
 
-func TestPrefetchReady_IgnoresStaleRequest(t *testing.T) {
+func TestAcceptApplyErrorResetsToIdle(t *testing.T) {
 	buf := newMockBuffer()
+	buf.executeErr = errors.New("execute failed")
 	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"x"}})
+	h := newHarness(t, buf, prov)
+	h.send("trigger_completion")
 
-	eng.prefetchRequestID = 1
-	currentID := seedInflightPrefetch(eng, prefetchNoWait)
-	stale := &types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"stale"},
-	}}
+	snapshot := h.send("accept")
 
-	eng.handleEvent(Event{
-		Type:      EventPrefetchReady,
-		RequestID: currentID - 1,
-		Response:  stale,
+	assert.Equal(t, "Idle", snapshot.State, "state after a failed apply")
+	assert.False(t, buf.shown, "completion cleared")
+	assert.Equal(t, []string{"line 1", "line 2", "line 3"}, buf.lines, "buffer unchanged")
+}
+
+func TestTypingRestartsIdleTimer(t *testing.T) {
+	prov := newMockProvider()
+	h := newHarness(t, newMockBuffer(), prov, func(_ *Deps, c *Config) {
+		c.TextChangeDebounce = -1 // Only the idle timer requests completions
+		c.IdleCompletionDelay = 500 * time.Millisecond
 	})
 
-	assertInflightPrefetch(t, eng, prefetchNoWait, "stale prefetch ready should leave current request inflight")
-	assert.Nil(t, eng.readyPrefetch(), "stale prefetch ready should not populate ready slot")
+	h.buf.lines = []string{"line 1x", "line 2", "line 3"}
+	h.buf.col = 7
+	h.send("text_changed")
+	h.clock.Advance(400 * time.Millisecond)
+	h.buf.lines = []string{"line 1xy", "line 2", "line 3"}
+	h.buf.col = 8
+	h.send("text_changed")
+	h.clock.Advance(400 * time.Millisecond)
+	h.settle()
+	assert.Equal(t, 0, prov.calls(), "typing restarted the idle delay")
 
-	current := &types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 1,
-		Lines:      []string{"current"},
-	}}
-	eng.handleEvent(Event{
-		Type:      EventPrefetchReady,
-		RequestID: currentID,
-		Response:  current,
-	})
-
-	assertReadyPrefetch(t, eng, "current prefetch ready should populate ready slot")
-	assert.Equal(t, current, eng.readyPrefetch().CompletionResponse, "ready response")
+	h.clock.Advance(100 * time.Millisecond)
+	h.settle()
+	assert.Equal(t, 1, prov.calls(), "idle completion after the delay")
 }
 
-func TestRequestPrefetch_UsesStreamingTransportWhenAvailable(t *testing.T) {
-	stream := newMockCompletionStream(nil)
-	stream.response = completionResponse(&types.Completion{
-		StartLine: 1, EndLineInc: 1, Lines: []string{"streamed line 1"},
-	})
-	close(stream.lines)
-	prov := newMockStreamingProvider(stream)
-	eng := createTestEngine(newMockBuffer(), prov, newMockClock())
-	defer eng.Close()
-
-	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
-
-	select {
-	case event := <-eng.events:
-		assert.Equal(t, EventPrefetchReady, event.Type, "stream finish delivers prefetch")
-		assert.Equal(t, stream.response, event.Response, "response comes from stream finish")
-		assert.Equal(t, 0, prov.completionCalls, "batch transport is not used")
-	case <-time.After(time.Second):
-		t.Fatal("streaming prefetch timed out")
-	}
-}
-
-func TestCompletePrefetch_FallsBackToBatch(t *testing.T) {
+// The manual flag of a request stays with its completion through rerenders
+// while the user types through it.
+func TestManualFlagReachesMetrics(t *testing.T) {
+	sender := &recordingSender{}
 	prov := newMockProvider()
-	eng := &Engine{provider: prov}
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"hello world"}})
+	h := newHarness(t, newMockBuffer("hello"), prov, func(d *Deps, _ *Config) { d.Metrics = sender })
+	h.buf.col = 5
 
-	result, err := eng.completePrefetch(t.Context(), ctx.CompletionInput{})
+	h.send("trigger_completion")
+	h.buf.lines = []string{"hello w"}
+	h.buf.col = 7
+	h.send("text_changed")
+	h.send("accept")
+	h.eng.Close()
 
-	assert.NoError(t, err, "batch prefetch")
-	assert.Equal(t, prov.completionResp, result, "response comes from batch transport")
-	assert.Equal(t, 1, prov.completionCalls, "batch transport is used")
+	waitFor(t, func() bool { return sender.find(metrics.EventAccepted) != nil }, "accept delivered")
+	accepted := sender.find(metrics.EventAccepted)
+	assert.NotNil(t, accepted.Snapshot, "metrics snapshot")
+	assert.True(t, accepted.Snapshot.ManuallyTriggered, "manual flag survives the rerender")
 }
 
-func TestRequestPrefetch_CancelledStreamDeliversErrorNotReady(t *testing.T) {
-	stream := newMockCompletionStream(nil)
-	prov := newMockStreamingProvider(stream)
-	eng := createTestEngine(newMockBuffer(), prov, newMockClock())
-	defer eng.Close()
-
-	eng.requestPrefetch(1, 0, prefetchOpts{}, prefetchNoWait)
-	eng.cancelPrefetch()
-	// Keep the drain blocked until the prefetch context has been cancelled.
-	close(stream.lines)
-
-	select {
-	case event := <-eng.events:
-		assert.Equal(t, EventPrefetchError, event.Type, "cancelled prefetch is not ready")
-		assert.True(t, errors.Is(event.Err, context.Canceled), "prefetch cancellation")
-	case <-time.After(time.Second):
-		t.Fatal("cancelled prefetch timed out")
-	}
-}
-
-func TestAcceptCompletion_TriggersPrefetch_ShouldRetrigger(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello"}
-	buf.row = 1
-	buf.col = 5
+// While the last stage is shown, the prefetch asks for the next edit of the
+// buffer as it will be once the stage is accepted. A pure insertion keeps the
+// line it is inserted before.
+func TestPrefetchOfLastStageSeesItApplied(t *testing.T) {
 	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  1,
-			EndLineInc: 1,
-			Lines:      []string{"hello world"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-	eng.stagedCompletion = nil
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      5,
-		ShouldRetrigger: true,
-	}
-
-	eng.acceptCompletion()
-
-	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "prefetch should be waiting for cursor prediction after accept")
-}
-
-func TestAcceptCompletion_DoesNotPrefetchWithLiveEditorStateProvider(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello"}
-	buf.row = 1
-	buf.col = 5
-	prov := newMockProviderWithLiveEditorState()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  1,
-			EndLineInc: 1,
-			Lines:      []string{"hello world"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-	eng.stagedCompletion = nil
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      5,
-		ShouldRetrigger: true,
-	}
-
-	eng.acceptCompletion()
-
-	assertNoPrefetch(t, eng, "synthetic current support should gate cursor-target prefetch")
-	assert.Equal(t, 0, prov.completionCalls, "prefetch request should not be issued")
-}
-
-func TestPrefetchReady_DoesNotInterruptActiveCompletion(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2", "line 3", "line 4", "line 5"}
-	buf.row = 2
-	buf.col = 0
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  2,
-			EndLineInc: 2,
-			Lines:      []string{"modified line 2"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-
-	seedInflightPrefetch(eng, prefetchForCursorPrediction)
-	prefetched := &types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  4,
-		EndLineInc: 4,
-		Lines:      []string{"modified line 4"},
-	}}
-
-	initialShowCursorTargetCalls := buf.showCursorTargetLine
-
-	eng.handlePrefetchReady(prefetched)
-
-	assert.Equal(t, stateHasCompletion, eng.state, "state should remain HasCompletion, not interrupted by cursor prediction")
-	assert.Equal(t, initialShowCursorTargetCalls, buf.showCursorTargetLine, "should not show cursor target while completion is active")
-	assertReadyPrefetch(t, eng, "prefetch state should be ready")
-}
-
-func TestAcceptLastStage_UsesPrefetchForCursorPrediction(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"line 1", "line 2", "line 3", "line 4", "line 5",
-		"line 6", "line 7", "line 8", "line 9", "old 10",
-		"line 11", "line 12", "line 13", "line 14", "old 15",
-		"line 16", "line 17", "line 18", "line 19", "line 20",
-		"line 21", "line 22", "line 23", "line 24", "old 25",
-	}
-	buf.row = 15
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 30
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  15,
-			EndLineInc: 15,
-			Lines:      []string{"new 15"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 1,
-		Stages: []*text.Stage{
-			&text.Stage{
-				BufferStart: 10,
-				BufferEnd:   10,
-				Lines:       []string{"new 10"},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      15,
-					ShouldRetrigger: false,
-				},
-			},
-			&text.Stage{
-				BufferStart: 15,
-				BufferEnd:   15,
-				Lines:       []string{"new 15"},
-				Groups: []*text.Group{{
-					Type:       text.GroupModification,
-					BufferLine: 15,
-					Lines:      []string{"new 15"},
-				}},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      15,
-					ShouldRetrigger: true,
-				},
-				IsLastStage: true,
-			},
-		},
-	}
-
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      15,
-		ShouldRetrigger: true,
-	}
-
-	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  25,
-		EndLineInc: 25,
-		Lines:      []string{"new 25"},
-	}}, false)
-
-	eng.acceptCompletion()
-
-	assert.Equal(t, stateHasCursorTarget, eng.state, "should be HasCursorTarget showing prediction to line 25")
-	assert.Equal(t, 25, buf.showCursorTargetLine, "should show cursor target at line 25")
-}
-
-func TestAcceptLastStage_ClearsStalePrefetch_WhenOverlaps(t *testing.T) {
-	// Test that prefetch is cleared when it overlaps with the stage just applied.
-	// This prevents showing the same content twice after accepting a stage.
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"line 1", "line 2", "line 3", "line 4", "line 5",
-		"line 6", "line 7", "line 8", "line 9", "old 10",
-		"line 11", "line 12", "line 13", "line 14", "old 15",
-	}
-	buf.row = 15
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 20
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  15,
-			EndLineInc: 15,
-			Lines:      []string{"new 15"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 1,
-		Stages: []*text.Stage{
-			&text.Stage{
-				BufferStart: 10,
-				BufferEnd:   10,
-				Lines:       []string{"new 10"},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      15,
-					ShouldRetrigger: false,
-				},
-			},
-			&text.Stage{
-				BufferStart: 15,
-				BufferEnd:   15,
-				Lines:       []string{"new 15"},
-				Groups: []*text.Group{{
-					Type:       text.GroupModification,
-					BufferLine: 15,
-					Lines:      []string{"new 15"},
-				}},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      15,
-					ShouldRetrigger: true,
-				},
-				IsLastStage: true,
-			},
-		},
-	}
-
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      15,
-		ShouldRetrigger: true,
-	}
-
-	// Prefetch is for line 15 - same as the stage being applied (overlaps)
-	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  15,
-		EndLineInc: 15,
-		Lines:      []string{"new 15"},
-	}}, false)
-
-	eng.acceptCompletion()
-
-	// Stale prefetch should be cleared because it overlaps with the applied stage.
-	// Then a new prefetch is requested (since ShouldRetrigger=true).
-	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "new prefetch should be requested after clearing stale")
-}
-
-func TestPartialAccept_FinishTriggersPrefetch_ShouldRetrigger(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello"}
-	buf.row = 1
-	buf.col = 5
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionForTest(
-		eng,
-		&types.Completion{
-			StartLine:  1,
-			EndLineInc: 1,
-			Lines:      []string{"hello!"},
-		},
-		[]string{"hello"},
-		[]*text.Group{{
-			Type:       text.GroupModification,
-			BufferLine: 1,
-			RenderHint: text.HintAppendChars,
-			ColStart:   5,
-			Lines:      []string{"hello!"},
-		}},
-	)
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      5,
-		ShouldRetrigger: true,
-	}
-	eng.stagedCompletion = nil
-
-	initialSyncCalls := buf.syncCalls
-
-	eng.partialAcceptCompletion()
-
-	assert.True(t, buf.syncCalls > initialSyncCalls, "buffer should be synced after finish")
-	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "prefetch should be waiting for cursor prediction")
-}
-
-func TestPartialAccept_FinishTriggersPrefetch_N1Stage(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2", "line 3"}
-	buf.row = 1
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	stage0Groups := []*text.Group{{
-		Type:       text.GroupModification,
-		BufferLine: 1,
-		Lines:      []string{"new line 1"},
-	}}
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionForTest(
-		eng,
-		&types.Completion{
-			StartLine:  1,
-			EndLineInc: 1,
-			Lines:      []string{"new line 1"},
-		},
-		[]string{"line 1"},
-		stage0Groups,
-	)
-
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      2,
-		ShouldRetrigger: false,
-	}
-
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 0,
-		Stages: []*text.Stage{
-			&text.Stage{
-				BufferStart: 1,
-				BufferEnd:   1,
-				Lines:       []string{"new line 1"},
-				Groups:      stage0Groups,
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      2,
-					ShouldRetrigger: false,
-				},
-			},
-			&text.Stage{
-				BufferStart: 2,
-				BufferEnd:   2,
-				Lines:       []string{"new line 2"},
-				Groups:      []*text.Group{{Type: text.GroupModification, BufferLine: 2, Lines: []string{"new line 2"}}},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      3,
-					ShouldRetrigger: true,
-				},
-			},
-		},
-	}
-
-	eng.partialAcceptCompletion()
-
-	assert.NotNil(t, eng.stagedCompletion, "stagedCompletion should not be nil")
-	assert.Equal(t, 1, eng.stagedCompletion.CurrentIdx, "should be at stage 1")
-	assertInflightPrefetch(t, eng, prefetchForCursorPrediction, "prefetch should be waiting for cursor prediction at n-1 stage")
-}
-
-// TestTryShowPrefetchedCompletion_WithChanges tests that tryShowPrefetchedCompletion
-// successfully shows a completion when the prefetch has changes.
-func TestTryShowPrefetchedCompletion_WithChanges(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "old line 2", "line 3"}
-	buf.row = 2
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 10
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateIdle
-	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 3,
-		Lines:      []string{"line 1", "new line 2", "line 3"},
-	}}, false)
-
-	result := eng.tryShowPrefetchedCompletion()
-
-	assert.True(t, result, "should return true when prefetch has changes")
-	assert.Equal(t, stateHasCompletion, eng.state, "should transition to HasCompletion")
-	assert.NotNil(t, eng.stagedCompletion, "should have staged completion")
-	assertNoPrefetch(t, eng, "prefetch state should be cleared")
-}
-
-// TestTryShowPrefetchedCompletion_NoChanges tests that tryShowPrefetchedCompletion
-// returns false when the prefetch has no changes.
-func TestTryShowPrefetchedCompletion_NoChanges(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2", "line 3"}
-	buf.row = 1
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 10
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateIdle
-	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 3,
-		Lines:      []string{"line 1", "line 2", "line 3"},
-	}}, false)
-
-	result := eng.tryShowPrefetchedCompletion()
-
-	assert.False(t, result, "should return false when no changes")
-	assertNoPrefetch(t, eng, "prefetch state should be cleared")
-}
-
-// TestHandlePrefetchCursorPrediction_CloseDistance tests that when the cursor is close
-// to the first changed line, the prefetch is shown directly.
-func TestHandlePrefetchCursorPrediction_CloseDistance(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2", "old line 3"}
-	buf.row = 2
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 10
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCursorTarget
-	seedInflightPrefetch(eng, prefetchForCursorPrediction)
-	prefetched := &types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 3,
-		Lines:      []string{"line 1", "line 2", "new line 3"},
-	}}
-
-	eng.handlePrefetchReady(prefetched)
-
-	assert.Equal(t, stateHasCompletion, eng.state, "should show completion when cursor is close")
-	assert.NotNil(t, eng.stagedCompletion, "should have staged completion")
-	assertNoPrefetch(t, eng, "prefetch should be consumed")
-}
-
-// TestHandlePrefetchCursorPrediction_FarDistance tests that when the cursor
-// is far from the first changed line, a cursor target is shown instead.
-func TestHandlePrefetchCursorPrediction_FarDistance(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"line 1", "line 2", "line 3", "line 4", "line 5",
-		"line 6", "line 7", "line 8", "line 9", "old line 10",
-	}
-	buf.row = 2
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 20
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateHasCursorTarget
-	seedInflightPrefetch(eng, prefetchForCursorPrediction)
-	prefetched := &types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 10,
-		Lines: []string{
-			"line 1", "line 2", "line 3", "line 4", "line 5",
-			"line 6", "line 7", "line 8", "line 9", "new line 10",
-		},
-	}}
-
-	eng.handlePrefetchReady(prefetched)
-
-	assert.Equal(t, stateHasCursorTarget, eng.state, "should show cursor target when far")
-	assert.NotNil(t, eng.cursorTarget, "should have cursor target")
-	assert.Equal(t, int32(10), eng.cursorTarget.LineNumber, "cursor target should point to changed line")
-	assert.NotNil(t, eng.display.rejectionCandidate(), "far prefetch cursor target should capture rejection candidate")
-	assertReadyPrefetch(t, eng, "prefetch should be ready for later use")
-}
-
-// TestAcceptLastStage_UsesPrefetchWithAdditionalChanges tests that when accepting the last
-// stage of a completion, a ready prefetch with additional changes beyond the current stage
-// is used to show the next completion.
-func TestAcceptLastStage_UsesPrefetchWithAdditionalChanges(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"line 1",
-		"line 2",
-		"old line 3",
-		"line 4",
-		"old line 5",
-	}
-	buf.row = 3
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 10
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	// Setup staged completion at last stage (line 3)
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 0,
-		Stages: []*text.Stage{
-			&text.Stage{
-				BufferStart: 3,
-				BufferEnd:   3,
-				Lines:       []string{"new line 3"},
-				Groups: []*text.Group{{
-					Type:       text.GroupModification,
-					BufferLine: 3,
-					Lines:      []string{"new line 3"},
-					OldLines:   []string{"old line 3"},
-				}},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      3,
-					ShouldRetrigger: true,
-				},
-				IsLastStage: true,
-			},
-		},
-	}
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  3,
-			EndLineInc: 3,
-			Lines:      []string{"new line 3"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      3,
-		ShouldRetrigger: true,
-	}
-
-	// Setup prefetch that extends beyond the current stage
-	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 5,
-		Lines: []string{
-			"line 1",
-			"line 2",
-			"new line 3",
-			"line 4",
-			"new line 5",
-		},
-	}}, false)
-
-	eng.acceptCompletion()
-
-	// Simulate buffer update
-	buf.lines[2] = "new line 3"
-
-	assert.Equal(t, stateHasCompletion, eng.state, "should show prefetched completion")
-	assert.NotNil(t, eng.stagedCompletion, "should have new staged completion from prefetch")
-}
-
-// TestTryShowPrefetchedCompletion_StaleEndLineInc tests that when a prefetch completion
-// has a stale EndLineInc (computed against a buffer before stage accepts added lines),
-// the extra lines are not shown as phantom additions if they already exist in the buffer.
-func TestTryShowPrefetchedCompletion_StaleEndLineInc(t *testing.T) {
-	buf := newMockBuffer()
-	// Buffer after accepting stages 1-4: all 15 lines are present
-	buf.lines = []string{
-		"import numpy as np",
-		"",
-		"def bubble_sort(arr):",
-		"    n = len(arr)",
-		"    for i in range(n):",
-		"        for j in range(0, n-i-1):",
-		"            if arr[j] > arr[j+1]:",
-		"                arr[j], arr[j+1] = arr[j+1], arr[j]",
-		"    return arr",
-		"",
-		"if __name__ == \"__main__\":",
-		"    arr = np.random.randint(0, 100, 10)",
-		"    print(\"Original array:\", arr)",
-		"    sorted_arr = bubble_sort(arr)",
-		"    print(\"Sorted array:\", sorted_arr)",
-	}
-	buf.row = 15
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 20
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	eng.state = stateIdle
-
-	// Prefetch was computed against a 11-line buffer (before stage 4 added 4 lines).
-	// EndLineInc=11 is stale - the buffer now has 15 lines.
-	// The completion's Lines match the current buffer exactly.
-	eng.storeReadyPrefetch(&types.CompletionResponse{Completion: &types.Completion{
-		StartLine:  1,
-		EndLineInc: 11,
-		Lines: []string{
-			"import numpy as np",
-			"",
-			"def bubble_sort(arr):",
-			"    n = len(arr)",
-			"    for i in range(n):",
-			"        for j in range(0, n-i-1):",
-			"            if arr[j] > arr[j+1]:",
-			"                arr[j], arr[j+1] = arr[j+1], arr[j]",
-			"    return arr",
-			"",
-			"if __name__ == \"__main__\":",
-			"    arr = np.random.randint(0, 100, 10)",
-			"    print(\"Original array:\", arr)",
-			"    sorted_arr = bubble_sort(arr)",
-			"    print(\"Sorted array:\", sorted_arr)",
-		},
-	}}, false)
-
-	result := eng.tryShowPrefetchedCompletion()
-
-	assert.False(t, result, "should return false when prefetch content already in buffer")
-}
-
-func TestPrefetchAtNMinusOne_UsesPureInsertionSemantics(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"import numpy as np",
-		"import matplotlib.pyplot as plt",
-		"import pandas as pd",
-		"",
-		"def bubble_sort(arr):",
-		"",
-		"if __name__ == \"__main__\":",
-		"    pass",
-	}
-	buf.row = 5
-	buf.col = 0
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	stage := &text.Stage{
-		BufferStart: 6,
-		BufferEnd:   5,
-		Lines: []string{
-			"    n = len(arr)",
-			"    for i in range(n):",
-			"        for j in range(0, n-i-1):",
-			"            if arr[j] > arr[j+1]:",
-		},
-		Groups: []*text.Group{{
-			Type:       text.GroupAddition,
-			BufferLine: 6,
-			StartLine:  1,
-			EndLine:    4,
-			Lines: []string{
-				"    n = len(arr)",
-				"    for i in range(n):",
-				"        for j in range(0, n-i-1):",
-				"            if arr[j] > arr[j+1]:",
-			},
-		}},
-		CursorTarget: &types.CursorPredictionTarget{
-			LineNumber:      10,
-			ShouldRetrigger: true,
-		},
-		IsLastStage: true,
-	}
-
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 0,
-		Stages:     []*text.Stage{stage},
-	}
-
-	eng.prefetchAtNMinusOne()
-	time.Sleep(10 * time.Millisecond)
-
-	prov.mu.Lock()
-	input := prov.lastInput
-	prov.mu.Unlock()
-
-	assert.Equal(t, []string{
-		"import numpy as np",
-		"import matplotlib.pyplot as plt",
-		"import pandas as pd",
-		"",
-		"def bubble_sort(arr):",
-		"    n = len(arr)",
-		"    for i in range(n):",
-		"        for j in range(0, n-i-1):",
-		"            if arr[j] > arr[j+1]:",
-		"",
-		"if __name__ == \"__main__\":",
-		"    pass",
-	}, input.Current.File.Lines, "synthetic buffer should insert pure-addition stage without replacing the blank line")
-}
-
-// TestAcceptLastStage_WaitsForInflightPrefetch tests that when accepting the last stage
-// and prefetch is still in-flight, the engine waits for it instead of going idle.
-func TestAcceptLastStage_WaitsForInflightPrefetch(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "old line 2", "line 3"}
-	buf.row = 2
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 10
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	defer eng.Close()
-
-	// Setup staged completion at last stage
-	eng.stagedCompletion = &text.StagedCompletion{
-		CurrentIdx: 0,
-		Stages: []*text.Stage{
-			&text.Stage{
-				BufferStart: 2,
-				BufferEnd:   2,
-				Lines:       []string{"new line 2"},
-				Groups: []*text.Group{{
-					Type:       text.GroupModification,
-					BufferLine: 2,
-					Lines:      []string{"new line 2"},
-					OldLines:   []string{"old line 2"},
-				}},
-				CursorTarget: &types.CursorPredictionTarget{
-					LineNumber:      2,
-					ShouldRetrigger: true,
-				},
-				IsLastStage: true,
-			},
-		},
-	}
-
-	eng.state = stateHasCompletion
-	showDisplayedCompletionWithBatchForTest(
-		eng,
-		&types.Completion{
-			StartLine:  2,
-			EndLineInc: 2,
-			Lines:      []string{"new line 2"},
-		},
-		&mockBatch{},
-		nil,
-		nil,
-	)
-	eng.cursorTarget = &types.CursorPredictionTarget{
-		LineNumber:      2,
-		ShouldRetrigger: true,
-	}
-
-	// Prefetch is in-flight (not ready yet)
-	seedInflightPrefetch(eng, prefetchNoWait)
-
-	eng.acceptCompletion()
-
-	// Should wait for prefetch instead of triggering a new request
-	assertInflightPrefetch(t, eng, prefetchAfterTab, "should be waiting for prefetch")
-	assert.Equal(t, stateIdle, eng.state, "should clear UI while waiting")
-}
-
-func TestTextChangeRestartsIdleTimer(t *testing.T) {
-	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-	defer eng.Close()
-	eng.config.TextChangeDebounce = -1 // Only the idle timer requests completions
-
-	eng.handleEvent(Event{Type: EventInsertEnter})
-	assert.Nil(t, eng.idleTimer, "idle timer after entering insert mode")
-
-	eng.handleEvent(Event{Type: EventTextChanged})
-	assert.NotNil(t, eng.idleTimer, "idle timer after typing")
+	prov.push(&types.Completion{StartLine: 1, EndLineInc: 3, Lines: []string{"x = 10", "", "def f():", "    return 1"}})
+	h := newHarness(t, newMockBuffer("x = 1", "", "def f():", "", "if True:", "    pass"), prov)
+
+	h.send("trigger_completion")
+	h.send("accept") // First stage, then the cursor target of the insertion
+	h.send("accept") // Jump to the insertion
+	assert.Equal(t, 2, prov.calls(), "prefetch while the last stage is shown")
+	h.send("accept")
+
+	want := []string{"x = 10", "", "def f():", "    return 1", "", "if True:", "    pass"}
+	assert.Equal(t, want, h.buf.lines, "buffer after the last stage")
+	assert.Equal(t, want, prov.input(1).Current.File.Lines, "prefetch input")
 }

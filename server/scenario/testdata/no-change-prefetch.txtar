@@ -1,0 +1,25 @@
+A prefetch identical to the buffer is not shown after an accept.
+row: 1
+col: 5
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+x = 1
+y = 2
+print(x + y)
+-- steps --
+respond 1-1
+  | "x = 10"
+respond 1-2
+  | "x = 10"
+  | "y = 2"
+request-completion manual
+expect shown
+  display:
+    | modification 1 append_chars
+accept
+expect hidden target=none state=Idle requests=2
+  buffer:
+    | "x = 10"
+    | "y = 2"
+    | "print(x + y)"

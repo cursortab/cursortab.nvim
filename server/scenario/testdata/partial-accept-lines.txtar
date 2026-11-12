@@ -1,0 +1,60 @@
+Partial accept applies a multi-line change one line at a time, and the rest stays shown.
+row: 1
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+old line 1
+old line 2
+old line 3
+old line 4
+-- steps --
+respond 1-4
+  | "new line 1"
+  | "new line 2"
+  | "new line 3"
+  | "new line 4"
+request-completion manual
+expect shown
+  display:
+    | modification 1 replace_chars
+    | modification 2 replace_chars
+    | modification 3 replace_chars
+    | modification 4 replace_chars
+partial-accept
+expect shown requests=1 cursor=1:10
+  display:
+    | modification 2 replace_chars
+    | modification 3 replace_chars
+    | modification 4 replace_chars
+  buffer:
+    | "new line 1"
+    | "old line 2"
+    | "old line 3"
+    | "old line 4"
+partial-accept
+expect shown cursor=2:10
+  display:
+    | modification 3 replace_chars
+    | modification 4 replace_chars
+  buffer:
+    | "new line 1"
+    | "new line 2"
+    | "old line 3"
+    | "old line 4"
+partial-accept
+expect shown cursor=3:10
+  display:
+    | modification 4 replace_chars
+  buffer:
+    | "new line 1"
+    | "new line 2"
+    | "new line 3"
+    | "old line 4"
+partial-accept
+expect hidden target=none state=Idle
+  buffer:
+    | "new line 1"
+    | "new line 2"
+    | "new line 3"
+    | "new line 4"

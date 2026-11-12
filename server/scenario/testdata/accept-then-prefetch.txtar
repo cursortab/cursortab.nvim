@@ -1,0 +1,38 @@
+After an accept, the prefetch proposes a change further away, shown as a cursor target.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+
+}
+
+function sub(a, b) {
+
+}
+-- steps --
+respond 2-2
+  | "  return a + b;"
+respond 6-6
+  | "  return a - b;"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2 append_chars
+accept
+expect hidden target=6 requests=2
+accept
+expect shown
+  display:
+    | modification 6 append_chars
+accept
+expect hidden target=none
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+    | ""
+    | "function sub(a, b) {"
+    | "  return a - b;"
+    | "}"

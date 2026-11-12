@@ -20,8 +20,12 @@ import (
 // errDaemonRunning means another daemon already serves the state directory.
 var errDaemonRunning = errors.New("daemon already running")
 
-// idleTimeout is how long the daemon keeps running without connected editors.
-const idleTimeout = 30 * time.Second
+const (
+	// idleTimeout is how long the daemon keeps running without connected editors.
+	idleTimeout = 30 * time.Second
+	// syncTimeout bounds how long a sync waits for the engine to settle.
+	syncTimeout = 30 * time.Second
+)
 
 // Daemon accepts editor connections and runs one session per connection.
 type Daemon struct {
@@ -174,6 +178,26 @@ func (d *Daemon) serve(conn net.Conn) {
 			mu.Unlock()
 			if eng != nil {
 				eng.HandleEditorEvent(event, buffer.Position{Row: pos[0], Col: pos[1], Offset: pos[2], Size: pos[3]})
+			}
+		},
+		// The editor waits for the engine to settle, for tests. Notifications
+		// run in order, so the engine handled every event sent before.
+		"cursortab_sync": func(id int) {
+			mu.Lock()
+			eng := session
+			mu.Unlock()
+			state := ""
+			if eng != nil {
+				ctx, cancel := context.WithTimeout(d.ctx, syncTimeout)
+				snapshot, err := eng.Settle(ctx)
+				cancel()
+				if err != nil {
+					logger.Warn("sync failed: %v", err)
+				}
+				state = snapshot.State
+			}
+			if err := client.ExecLua(`require("cursortab.daemon").on_synced(...)`, nil, id, state); err != nil {
+				logger.Debug("could not confirm sync: %v", err)
 			}
 		},
 		"cursortab_shutdown": func() {

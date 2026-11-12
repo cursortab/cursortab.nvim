@@ -1,0 +1,23 @@
+Completion populating an empty buffer (single empty line) with multiple new lines.
+row: 1
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+
+-- steps --
+respond 1-1
+  | "package main"
+  | ""
+  | "func main() {}"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 1 append_chars
+    | addition 2 x2
+accept
+expect hidden target=none
+  buffer:
+    | "package main"
+    | ""
+    | "func main() {}"

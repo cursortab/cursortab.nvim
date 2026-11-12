@@ -1,0 +1,56 @@
+Partial accept completes the cursor line first, then inserts the added lines below it one at a time.
+row: 3
+col: 8
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+import numpy as np
+
+def bubb
+-- steps --
+respond 3-3
+  | "def bubble_sort(arr):"
+  | "    n = len(arr)"
+  | "    return arr"
+request-completion manual
+expect shown
+  display:
+    | modification 3 append_chars
+    | addition 4 x2
+partial-accept
+expect shown cursor=3:16
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort("
+partial-accept
+expect shown cursor=3:20
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort(arr)"
+partial-accept
+expect shown requests=1 cursor=3:21
+  display:
+    | addition 4 x2
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort(arr):"
+partial-accept
+expect shown cursor=4:16
+  display:
+    | addition 5
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort(arr):"
+    | "    n = len(arr)"
+partial-accept
+expect hidden
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort(arr):"
+    | "    n = len(arr)"
+    | "    return arr"

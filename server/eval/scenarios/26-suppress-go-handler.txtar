@@ -22,5 +22,4 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

@@ -1,0 +1,24 @@
+Completion modifying the very first line of the buffer (startLine=1 boundary).
+row: 1
+col: 19
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+# TODO: add imports
+
+def main():
+    pass
+-- steps --
+respond 1-1
+  | "import os"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 1
+accept
+expect hidden target=none
+  buffer:
+    | "import os"
+    | ""
+    | "def main():"
+    | "    pass"

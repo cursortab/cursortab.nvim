@@ -1,0 +1,32 @@
+Typing that follows an inserted block keeps it shown line by line; typing all of it clears it.
+row: 1
+col: 10
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+func f() {
+}
+-- steps --
+respond 2-1
+  | "    x := 1"
+  | "    return x"
+request-completion manual
+expect shown
+  display:
+    | addition 2 x2
+type "\n    x :"
+expect shown requests=1
+  display:
+    | modification 2 append_chars
+    | addition 3
+type "= 1\n    ret"
+expect shown requests=1
+  display:
+    | modification 3 append_chars
+type "urn x"
+expect hidden state=Idle
+  buffer:
+    | "func f() {"
+    | "    x := 1"
+    | "    return x"
+    | "}"

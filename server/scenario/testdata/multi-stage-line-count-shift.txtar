@@ -1,0 +1,47 @@
+First stage expands one line into three; the second stage's buffer position shifts by +2 so the second modification still lands on the right line after acceptance.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def first():
+    pass
+line 3
+line 4
+line 5
+line 6
+old_line_7
+-- steps --
+respond 1-7
+  | "def first():"
+  | "    x = 1"
+  | "    y = 2"
+  | "    print(x + y)"
+  | "line 3"
+  | "line 4"
+  | "line 5"
+  | "line 6"
+  | "new_line_7"
+request-completion manual
+expect shown
+  display:
+    | modification 2 replace_chars
+    | addition 3 x2
+accept
+expect hidden target=9
+accept
+expect shown
+  display:
+    | modification 9 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "def first():"
+    | "    x = 1"
+    | "    y = 2"
+    | "    print(x + y)"
+    | "line 3"
+    | "line 4"
+    | "line 5"
+    | "line 6"
+    | "new_line_7"

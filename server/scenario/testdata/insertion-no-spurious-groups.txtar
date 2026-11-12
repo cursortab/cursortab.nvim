@@ -1,0 +1,38 @@
+After accepting a completion that inserts lines below the cursor, a completion whose end line is stale does not treat the accepted lines as changes.
+provider: scripted
+row: 5
+col: 23
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+import numpy as np
+
+def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+-- steps --
+respond 3-3
+  | "def bubble_sort(arr):"
+  | "    n = len(arr)"
+  | "    for i in range(n):"
+  | "        for j in range(0, n - i - 1):"
+  | "            if arr[j] > arr[j + 1]:"
+  | "                arr[j], arr[j + 1] = arr[j + 1], arr[j]"
+  | "    return arr"
+request-completion manual
+expect shown requests=1
+  display:
+    | addition 7 x3
+accept
+expect hidden target=none
+  buffer:
+    | "import numpy as np"
+    | ""
+    | "def bubble_sort(arr):"
+    | "    n = len(arr)"
+    | "    for i in range(n):"
+    | "        for j in range(0, n - i - 1):"
+    | "            if arr[j] > arr[j + 1]:"
+    | "                arr[j], arr[j + 1] = arr[j + 1], arr[j]"
+    | "    return arr"

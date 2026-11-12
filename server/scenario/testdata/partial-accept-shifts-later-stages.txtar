@@ -1,0 +1,67 @@
+After a stage that inserts lines is accepted in parts, the next stage still changes the right line.
+row: 3
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def f():
+    pass
+
+x = 1
+y = 2
+z = 3
+w = 4
+-- steps --
+respond 3-7
+  | "    a = 1"
+  | "    b = 2"
+  | ""
+  | "x = 1"
+  | "y = 2"
+  | "z = 3"
+  | "w = 40"
+request-completion manual
+expect shown
+  display:
+    | addition 3 x2
+partial-accept
+expect shown cursor=3:9
+  display:
+    | addition 4
+  buffer:
+    | "def f():"
+    | "    pass"
+    | "    a = 1"
+    | ""
+    | "x = 1"
+    | "y = 2"
+    | "z = 3"
+    | "w = 4"
+accept
+expect hidden target=9 state=HasCursorTarget
+  buffer:
+    | "def f():"
+    | "    pass"
+    | "    a = 1"
+    | "    b = 2"
+    | ""
+    | "x = 1"
+    | "y = 2"
+    | "z = 3"
+    | "w = 4"
+accept
+expect shown cursor=9:0
+  display:
+    | modification 9 append_chars
+accept
+expect hidden target=none
+  buffer:
+    | "def f():"
+    | "    pass"
+    | "    a = 1"
+    | "    b = 2"
+    | ""
+    | "x = 1"
+    | "y = 2"
+    | "z = 3"
+    | "w = 40"

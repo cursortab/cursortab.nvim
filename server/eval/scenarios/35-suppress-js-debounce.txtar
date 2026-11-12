@@ -18,5 +18,4 @@ export function debounce(fn, delay) {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

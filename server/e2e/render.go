@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
@@ -469,18 +468,6 @@ func RenderPipelineCol(b *strings.Builder, label string, oldText, newText string
 	RenderTextPane(b, "New", strings.Split(newText, "\n"), newCursorRow, newCursorCol)
 
 	b.WriteString("</div>\n")
-}
-
-func RenderJSONSection(b *strings.Builder, data any, open bool) {
-	jsonBytes, _ := json.MarshalIndent(data, "", "  ")
-
-	openAttr := ""
-	if open {
-		openAttr = " open"
-	}
-	fmt.Fprintf(b, "<div class=\"json-section\"><details class=\"json-details\"%s><summary>JSON</summary>\n", openAttr)
-	fmt.Fprintf(b, "<code class=\"shiki-json\">%s</code>\n", html.EscapeString(string(jsonBytes)))
-	b.WriteString("</details></div>\n")
 }
 
 // BaseCSS returns the shared CSS styles for e2e reports.

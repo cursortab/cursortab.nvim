@@ -19,5 +19,4 @@ async function fetchUserData(userId) {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

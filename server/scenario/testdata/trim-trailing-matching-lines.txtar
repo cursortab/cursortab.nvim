@@ -1,0 +1,27 @@
+A completion that runs past its end line with lines that already match the buffer is trimmed, so they are not shown as changes.
+provider: scripted
+row: 2
+col: 4
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+def main():
+    pass
+    foo
+    bar
+-- steps --
+respond 2-2
+  | "    x = 1"
+  | "    foo"
+  | "    bar"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "def main():"
+    | "    x = 1"
+    | "    foo"
+    | "    bar"

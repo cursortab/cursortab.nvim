@@ -1,201 +1,163 @@
 package engine
 
 import (
-	"cursortab/assert"
-	"cursortab/text"
-	"cursortab/types"
 	"testing"
+	"time"
+
+	"cursortab/assert"
+	"cursortab/types"
 )
 
-func TestStateNotifierAcceptedStream(t *testing.T) {
-	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-	var status types.EngineStatus
-	setStateNotifier(eng, func(value types.EngineStatus) { status = value })
-	eng.state = stateStreamingCompletion
-	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
-	eng.currentCancel = func() {}
-	showDisplayedCompletionWithBatchForTest(eng, &types.Completion{
-		StartLine: 1, EndLineInc: 1, Lines: []string{"completed line 1"},
-	}, &mockBatch{}, nil, nil)
+var streamBuffer = numbered(12, "line %d")
 
-	eng.handleEvent(Event{Type: EventAccept})
-	assert.Equal(t, types.EngineStatus{State: "Idle", Pending: true}, status, "stream continues after acceptance")
-	eng.handleStreamEvent("", false)
-	assert.Equal(t, types.EngineStatus{State: "Idle"}, status, "stream finishes without a state transition")
+// newStreamHarness runs an engine whose provider streams streams, in order.
+func newStreamHarness(t *testing.T, streams ...*mockCompletionStream) (*harness, *mockStreamingProvider) {
+	prov := &mockStreamingProvider{mockProvider: newMockProvider(), streams: streams}
+	return newHarness(t, newMockBuffer(streamBuffer...), prov), prov
 }
 
-func TestStreamingKeepPartial_FullyTypedDoesNotCacheRejection(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello world"} // User typed the full completion
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
+// streamFirstStage starts a stream of the buffer with line 2 changed and waits
+// until the first stage is displayed while the stream continues.
+func streamFirstStage(t *testing.T, h *harness, stream *mockCompletionStream) {
+	t.Helper()
+	h.post("trigger_completion")
+	for _, line := range []string{"line 1", "line two", "line 3", "line 4", "line 5", "line 6"} {
+		stream.lines <- line
+	}
+	waitFor(t, func() bool { _, shown, _ := h.buf.display(); return shown }, "first stage displayed while streaming")
+}
 
-	eng.state = stateStreamingCompletion
-	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
-	showDisplayedCompletionForTest(
-		eng,
-		&types.Completion{
-			StartLine:  1,
-			EndLineInc: 1,
-			Lines:      []string{"hello world"},
-		},
-		[]string{"hello "},
-		nil,
-	)
-	eng.display.setRejectionCandidate(&rejectedCompletion{
-		filePath:   buf.Path(),
-		startLine:  1,
-		endLineInc: 1,
-		beforeLine: "",
-		afterLine:  "",
-		oldLines:   []string{"hello"},
-		lines:      []string{"hello world"},
+func TestStreamWithoutLinesUsesItsResult(t *testing.T) {
+	t.Run("completion", func(t *testing.T) {
+		stream := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{Completion: &types.Completion{
+			StartLine: 1, EndLineInc: 1, Lines: []string{"line one"},
+		}})
+		close(stream.lines)
+		h, _ := newStreamHarness(t, stream)
+
+		snapshot := h.send("trigger_completion")
+
+		assert.Equal(t, "HasCompletion", snapshot.State, "result shown")
+		assert.Equal(t, "line one", snapshot.StagedLines[0], "result lines")
 	})
+	t.Run("empty", func(t *testing.T) {
+		stream := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{})
+		close(stream.lines)
+		h, _ := newStreamHarness(t, stream)
 
-	eng.doRejectStreamingAndDebounce()
-
-	assert.Equal(t, stateIdle, eng.state, "state after fully typing line-streamed completion")
-	assert.Nil(t, eng.rejectedCompletions[buf.Path()], "fully typed streamed completion should not populate rejection cache")
-}
-
-func TestStreamingReject_NoKeepPartial(t *testing.T) {
-	buf := newMockBuffer()
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	eng.state = stateStreamingCompletion
-	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
-
-	eng.doRejectStreamingAndDebounce()
-
-	assert.Equal(t, stateIdle, eng.state, "state after rejecting line streaming")
-}
-
-func TestStreamCompleteAfterAccept_UsesCursorTargetOnlyResponse(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"line 1", "line 2"}
-	buf.row = 1
-	buf.col = 0
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	eng.handleStreamCompleteAfterAccept(&types.CompletionResponse{
-		CursorTarget: &types.CursorPredictionTarget{
-			LineNumber:      10,
-			ShouldRetrigger: true,
-		},
-	}, false)
-
-	assert.Equal(t, stateHasCursorTarget, eng.state, "cursor target should survive accepted stream finish")
-	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line")
-}
-
-func TestStreamCompleteAfterAccept_PreservesManualFlagThroughCachedPrefetch(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{
-		"line 1", "line 2", "line 3", "line 4", "line 5",
-		"line 6", "line 7", "line 8", "line 9", "old line 10",
-	}
-	buf.row = 1
-	buf.col = 0
-	buf.viewportTop = 1
-	buf.viewportBottom = 20
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-	eng.config.CursorPrediction.ProximityThreshold = 3
-
-	eng.handleStreamCompleteAfterAccept(&types.CompletionResponse{
-		Completion: &types.Completion{
-			StartLine:  10,
-			EndLineInc: 10,
-			Lines:      []string{"new line 10"},
-		},
-	}, true)
-
-	assert.Equal(t, stateHasCursorTarget, eng.state, "far stream finish should first show cursor target")
-	assert.Equal(t, 10, buf.showCursorTargetLine, "cursor target line")
-
-	eng.acceptCursorTarget()
-
-	assert.NotNil(t, eng.currentSnapshot, "metrics snapshot")
-	assert.True(t, eng.currentSnapshot.ManuallyTriggered, "manual flag follows cached stream completion")
-}
-
-func TestRenderStreamedStage_SuppressedBeforeRender(t *testing.T) {
-	buf := newMockBuffer()
-	buf.lines = []string{"hello"}
-	buf.row = 1
-	buf.col = 5
-	prov := newMockProvider()
-	clock := newMockClock()
-	eng := createTestEngine(buf, prov, clock)
-
-	eng.display.setRejectionCandidate(&rejectedCompletion{
-		filePath:   buf.Path(),
-		startLine:  1,
-		endLineInc: 1,
-		beforeLine: "",
-		afterLine:  "",
-		oldLines:   []string{"hello"},
-		lines:      []string{"hello world"},
+		assert.Equal(t, "Idle", h.send("trigger_completion").State, "nothing shown")
 	})
-	eng.rememberRejectedCompletion()
-
-	eng.state = stateStreamingCompletion
-	eng.stream = &activeStream{stream: newMockCompletionStream(nil)}
-
-	stage := &text.Stage{
-		BufferStart: 1,
-		BufferEnd:   1,
-		Lines:       []string{"hello world"},
-		Groups: []*text.Group{{
-			Type:       text.GroupModification,
-			StartLine:  1,
-			EndLine:    1,
-			BufferLine: 1,
-			Lines:      []string{"hello world"},
-			OldLines:   []string{"hello"},
-			RenderHint: text.HintAppendChars,
-			ColStart:   5,
-			ColEnd:     11,
-		}},
-	}
-
-	eng.renderStreamedStage(stage)
-
-	assert.Equal(t, 0, buf.prepareCompletionCalls, "suppressed streamed stage should not render")
-	assert.Greater(t, buf.clearUICalls, 0, "suppressed streamed stage should clear UI through reject")
-	assert.Equal(t, stateIdle, eng.state, "state after suppressing streamed stage")
-	assert.Nil(t, eng.stream, "streaming state after suppression")
 }
 
-func TestStreamComplete_NoPreviewLines_AdoptsFinishResult(t *testing.T) {
-	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
-	stream := &mockCompletionStream{response: completionResponse(&types.Completion{
-		StartLine: 1, EndLineInc: 1, Lines: []string{"updated"},
-	})}
+// After an accept during streaming, the rest of the stream still finishes:
+// the engine stays pending, and a cursor target of the result is shown.
+func TestAcceptDuringStream(t *testing.T) {
+	stream := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{
+		CursorTarget: &types.CursorPredictionTarget{LineNumber: 10, ShouldRetrigger: true},
+	})
+	h, _ := newStreamHarness(t, stream)
+	streamFirstStage(t, h, stream)
 
-	eng.startCompletionStream(stream, false)
-	eng.handleStreamComplete()
+	h.post("accept")
+	waitFor(t, func() bool { return h.status() == types.EngineStatus{State: "Idle", Pending: true} }, "stream continues after the accept")
+	assert.Equal(t, "line two", h.buf.Lines()[1], "first stage applied")
 
-	assert.Equal(t, stateHasCompletion, eng.state, "finish result is staged")
-	assert.NotNil(t, eng.stagedCompletion, "staged completion")
-	if eng.stagedCompletion != nil {
-		assert.Equal(t, []string{"updated"}, eng.stagedCompletion.Stages[0].Lines, "completion lines")
-	}
-	assert.Nil(t, eng.stream, "streaming state after finish")
+	close(stream.lines)
+	snapshot := h.settle()
+
+	assert.Equal(t, "HasCursorTarget", snapshot.State, "cursor target of the result")
+	assert.Equal(t, 10, h.buf.target, "cursor target line")
+	assert.Equal(t, types.EngineStatus{State: "HasCursorTarget"}, h.status(), "stream finished")
 }
 
-func TestStreamComplete_NoPreviewLines_EmptyResultStaysIdle(t *testing.T) {
-	eng := createTestEngine(newMockBuffer(), newMockProvider(), newMockClock())
+// A new request after an accept during streaming drops the rest of the
+// stream, so its late result cannot show a stale cursor target.
+func TestRequestAfterAcceptDuringStreamDropsTheStream(t *testing.T) {
+	stream := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{
+		CursorTarget: &types.CursorPredictionTarget{LineNumber: 10, ShouldRetrigger: true},
+	})
+	prefetch := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{})
+	close(prefetch.lines)
+	next := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{})
+	close(next.lines)
+	h, prov := newStreamHarness(t, stream, prefetch, next)
+	streamFirstStage(t, h, stream)
+	h.post("accept")
+	waitFor(t, func() bool { return h.buf.Lines()[1] == "line two" }, "first stage applied")
 
-	eng.startCompletionStream(&mockCompletionStream{response: &types.CompletionResponse{}}, false)
-	eng.handleStreamComplete()
+	h.buf.mu.Lock()
+	h.buf.lines[1], h.buf.row, h.buf.col = "line twox", 2, 9
+	h.buf.mu.Unlock()
+	h.post("text_changed")
+	// Settle waits for the stream, so the debounce fires by the clock.
+	waitFor(t, func() bool {
+		h.clock.Advance(50 * time.Millisecond)
+		return prov.calls() == 3
+	}, "new request")
+	snapshot := h.settle()
+	close(stream.lines)
 
-	assert.Equal(t, stateIdle, eng.state, "stream that delivers nothing keeps the engine idle")
-	assert.Nil(t, eng.stream, "streaming state after finish")
+	assert.Equal(t, "Idle", snapshot.State, "stream dropped")
+	assert.Equal(t, types.EngineStatus{State: "Idle"}, h.status(), "nothing pending")
+	assert.Equal(t, 0, h.buf.target, "no cursor target")
+}
+
+// A streamed stage like one the user rejected is not displayed.
+func TestRejectedStreamedStageIsNotDisplayed(t *testing.T) {
+	first := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{})
+	second := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{})
+	h, _ := newStreamHarness(t, first, second)
+	streamFirstStage(t, h, first)
+	h.send("esc")
+	renders, _, _ := h.buf.display()
+
+	h.post("text_changed")
+	for _, line := range []string{"line 1", "line two", "line 3", "line 4", "line 5", "line 6"} {
+		second.lines <- line
+	}
+	close(second.lines)
+	snapshot := h.settle()
+
+	after, shown, _ := h.buf.display()
+	assert.Equal(t, renders, after, "rejected stage not rendered")
+	assert.False(t, shown, "nothing displayed")
+	assert.Equal(t, "Idle", snapshot.State, "state")
+}
+
+// A prefetch streams when the provider streams, and its result predicts the
+// next edit. A prefetch interrupted by a file switch is not used.
+func TestStreamingPrefetch(t *testing.T) {
+	far := &types.CompletionResponse{Completion: &types.Completion{StartLine: 10, EndLineInc: 10, Lines: []string{"line ten"}}}
+	t.Run("used", func(t *testing.T) {
+		shown := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{Completion: &types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"line one"}}})
+		close(shown.lines)
+		prefetch := newMockCompletionStream(0, streamBuffer, far)
+		close(prefetch.lines)
+		h, prov := newStreamHarness(t, shown, prefetch)
+		h.send("trigger_completion")
+
+		snapshot := h.send("accept")
+
+		assert.Equal(t, 2, prov.calls(), "prefetch requested")
+		assert.Equal(t, "HasCursorTarget", snapshot.State, "prefetch predicts the next edit")
+		assert.Equal(t, 10, h.buf.target, "cursor target line")
+	})
+	t.Run("interrupted", func(t *testing.T) {
+		shown := newMockCompletionStream(0, streamBuffer, &types.CompletionResponse{Completion: &types.Completion{StartLine: 1, EndLineInc: 1, Lines: []string{"line one"}}})
+		close(shown.lines)
+		prefetch := newMockCompletionStream(0, streamBuffer, far)
+		h, prov := newStreamHarness(t, shown, prefetch)
+		h.send("trigger_completion")
+		h.post("accept")
+		waitFor(t, func() bool { return prov.calls() == 2 }, "prefetch requested")
+
+		h.buf.mu.Lock()
+		h.buf.switchOnSync = true
+		h.buf.mu.Unlock()
+		h.post("buf_enter")
+		close(prefetch.lines)
+		h.settle()
+
+		assert.Equal(t, 0, h.buf.target, "interrupted prefetch not used")
+	})
 }

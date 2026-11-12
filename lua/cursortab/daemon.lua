@@ -287,6 +287,37 @@ function daemon.on_session_error(message)
 	vim.notify("cursortab: " .. message, vim.log.levels.ERROR)
 end
 
+---@type table<integer, fun(state: string)>
+local sync_waiters = {}
+local last_sync_id = 0
+
+-- Call done with the engine state once the engine handled the events sent so
+-- far and nothing is in flight. A pending text change debounce fires at once.
+-- Used by tests.
+---@param done fun(state: string)
+function daemon.sync(done)
+	if not chan then
+		error("cursortab: not connected to the daemon")
+	end
+	last_sync_id = last_sync_id + 1
+	sync_waiters[last_sync_id] = done
+	vim.fn.rpcnotify(chan, "cursortab_sync", last_sync_id)
+end
+
+-- RPC callback: the engine settled for the sync with this id.
+---@param id integer
+---@param state string
+function daemon.on_synced(id, state)
+	local done = sync_waiters[id]
+	sync_waiters[id] = nil
+	-- Return the RPC response first: the daemon waits for it.
+	if done then
+		vim.schedule(function()
+			done(state)
+		end)
+	end
+end
+
 -- Called after the connection to the daemon ends.
 ---@param handler fun()
 function daemon.set_disconnect_handler(handler)

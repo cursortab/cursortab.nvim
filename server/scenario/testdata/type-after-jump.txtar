@@ -1,0 +1,35 @@
+After jumping to a cursor target, the first key typed reaches the engine and starts a new request.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+
+}
+
+function sub(a, b) {
+
+}
+-- steps --
+respond 2-2
+  | "  return a + b;"
+respond 6-6
+  | "  return a - b;"
+request-completion manual
+accept
+expect hidden target=6 requests=2
+accept
+expect shown cursor=6:0
+  display:
+    | modification 6 append_chars
+type "x"
+expect requests=3 cursor=6:1
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+    | ""
+    | "function sub(a, b) {"
+    | "x"
+    | "}"

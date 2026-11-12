@@ -1,0 +1,42 @@
+After accepting the first stage, the engine transitions to hasCursorTarget pointing at the next stage when it's beyond proximity threshold.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function a() {
+  return 1;
+}
+
+function b() {
+  return 2;
+}
+-- steps --
+respond 1-7
+  | "function a() {"
+  | "  return 10;"
+  | "}"
+  | ""
+  | "function b() {"
+  | "  return 20;"
+  | "}"
+request-completion manual
+expect shown
+  display:
+    | modification 2 replace_chars
+accept
+expect hidden target=6 state=HasCursorTarget
+accept
+expect shown cursor=6:2
+  display:
+    | modification 6 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "function a() {"
+    | "  return 10;"
+    | "}"
+    | ""
+    | "function b() {"
+    | "  return 20;"
+    | "}"

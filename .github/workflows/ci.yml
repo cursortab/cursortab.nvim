@@ -35,6 +35,12 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - name: Set up Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
       - name: Check formatting
         run: |
           cd server

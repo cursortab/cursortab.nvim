@@ -141,14 +141,6 @@ func NoError(t *testing.T, err error, label string) {
 	}
 }
 
-// Greater checks that actual > expected
-func Greater(t *testing.T, actual, expected int, label string) {
-	t.Helper()
-	if actual <= expected {
-		t.Errorf("Expected %d > %d for %s", actual, expected, label)
-	}
-}
-
 // GreaterOrEqual checks that actual >= expected
 func GreaterOrEqual(t *testing.T, actual, expected int, label string) {
 	t.Helper()

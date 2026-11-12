@@ -1,0 +1,62 @@
+First stage entirely outside the viewport: engine sets cursor target instead of showing completion directly.
+row: 2
+col: 0
+viewportTop: 1
+viewportBottom: 10
+-- buffer.txt --
+line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+old line 20
+line 21
+line 22
+-- steps --
+respond 20-20
+  | "new line 20"
+request-completion manual
+expect hidden target=20 state=HasCursorTarget
+accept
+expect shown cursor=20:0
+  display:
+    | modification 20 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "line 1"
+    | "line 2"
+    | "line 3"
+    | "line 4"
+    | "line 5"
+    | "line 6"
+    | "line 7"
+    | "line 8"
+    | "line 9"
+    | "line 10"
+    | "line 11"
+    | "line 12"
+    | "line 13"
+    | "line 14"
+    | "line 15"
+    | "line 16"
+    | "line 17"
+    | "line 18"
+    | "line 19"
+    | "new line 20"
+    | "line 21"
+    | "line 22"

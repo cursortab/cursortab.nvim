@@ -1,0 +1,26 @@
+Typing the start of a shown append keeps the prediction on screen without a new request, and accepting inserts the rest.
+row: 2
+col: 2
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+  
+}
+-- steps --
+respond 2-2
+  | "  return a + b;"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2 append_chars
+type "ret"
+expect shown state=HasCompletion requests=1 cursor=2:5
+  display:
+    | modification 2 append_chars
+accept
+expect hidden cursor=2:15
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"

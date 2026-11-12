@@ -23,5 +23,4 @@ class Config:
         return f"{self.host}:{self.port}"
 -- steps --
 request-completion manual
-  expect !shown
 

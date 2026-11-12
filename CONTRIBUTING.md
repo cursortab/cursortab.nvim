@@ -6,12 +6,13 @@ Contributions are welcome! Please open an issue or a pull request.
 
 - Go 1.25.0+
 - [just](https://github.com/casey/just) command runner
+- Neovim 0.11+ for the Neovim scenario tests (skipped when `nvim` is missing)
 
 ## Build & Test
 
 ```bash
 just build             # build the server
-just test              # all tests (unit, E2E pipeline, eval baseline check)
+just test              # all tests (unit, scenarios, E2E pipeline, eval baseline check)
 just test TestName     # run specific test(s)
 just fmt               # format Go code
 just lint              # check for dead code
@@ -41,6 +42,56 @@ To add a new fixture, create a `.txtar` file in `server/text/testdata/` with
 initial expected output. Stop there — the human reviews the report and runs
 `just verify-e2e <name>`.
 
+## Behavior Scenarios
+
+Behavior scenarios check what a user sees: the steps a user takes and what the
+buffer, the display, and the engine show after them. They are `.txtar` files in
+`server/scenario/testdata/` and run as part of `just test`, twice:
+
+- `TestScenarios` runs the engine in process, with a fake buffer and clock.
+- `TestScenariosInNeovim` runs them in a headless Neovim with the plugin, a
+  freshly built daemon, and a fake model server. It is skipped when `nvim` is
+  not installed or with `go test -short`.
+
+The `respond` steps give the answers of the provider. By default a fake sweep
+model serves them to the real sweep provider, so the same file runs in both
+runners. `provider: scripted` hands them to the engine as completions instead,
+for answers that sweep cannot give (such as a completion with a stale end line);
+those run only in process.
+
+```
+Typing the start of a shown append keeps the prediction without a new request.
+row: 2
+col: 2
+-- buffer.txt --
+function add(a, b) {
+
+}
+-- steps --
+respond 2-2
+  | "  return a + b;"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2 append_chars
+type "ret"
+expect shown requests=1 cursor=2:5
+accept
+expect hidden cursor=2:15
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"
+```
+
+Each step ends when the engine settles: it handled every event, a pending text
+change debounce fires as if the user paused, and no request is in flight. In
+Neovim, the test sends `cursortab_sync` to the daemon after the keys of a step,
+which answers once the engine settled.
+
+To write the expectations of a new scenario, start with bare `expect` lines and
+fill them from what both runners observe.
+
 ## Eval Harness
 
 The eval harness measures completion quality and gating behavior across
@@ -59,8 +110,9 @@ just eval --per-scenario=false   # aggregate table only
 ### Scenarios
 
 Each scenario is a [txtar](https://pkg.go.dev/golang.org/x/tools/txtar) file in
-`server/eval/scenarios/`. Targets are defined globally in
-`server/eval/harness/targets.go`; scenarios reference them by name.
+`server/eval/scenarios/`, in the same format as behavior scenarios. Targets are
+defined globally in `server/scenario/targets.go`; scenarios reference them by
+name, and their recorded cassettes answer the requests.
 
 ```
 Description of the scenario.
@@ -94,12 +146,26 @@ correctly produces nothing).
 
 ### Step DSL
 
-| Verb                 | Syntax                        | Effect                                                          |
-| -------------------- | ----------------------------- | --------------------------------------------------------------- |
-| `request-completion` | `request-completion [manual]` | Run gating + provider + staging. `manual` bypasses suppression. |
-| `accept`             | `accept`                      | Accept the staged completion.                                   |
-| `reject`             | `reject`                      | Reject and clear.                                               |
-| `wait`               | `wait <duration>`             | Advance the fake clock (e.g. `50ms`, `1s`).                     |
+Behavior and eval scenarios share the steps:
+
+| Step                 | Syntax                                    | Effect                                                        |
+| -------------------- | ----------------------------------------- | ------------------------------------------------------------- |
+| `request-completion` | `request-completion [manual]`             | Request a completion. `manual` bypasses the request gates.    |
+| `respond`            | `respond <start>-<end>` + `  \| "line"`   | Behavior only: the next provider answer replaces those lines. |
+| `accept`             | `accept`                                  | Accept the completion or jump to the cursor target (Tab).     |
+| `partial-accept`     | `partial-accept`                          | Accept the next word or line (S-Tab).                         |
+| `reject`             | `reject`                                  | Press Esc: leave insert mode and clear.                       |
+| `type`               | `type "text"`                             | Type at the cursor, entering insert mode when needed.         |
+| `move`               | `move <row>:<col>`                        | Move the cursor.                                              |
+| `wait`               | `wait <duration>`                         | Let time pass (e.g. `50ms`, `1s`).                            |
+| `expect`             | `expect [flags]` + `buffer:` / `display:` | Check what is observed now.                                   |
+
+`expect` flags: `shown` or `hidden` (a completion is displayed), `target=<line>`
+or `target=none` (cursor target), `state=<name>` (engine state, e.g.
+`HasCompletion`), `requests=<n>` (provider requests so far),
+`cursor=<row>:<col>`. An indented `buffer:` section lists the expected buffer
+lines as quoted strings; `display:` lists the displayed groups as
+`<type> <line> [x<lines>] [<hint>]`.
 
 ### Scoring
 
@@ -151,4 +217,4 @@ just eval-record-windsurf /tmp/nvim.sock --missing
 
 1. Implement `SetHTTPTransport(rt http.RoundTripper)` on the provider's HTTP
    client.
-2. Add a case in `BuildProviderForTarget` (`server/eval/harness/factory.go`).
+2. Add a case in `BuildProviderForTarget` (`server/scenario/factory.go`).

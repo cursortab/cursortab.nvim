@@ -30,6 +30,9 @@ const (
 	EventCompletionError   EventType = "completion_error"
 	EventPrefetchReady     EventType = "prefetch_ready"
 	EventPrefetchError     EventType = "prefetch_error"
+
+	// eventSettle is sent by Settle, which waits until the engine settled.
+	eventSettle EventType = "settle"
 )
 
 type Event struct {
@@ -40,6 +43,8 @@ type Event struct {
 	Stream    CompletionStream
 	Err       error
 	Position  buffer.Position // Editor events: cursor and buffer size when sent
+
+	settled chan<- Snapshot // eventSettle: receives the snapshot once settled
 }
 
 // EventTypeFromString returns the EventType of an event the editor may send,
@@ -138,20 +143,35 @@ func (e *Engine) process(work func()) {
 	}
 	defer e.notifyStateChange(false)
 	work()
-	for len(e.queue) > 0 && e.ctx.Err() == nil {
-		next := e.queue[0]
-		e.queue = e.queue[1:]
-		e.step(next)
+	for e.ctx.Err() == nil {
+		if len(e.queue) > 0 {
+			next := e.queue[0]
+			e.queue = e.queue[1:]
+			e.step(next)
+		} else if !e.flushDebounce() {
+			break
+		}
 	}
+	e.releaseSettled()
 }
 
 func (e *Engine) step(event Event) {
+	if event.Type == eventSettle {
+		e.settleWaiters = append(e.settleWaiters, event.settled)
+		return
+	}
 	logger.Debug("handle event: %v (state=%s)", event.Type, e.state)
 	defer func() {
 		logger.Debug("after event: %v (state=%s)", event.Type, e.state)
 	}()
 
 	switch event.Type {
+	case EventTextChangeTimeout:
+		// A timeout of a timer that was stopped or flushed is stale.
+		if e.textChangeTimer == nil {
+			return
+		}
+		e.textChangeTimer = nil
 	case EventBufEnter:
 		// Opening the entered buffer before any edit makes its unedited
 		// content the baseline of its history.

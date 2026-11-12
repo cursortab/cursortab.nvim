@@ -1,0 +1,22 @@
+Single-line replacement: fix a return value in a function.
+row: 2
+col: 16
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function greet(name) {
+  return "hello";
+}
+-- steps --
+respond 2-2
+  | "  return \"hello, \" + name;"
+request-completion manual
+expect shown requests=1
+  display:
+    | modification 2
+accept
+expect hidden target=none
+  buffer:
+    | "function greet(name) {"
+    | "  return \"hello, \" + name;"
+    | "}"

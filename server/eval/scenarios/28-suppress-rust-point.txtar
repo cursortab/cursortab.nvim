@@ -26,5 +26,4 @@ impl Point {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

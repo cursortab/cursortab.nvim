@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"cursortab/eval/cassette"
-	"cursortab/eval/harness"
+	"cursortab/scenario"
 	"cursortab/types"
 )
 
@@ -17,7 +17,7 @@ func recordCmd(args []string) error {
 	var (
 		dir         = fs.String("scenarios", "eval/scenarios", "directory of .txtar scenario fixtures")
 		targetFlag  = fs.String("target", "", "target name to record (required; matches scenarios' target list)")
-		scenario    = fs.String("scenario", "", "scenario id filter (empty = all)")
+		scenarioID  = fs.String("scenario", "", "scenario id filter (empty = all)")
 		onlyMissing = fs.Bool("missing", false, "only record scenarios that don't yet have a cassette for this target")
 		apiURL      = fs.String("url", "", "provider API url (overrides the target's URL)")
 		apiKey      = fs.String("api-key", "", "API key (falls back to CURSORTAB_EVAL_API_KEY)")
@@ -51,7 +51,7 @@ func recordCmd(args []string) error {
 	skipped := 0
 	missingTarget := 0
 	for _, sc := range scenarios {
-		if *scenario != "" && sc.ID != *scenario {
+		if *scenarioID != "" && sc.ID != *scenarioID {
 			continue
 		}
 		if sc.TargetByName(targetName) == nil {
@@ -80,9 +80,9 @@ func recordCmd(args []string) error {
 		sc.Targets = upsertTarget(saved, target)
 
 		fmt.Printf("recording %s / %s...\n", sc.ID, targetName)
-		outcome := harness.Run(sc, harness.Config{
+		outcome := scenario.Run(sc, scenario.Config{
 			TargetFilter: []string{targetName},
-			Mode:         harness.ModeRecord,
+			Mode:         scenario.ModeRecord,
 			Transport:    http.DefaultTransport,
 			BaseConfig:   &types.ProviderConfig{APIKey: key},
 		})
@@ -120,8 +120,8 @@ func recordCmd(args []string) error {
 
 // upsertTarget replaces the target with the same name in the list (by
 // value), or appends it if none exists.
-func upsertTarget(targets []harness.Target, t harness.Target) []harness.Target {
-	out := make([]harness.Target, len(targets))
+func upsertTarget(targets []scenario.Target, t scenario.Target) []scenario.Target {
+	out := make([]scenario.Target, len(targets))
 	copy(out, targets)
 	for i := range out {
 		if out[i].Name == t.Name {
@@ -134,7 +134,7 @@ func upsertTarget(targets []harness.Target, t harness.Target) []harness.Target {
 
 // writeCassette writes a cassette to the sidecar directory next to the
 // scenario's .txtar file.
-func writeCassette(sc *harness.Scenario, targetName string, cs *cassette.Cassette) error {
+func writeCassette(sc *scenario.Scenario, targetName string, cs *cassette.Cassette) error {
 	dir := sc.CassetteDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create cassette dir: %w", err)

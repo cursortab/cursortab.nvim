@@ -1,0 +1,42 @@
+Stage just outside the viewport bottom: navigation is required even though the cursor is one line away (entirely-outside check overrides distance).
+row: 10
+col: 0
+viewportTop: 1
+viewportBottom: 10
+-- buffer.txt --
+line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+old line 11
+line 12
+-- steps --
+respond 11-11
+  | "new line 11"
+request-completion manual
+expect hidden target=11 state=HasCursorTarget
+accept
+expect shown cursor=11:0
+  display:
+    | modification 11 replace_chars
+accept
+expect hidden target=none
+  buffer:
+    | "line 1"
+    | "line 2"
+    | "line 3"
+    | "line 4"
+    | "line 5"
+    | "line 6"
+    | "line 7"
+    | "line 8"
+    | "line 9"
+    | "line 10"
+    | "new line 11"
+    | "line 12"

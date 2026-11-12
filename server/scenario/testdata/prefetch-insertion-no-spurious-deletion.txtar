@@ -1,0 +1,46 @@
+A prefetch that inserts a for-loop body (1 old line -> 3 new lines) does not delete the unrelated lines below.
+row: 4
+col: 39
+viewportTop: 1
+viewportBottom: 50
+-- buffer.txt --
+var arra = [1, 2, 3];
+
+function test() {
+  for (var i = 0; i < arra.length; i++)
+}
+
+function test2() {
+  console.log(arra);
+}
+  
+-- steps --
+respond 4-4
+  | "  for (var i = 0; i < arra.length; i++) {"
+respond 5-5
+  | "    console.log(arra[i]);"
+  | "  }"
+  | "}"
+request-completion manual
+expect shown
+  display:
+    | modification 4 append_chars
+accept
+expect shown requests=2
+  display:
+    | addition 5 x2
+accept
+expect hidden
+  buffer:
+    | "var arra = [1, 2, 3];"
+    | ""
+    | "function test() {"
+    | "  for (var i = 0; i < arra.length; i++) {"
+    | "    console.log(arra[i]);"
+    | "  }"
+    | "}"
+    | ""
+    | "function test2() {"
+    | "  console.log(arra);"
+    | "}"
+    | "  "

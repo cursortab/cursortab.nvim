@@ -1,0 +1,21 @@
+Typing that diverges from an inserted block rejects it and starts a new request.
+row: 1
+col: 10
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+func f() {
+}
+-- steps --
+respond 2-1
+  | "    x := 1"
+request-completion manual
+expect shown
+  display:
+    | addition 2
+type "\n    y"
+expect hidden state=Idle requests=2
+  buffer:
+    | "func f() {"
+    | "    y"
+    | "}"

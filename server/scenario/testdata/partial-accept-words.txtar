@@ -1,0 +1,34 @@
+Partial accept inserts an append one word at a time, and the rest stays shown.
+row: 2
+col: 2
+viewportTop: 1
+viewportBottom: 20
+-- buffer.txt --
+function add(a, b) {
+  
+}
+-- steps --
+respond 2-2
+  | "  return a + b;"
+request-completion manual
+expect shown
+  display:
+    | modification 2 append_chars
+partial-accept
+expect shown requests=1 cursor=2:9
+  buffer:
+    | "function add(a, b) {"
+    | "  return "
+    | "}"
+partial-accept
+expect shown requests=1 cursor=2:11
+  buffer:
+    | "function add(a, b) {"
+    | "  return a "
+    | "}"
+accept
+expect hidden cursor=2:15
+  buffer:
+    | "function add(a, b) {"
+    | "  return a + b;"
+    | "}"

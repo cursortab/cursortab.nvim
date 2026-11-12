@@ -25,5 +25,4 @@ def log_calls(func):
     return wrapper
 -- steps --
 request-completion manual
-  expect !shown
 

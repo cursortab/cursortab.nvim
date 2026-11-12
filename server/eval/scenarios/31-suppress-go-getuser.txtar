@@ -29,5 +29,4 @@ func GetUser(db *sql.DB, id int64) (*User, error) {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

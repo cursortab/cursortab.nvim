@@ -63,4 +63,4 @@ eval-record-windsurf socket *args:
 
 # Run the harness unit + integration tests (includes the record→replay end-to-end loop).
 eval-test *test_cases:
-    cd server && go test ./eval/... {{ if test_cases == "" { "" } else { "-run " + replace(test_cases, " ", "|") } }}
+    cd server && go test ./eval/... ./scenario/... {{ if test_cases == "" { "" } else { "-run " + replace(test_cases, " ", "|") } }}

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"cursortab/eval/cassette"
-	"cursortab/eval/harness"
 	windsurfprovider "cursortab/provider/windsurf"
+	"cursortab/scenario"
 
 	"github.com/neovim/go-client/nvim"
 )
@@ -171,7 +171,7 @@ type windsurfServerInfo struct {
 // captureWindsurfForScenario walks the scenario's steps. For each
 // request-completion step, it builds a Windsurf HTTP request from the scenario's
 // buffer state and captures the response via a cassette.Recorder.
-func captureWindsurfForScenario(info *windsurfServerInfo, sc *harness.Scenario, timeout time.Duration) (*cassette.Cassette, error) {
+func captureWindsurfForScenario(info *windsurfServerInfo, sc *scenario.Scenario, timeout time.Duration) (*cassette.Cassette, error) {
 	client := &http.Client{Timeout: timeout}
 	recorder := cassette.NewRecorder(http.DefaultTransport)
 	recorder.RecordHeaders = true
@@ -192,7 +192,7 @@ func captureWindsurfForScenario(info *windsurfServerInfo, sc *harness.Scenario, 
 
 	for _, step := range sc.Steps {
 		switch step.Action {
-		case harness.ActionRequestCompletion:
+		case scenario.ActionRequestCompletion:
 			reqCounter++
 			reqBody := map[string]any{
 				"metadata": map[string]any{
@@ -244,7 +244,7 @@ func captureWindsurfForScenario(info *windsurfServerInfo, sc *harness.Scenario, 
 				return nil, fmt.Errorf("non-200 response %d: %s", resp.StatusCode, string(respBody))
 			}
 
-		case harness.ActionAccept:
+		case scenario.ActionAccept:
 			// No buffer mutation needed for recording — we only capture the
 			// HTTP exchange. Multi-step scenarios with accepts would need the
 			// provider's response conversion to update the buffer, but for

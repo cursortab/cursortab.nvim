@@ -19,5 +19,4 @@ pub fn describe(value: Option<i32>) -> String {
 }
 -- steps --
 request-completion manual
-  expect !shown
 

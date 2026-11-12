@@ -2501,3 +2501,27 @@ func TestIncrementalStageBuilder_PartialLineModificationDuringStreaming(t *testi
 	assert.True(t, hasModification,
 		"first streamed stage should have a modification for the partially-typed line")
 }
+
+// A streamed change is staged once enough unchanged lines follow it, wherever
+// it is in the window.
+func TestIncrementalStageBuilder_StagesChangeMidStream(t *testing.T) {
+	oldLines := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	for _, changed := range []int{1, 3} {
+		builder := NewIncrementalStageBuilder(oldLines, 10, 2, 0, 0, 0, 10, 0, "test.go", 0)
+		var stage *Stage
+		for i, line := range oldLines {
+			if i+1 == changed {
+				line = "X"
+			}
+			if s := builder.AddLine(line); s != nil {
+				stage = s
+				break
+			}
+		}
+		assert.NotNil(t, stage, "stage before the stream ends")
+		if stage != nil {
+			assert.Equal(t, 9+changed, stage.BufferStart, "stage line")
+			assert.Equal(t, []string{"X"}, stage.Lines, "stage lines")
+		}
+	}
+}

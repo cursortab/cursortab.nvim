@@ -159,7 +159,9 @@ func (b *IncrementalStageBuilder) AddLine(line string) *Stage {
 	if change != nil {
 		b.hasChanges = true
 		b.changeCount++
-		bufferLine := b.diffBuilder.LineMapping.GetBufferLine(*change, b.BaseLineOffset)
+		// The lines after the change are not streamed yet: the change sits
+		// right after the last matched old line, or at the window start.
+		bufferLine := b.BaseLineOffset + b.diffBuilder.oldLineIdx
 		b.lastChangeBufferLine = bufferLine
 
 		// MaxVisibleLines limit: defer stage building until the next matched
